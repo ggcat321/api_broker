@@ -1,100 +1,102 @@
 @echo off
-chcp 65001 >nul
-title ⚡ Order Book Live
-
-:: 切換到腳本所在目錄
+title Order Book Live
 cd /d "%~dp0"
 
 echo.
-echo   ╔══════════════════════════════════════════╗
-echo   ║     ⚡ Order Book Live  啟動中...        ║
-echo   ╚══════════════════════════════════════════╝
+echo   ========================================
+echo      Order Book Live  -  Starting...
+echo   ========================================
 echo.
 
-:: 檢查 Python
+:: Check Python
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo ❌ 找不到 Python，請先安裝 Python！
-    echo    下載：https://www.python.org/downloads/
+    echo [ERROR] Python not found! Please install Python first.
+    echo         Download: https://www.python.org/downloads/
     echo.
     pause
     exit /b 1
 )
 
-for /f "tokens=*" %%i in ('python --version') do echo ✓ %%i
+for /f "tokens=*" %%i in ('python --version') do echo [OK] %%i
 
-:: ── 首次設定檢查 ──────────────────────────────
+:: ---- First-time Setup Check ----
 set NEED_SETUP=0
 
-:: 檢查 API.env
+:: Check API.env
 if not exist "API.env" (
     set NEED_SETUP=1
     echo.
-    echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    echo   📋 首次使用設定
-    echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ============================================
+    echo   First-time Setup
+    echo ============================================
     echo.
-    echo ❌ 找不到 API.env 設定檔
+    echo [ERROR] API.env not found!
     echo.
     if exist "API.env.example" (
         copy "API.env.example" "API.env" >nul
-        echo ✓ 已自動從 API.env.example 建立 API.env
-        echo   請用記事本開啟 API.env，填入您的富邦帳號資訊
-    ) else (
-        echo   請在此資料夾中建立 API.env 檔案，內容如下：
+        echo [OK] Created API.env from API.env.example
         echo.
-        echo     ID=你的身分證字號
-        echo     PW=你的密碼
-        echo     c_pw=你的憑證密碼
+        echo   Please open API.env with Notepad and fill in your Fubon credentials:
+        echo     ID   = Your ID number
+        echo     PW   = Your password
+        echo     c_pw = Your certificate password
+    ) else (
+        echo   Please create API.env in this folder with the following content:
+        echo.
+        echo     ID=your_id
+        echo     PW=your_password
+        echo     c_pw=your_cert_password
     )
     echo.
 )
 
-:: 檢查 .pfx 憑證
+:: Check .pfx certificate
 set PFX_FOUND=0
 for %%f in (*.pfx) do set PFX_FOUND=1
 if %PFX_FOUND%==0 (
     set NEED_SETUP=1
-    echo ❌ 找不到 .pfx 憑證檔
-    echo   請將您的富邦憑證檔（.pfx）放入此資料夾中
+    echo [ERROR] No .pfx certificate file found!
+    echo   Please place your Fubon certificate (.pfx) in this folder.
     echo.
 )
 
-:: 如果缺少設定，開啟資料夾並暫停
+:: If setup needed, open folder and pause
 if %NEED_SETUP%==1 (
     explorer .
-    echo 📂 已開啟資料夾，請完成上述設定後重新啟動此程式
+    echo [INFO] Folder opened. Please complete the setup above, then run this again.
     echo.
     pause
     exit /b 0
 )
 
-echo ✓ API.env 設定檔就緒
-echo ✓ .pfx 憑證檔就緒
+echo [OK] API.env ready
+echo [OK] Certificate (.pfx) ready
 
-:: 安裝依賴
+:: Install dependencies
 echo.
-echo 📦 檢查套件依賴...
+echo [INFO] Checking dependencies...
 python -m pip install -r requirements.txt --quiet 2>nul
-echo ✓ 套件就緒
+echo [OK] All packages ready
 
 echo.
-echo 🚀 啟動伺服器中...
-echo    網址: http://127.0.0.1:8000
+echo ============================================
+echo   Server starting...
+echo   URL: http://127.0.0.1:8000
 echo.
-echo ────────────────────────────────────────────
-echo   瀏覽器將自動開啟，請勿關閉此視窗！
-echo   要停止伺服器，按 Ctrl + C
-echo ────────────────────────────────────────────
+echo   Browser will open automatically.
+echo   DO NOT close this window!
+echo   Press Ctrl+C to stop the server.
+echo ============================================
 echo.
 
-:: 1.5 秒後開啟瀏覽器
+:: Open browser after 2 seconds
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:8000"
 
-:: 啟動伺服器
+:: Start server
 python server.py
 
 echo.
-echo 伺服器已停止。
+echo Server stopped.
 echo.
 pause
