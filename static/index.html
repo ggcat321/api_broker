@@ -15,7 +15,8 @@
             color: #f8fafc;
             min-height: 100vh;
             font-family: 'Inter', sans-serif;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -357,21 +358,42 @@
                     else if(fullMsg.event === "data" && fullMsg.data) {
                         if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
                         
-                        // Check if it's a trade tick
-                        if (fullMsg.data.price !== undefined) {
-                            renderTrade(fullMsg.data);
-                        } 
-                        // Check if it's an array of trades (some Fubon APIs wrap it)
-                        else if (Array.isArray(fullMsg.data) && fullMsg.data.length > 0 && fullMsg.data[0].price !== undefined) {
-                            renderTrade(fullMsg.data[0]);
+                        const channel = fullMsg.channel;
+                        const d = fullMsg.data;
+
+                        // Primary: use channel field to distinguish trades vs books
+                        if (channel === "trades") {
+                            // Futures trades nest price in data.trades array
+                            let tradePrice = d.price;
+                            if (tradePrice === undefined && Array.isArray(d.trades) && d.trades.length > 0) {
+                                tradePrice = d.trades[d.trades.length - 1].price;
+                            }
+                            if (tradePrice === undefined && d.lastPrice !== undefined) tradePrice = d.lastPrice;
+                            if (tradePrice === undefined && d.close !== undefined) tradePrice = d.close;
+                            // Some SDKs wrap entire data as an array
+                            if (tradePrice === undefined && Array.isArray(d) && d.length > 0) tradePrice = d[0].price;
+                            
+                            if (tradePrice !== undefined) {
+                                renderTrade({ price: tradePrice });
+                            } else {
+                                logRaw(`⚠️ trades channel 但無法解析 price: ${JSON.stringify(d).substring(0, 150)}`);
+                            }
                         }
-                        // Check if it's an order book tick
-                        else if (fullMsg.data.bids !== undefined || fullMsg.data.asks !== undefined || fullMsg.data.Bids !== undefined || fullMsg.data.Asks !== undefined) {
-                            renderBook(fullMsg.data);
+                        else if (channel === "books") {
+                            renderBook(d);
                         }
-                        // Debug explicitly for trades that might be misidentified
+                        // Fallback: no channel field (legacy / unexpected format)
+                        else if (d.price !== undefined) {
+                            renderTrade(d);
+                        }
+                        else if (Array.isArray(d) && d.length > 0 && d[0].price !== undefined) {
+                            renderTrade(d[0]);
+                        }
+                        else if (d.bids !== undefined || d.asks !== undefined || d.Bids !== undefined || d.Asks !== undefined) {
+                            renderBook(d);
+                        }
                         else {
-                            logRaw(`❓ 未知資料格式: ${JSON.stringify(fullMsg.data).substring(0, 100)}...`);
+                            logRaw(`❓ 未知資料格式 (ch=${channel}): ${JSON.stringify(d).substring(0, 100)}...`);
                         }
                     }
                 } catch(e) {

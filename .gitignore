@@ -1,0 +1,11 @@
+# 個人機敏資料（請勿上傳）
+API.env
+*.pfx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store

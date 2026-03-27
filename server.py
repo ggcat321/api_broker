@@ -14,7 +14,15 @@ os.chdir(BASE_DIR)
 # Load env variables
 env_path = os.path.join(BASE_DIR, "API.env")
 load_dotenv(dotenv_path=env_path)
-pfx_path = os.path.join(BASE_DIR, "F129483123.pfx") 
+# 自動偵測資料夾中的 .pfx 憑證檔（使用者只需放入自己的 .pfx 即可）
+pfx_files = [f for f in os.listdir(BASE_DIR) if f.endswith('.pfx')]
+if pfx_files:
+    pfx_path = os.path.join(BASE_DIR, pfx_files[0])
+    print(f"偵測到憑證檔: {pfx_files[0]}")
+else:
+    pfx_path = None
+    print("⚠️ 未偵測到 .pfx 憑證檔，請將憑證放入此資料夾！")
+
 
 ID = os.getenv("ID")
 PW = os.getenv("PW")
@@ -59,19 +67,25 @@ def handle_fubon_message(message):
         msg = json.loads(message)
         event = msg.get("event")
         data = msg.get("data")
+        channel = msg.get("channel")
         
-        # In Fubon's futopt messages, 'event' may be 'data' but the payload might look slightly different,
-        # but as long as it has 'data' and 'event', we handle it identically.
+        # Debug: log channel and top-level keys for every data message
         if event == "data" and data:
+            data_keys = list(data.keys()) if isinstance(data, dict) else f"(type={type(data).__name__})"
+            print(f"[DEBUG] channel={channel}, event={event}, data_keys={data_keys}")
+            if channel == "trades":
+                print(f"[DEBUG-TRADES] Full data: {json.dumps(data, ensure_ascii=False)[:300]}")
             if loop and loop.is_running():
                 asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
         # Handle 'subscribed' confirmation events
         elif event == "subscribed" and data:
+            print(f"[DEBUG] Subscribed confirmation: {msg}")
             if "symbol" in data:
                 if loop and loop.is_running():
                     asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
         # Handle API error events
         elif event == "error":
+            print(f"[DEBUG] Error event: {msg}")
             if loop and loop.is_running():
                 asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
     except Exception as e:
