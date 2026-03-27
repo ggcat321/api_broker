@@ -52,3 +52,9 @@
 [2026-03-27 16:13:15.359340 +08:00 INFO] [future_option_mapping]: 33.038875ms
 [2026-03-27 16:13:15.944316 +08:00 INFO] [future_option_mapping]: 584.48425ms
 [2026-03-27 16:13:16.015581 +08:00 INFO] [future_option_mapping]: 59.853959ms
+[2026-03-27 23:17:35.671755800 +08:00 INFO] [login] personal_id="F129483123"
+[2026-03-27 23:17:35.714636700 +08:00 INFO] this account require 2fa
+[2026-03-27 23:17:35.791846900 +08:00 INFO] [future_option_mapping]: 46.4551ms
+[2026-03-27 23:17:35.818993500 +08:00 INFO] [future_option_mapping]: 25.7576ms
+[2026-03-27 23:17:35.901249500 +08:00 INFO] [future_option_mapping]: 81.6361ms
+[2026-03-27 23:17:35.925260500 +08:00 INFO] [future_option_mapping]: 17.4093ms
