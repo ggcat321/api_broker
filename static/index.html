@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ 流動性核心報價 | Live Order Book</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0f172a; 
+            background-image: 
+                radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.25) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 100%, rgba(236, 72, 153, 0.25) 0%, transparent 60%);
+            color: #f8fafc;
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .glass-card {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 24px 48px -12px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+        }
+
+        .input-glow:focus {
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+            border-color: rgba(56, 189, 248, 0.8);
+            outline: none;
+        }
+
+        .row-animation {
+            transition: all 0.3s ease;
+        }
+        
+        .row-animation:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        @keyframes flashUp {
+            0% { background-color: rgba(239, 68, 68, 0.8); } /* 紅色(漲) */
+            100% { background-color: transparent; }
+        }
+
+        @keyframes flashDown {
+            0% { background-color: rgba(34, 197, 94, 0.8); } /* 綠色(跌) */
+            100% { background-color: transparent; }
+        }
+
+        .flash-up {
+            animation: flashUp 0.8s ease-out;
+        }
+
+        .flash-down {
+            animation: flashDown 0.8s ease-out;
+        }
+
+        .text-red-ta { color: #ef4444; }   /* 台股常以上漲為紅 */
+        .text-green-ta { color: #22c55e; } /* 台股常以下跌為綠 */
+
+        /* 微動畫 */
+        .live-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.7; }
+        }
+
+        .progress-bar-bg {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 9999px;
+            overflow: hidden;
+            width: 100%;
+            height: 6px;
+            margin-top: 4px;
+        }
+
+        .progress-bar-fill-bid { background: linear-gradient(90deg, #ef4444, #f87171); transition: width 0.3s ease; }
+        .progress-bar-fill-ask { background: linear-gradient(90deg, #22c55e, #4ade80); transition: width 0.3s ease; }
+
+    </style>
+</head>
+<body class="pt-10 px-4 w-full h-full">
+
+    <div class="text-center mb-8 w-full max-w-4xl mx-auto">
+        <h1 class="text-5xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-indigo-400 mb-2 drop-shadow-md">
+            Order Book Live
+        </h1>
+        <p class="text-slate-400 text-lg">Ultra-Low Latency | 買賣五檔觀測</p>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="glass-card p-4 max-w-xl mx-auto mb-8 flex justify-between items-center w-full z-10 relative">
+        <input id="symbolInput" type="text" placeholder="輸入商品代號 (例如 2330)" class="w-full bg-slate-800/50 text-white rounded-xl px-5 py-3 text-lg border border-slate-700 placeholder-slate-500 input-glow transition">
+        <button id="connectBtn" class="ml-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition duration-200 shadow-indigo-500/30 whitespace-nowrap">
+            訂閱
+        </button>
+    </div>
+
+    <!-- Connection Status -->
+    <div class="text-center mb-6 max-w-4xl w-full mx-auto" id="statusContainer" style="display: none;">
+        <div class="inline-flex items-center glass-card px-4 py-2 text-sm text-slate-300">
+            <span class="live-dot mr-3" id="liveIndicator" style="background-color: #64748b; box-shadow: 0 0 8px #64748b; animation: none;"></span>
+            State: <span id="statusText" class="ml-2 font-bold text-slate-400">Disconnected</span>
+            <span id="speedMetric" class="ml-4 text-xs text-indigo-300 font-mono hidden">Latency: ~1ms</span>
+        </div>
+    </div>
+
+    <!-- Main Ticker Header -->
+    <div id="tickerHeader" class="max-w-4xl w-full mx-auto mb-6 glass-card p-6 flex flex-col md:flex-row justify-between items-center hidden relative border border-indigo-500/30">
+        <div class="z-10 text-center md:text-left">
+            <h2 id="symbolTitle" class="text-4xl font-extrabold text-white tracking-wider mb-1">---</h2>
+            <p id="symbolName" class="text-slate-400 font-medium">Loading...</p>
+        </div>
+        <div class="z-10 text-center md:text-right mt-4 md:mt-0">
+            <div class="flex items-baseline justify-center md:justify-end gap-3">
+                <span id="lastPrice" class="text-5xl font-black text-white">---</span>
+                <span id="priceChange" class="text-xl font-bold">---</span>
+            </div>
+            <p id="priceChangePct" class="text-lg font-bold mt-1">---</p>
+        </div>
+    </div>
+
+    <!-- Order Book Viewer -->
+    <div class="max-w-4xl w-full mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 pb-20 opacity-0 transition-opacity duration-1000" id="bookContainer">
+        
+        <!-- Bids Column -->
+        <div class="glass-card p-6 border-t-4 border-t-red-500/80">
+            <h2 class="text-2xl font-bold mb-6 text-red-100 flex items-center justify-between border-b border-slate-700/50 pb-3">
+                <span class="text-red-400">最佳買進 (Bid)</span>
+                <span class="text-sm font-medium text-slate-400 bg-slate-800/50 px-3 py-1 rounded-full">委買</span>
+            </h2>
+            <div class="grid grid-cols-3 text-sm text-slate-400 mb-2 px-2 uppercase font-semibold">
+                <div>委買量 (Size)</div>
+                <div class="text-right">價格 (Price)</div>
+                <div class="text-right">總比率</div>
+            </div>
+            <div id="bidsList" class="space-y-1">
+                <!-- Data populated by JS -->
+            </div>
+            <div class="mt-4 pt-4 border-t border-slate-700/50 flex justify-between text-lg font-bold">
+                <span class="text-slate-400">總委買</span>
+                <span id="totalBidSize" class="text-red-ta">0</span>
+            </div>
+        </div>
+
+        <!-- Asks Column -->
+        <div class="glass-card p-6 border-t-4 border-t-green-500/80">
+            <h2 class="text-2xl font-bold mb-6 text-green-100 flex items-center justify-between border-b border-slate-700/50 pb-3">
+                <span class="text-sm font-medium text-slate-400 bg-slate-800/50 px-3 py-1 rounded-full">委賣</span>
+                <span class="text-green-400">最佳賣出 (Ask)</span>
+            </h2>
+             <div class="grid grid-cols-3 text-sm text-slate-400 mb-2 px-2 uppercase font-semibold">
+                <div>價格 (Price)</div>
+                <div class="text-right">委賣量 (Size)</div>
+                <div class="text-right">總比率</div>
+            </div>
+            <div id="asksList" class="space-y-1">
+                <!-- Data populated by JS -->
+            </div>
+            <div class="mt-4 pt-4 border-t border-slate-700/50 flex justify-between text-lg font-bold">
+                <span id="totalAskSize" class="text-green-ta">0</span>
+                <span class="text-slate-400">總委賣</span>
+            </div>
+        </div>
+
+        <div class="col-span-full pt-4">
+            <div class="glass-card p-4 rounded-xl text-xs text-slate-500 overflow-y-auto max-h-32 font-mono" id="rawLog">
+                [SYSTEM] Waiting for connection...
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        let ws = null;
+        let currentSymbol = null;
+        
+        const connectBtn = document.getElementById('connectBtn');
+        const symbolInput = document.getElementById('symbolInput');
+        const statusContainer = document.getElementById('statusContainer');
+        const statusText = document.getElementById('statusText');
+        const liveIndicator = document.getElementById('liveIndicator');
+        const bookContainer = document.getElementById('bookContainer');
+        const bidsList = document.getElementById('bidsList');
+        const asksList = document.getElementById('asksList');
+        const totalBidSizeEl = document.getElementById('totalBidSize');
+        const totalAskSizeEl = document.getElementById('totalAskSize');
+        const rawLog = document.getElementById('rawLog');
+
+        let referencePrice = null;
+        let symbolName = "";
+        let previousBids = [];
+        let previousAsks = [];
+
+        function logRaw(msg) {
+            const el = document.createElement("div");
+            el.innerHTML = `<span class="text-indigo-400">[${new Date().toISOString().substring(11,23)}]</span> ` + msg;
+            rawLog.prepend(el);
+            if (rawLog.children.length > 50) {
+                rawLog.removeChild(rawLog.lastChild);
+            }
+        }
+
+        function extractDataArray(dataObj, possibilities) {
+            for (let p of possibilities) {
+                if (dataObj && dataObj[p] && Array.isArray(dataObj[p])) return dataObj[p];
+            }
+            return null;
+        }
+
+        connectBtn.addEventListener('click', () => {
+            const sym = symbolInput.value.trim();
+            if (!sym) return;
+
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+
+            statusContainer.style.display = "block";
+            statusText.innerText = "Connecting...";
+            statusText.className = "ml-2 font-bold text-yellow-400";
+            liveIndicator.style.animation = "none";
+            liveIndicator.style.backgroundColor = "#fbbf24";
+            liveIndicator.style.boxShadow = "0 0 8px #fbbf24";
+
+            // connect WS to backend
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${proto}//${window.location.host}/ws/${sym}`;
+            
+            logRaw(`Attempting to connect: ${wsUrl}`);
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                logRaw(`Connected to backend for symbol ${sym}`);
+                statusText.innerText = "Live";
+                statusText.className = "ml-2 font-bold text-green-400";
+                liveIndicator.style.animation = "pulse 1.5s infinite";
+                liveIndicator.style.backgroundColor = "#10b981";
+                liveIndicator.style.boxShadow = "0 0 12px #10b981";
+                
+                bookContainer.style.opacity = "1";
+                currentSymbol = sym;
+                connectBtn.innerText = "已訂閱";
+                
+                bidsList.innerHTML = `<div class="text-center text-slate-500 py-6">Waiting for data...</div>`;
+                asksList.innerHTML = `<div class="text-center text-slate-500 py-6">Waiting for data...</div>`;
+
+                // If no confirmation from Fubon API within 3000ms, assume Invalid Symbol
+                window.subscriptionTimeout = setTimeout(() => {
+                    logRaw(`❌ 查無此商品代號 (${sym}) 或不支援訂閱！`);
+                    statusText.innerText = "Symbol Not Found";
+                    statusText.className = "ml-2 font-bold text-red-500";
+                    connectBtn.innerText = "重新訂閱";
+                    if(ws) ws.close();
+                }, 3000);
+                
+                // Fetch daily reference price
+                fetch(`/api/meta/${sym}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && !data.error) {
+                            symbolName = data.name || sym;
+                            document.getElementById('symbolTitle').innerText = sym;
+                            document.getElementById('symbolName').innerText = symbolName;
+                            document.getElementById('tickerHeader').classList.remove('hidden');
+                            // 關鍵修正：期貨夜盤與日盤的「平盤參考價」邏輯完全不同！
+                            // 日盤：可以用 (最新價 - 漲跌點) 反推
+                            // 夜盤：期交所規定以「今日日盤結算價(通常為最後收盤價)」作為基準！
+                            let isFut = /^[A-Za-z]/.test(sym);
+                            const h = new Date().getHours();
+                            let isNightSession = (h >= 14 || h < 8);
+                            
+                            let apiPrice = data.lastPrice !== undefined ? data.lastPrice : data.closePrice;
+                            let apiChange = data.change !== undefined ? data.change : 0;
+                            
+                            if (isFut && isNightSession) {
+                                // 夜盤基準價：鎖死在日盤的收盤價（closePrice）
+                                referencePrice = data.closePrice !== undefined ? data.closePrice : data.lastPrice;
+                            } else if (apiPrice !== undefined && data.change !== undefined) {
+                                // 日盤或證券：用富邦給的當前漲跌點反推
+                                referencePrice = apiPrice - apiChange;
+                            } else {
+                                referencePrice = data.referencePrice || data.previousClose;
+                            }
+                            
+                            logRaw(`取得靜態資訊: ${symbolName}, 基準價算法已被重置為: ${referencePrice}`);
+                            
+                            // 避免一開始夜盤顯示日盤的「漲跌點與幅度」，直接輸入原始基準價讓他歸零，等待 WebSocket 新一筆覆寫
+                            if (isFut && isNightSession) {
+                                renderTrade({ price: referencePrice }); 
+                            } else if (apiPrice !== undefined && apiPrice !== null) {
+                                renderTrade({ price: apiPrice });
+                            }
+                        } else {
+                            logRaw(`API 回應: 無法取得商品靜態資訊`);
+                            document.getElementById('symbolTitle').innerText = sym;
+                            document.getElementById('symbolName').innerText = "Unknown";
+                            document.getElementById('tickerHeader').classList.remove('hidden');
+                        }
+                    })
+                    .catch(e => console.error("Meta fetch error:", e));
+            };
+
+            ws.onclose = () => {
+                logRaw(`Disconnected`);
+                statusText.innerText = "Disconnected";
+                statusText.className = "ml-2 font-bold text-slate-400";
+                liveIndicator.style.animation = "none";
+                liveIndicator.style.backgroundColor = "#64748b";
+                liveIndicator.style.boxShadow = "0 0 8px #64748b";
+                connectBtn.innerText = "重新訂閱";
+                if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
+            };
+
+            ws.onerror = (e) => {
+                logRaw(`WebSocket Error`);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    let fullMsg = JSON.parse(event.data);
+                    
+                    if(fullMsg.event === "subscribed" && fullMsg.data) {
+                        if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
+                        logRaw(`✅ 富邦 API 已確認訂閱 [${fullMsg.data.symbol}]`);
+                        const hour = new Date().getHours();
+                        if (hour >= 14 || hour < 8) {
+                            logRaw(`⚠️ 提醒：目前台股已收盤，可能不會有新的報價更新跳動，請於開盤時間測試。`);
+                        }
+                    }
+                    else if(fullMsg.event === "error") {
+                        if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
+                        let errMsg = fullMsg.message || "發生錯誤";
+                        logRaw(`❌ 伺服器回報：${errMsg}`);
+                        statusText.innerText = "Subscription Error";
+                        statusText.className = "ml-2 font-bold text-red-500";
+                        if(ws) ws.close();
+                    }
+                    else if(fullMsg.event === "data" && fullMsg.data) {
+                        if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
+                        
+                        // Check if it's a trade tick
+                        if (fullMsg.data.price !== undefined) {
+                            renderTrade(fullMsg.data);
+                        } 
+                        // Check if it's an array of trades (some Fubon APIs wrap it)
+                        else if (Array.isArray(fullMsg.data) && fullMsg.data.length > 0 && fullMsg.data[0].price !== undefined) {
+                            renderTrade(fullMsg.data[0]);
+                        }
+                        // Check if it's an order book tick
+                        else if (fullMsg.data.bids !== undefined || fullMsg.data.asks !== undefined || fullMsg.data.Bids !== undefined || fullMsg.data.Asks !== undefined) {
+                            renderBook(fullMsg.data);
+                        }
+                        // Debug explicitly for trades that might be misidentified
+                        else {
+                            logRaw(`❓ 未知資料格式: ${JSON.stringify(fullMsg.data).substring(0, 100)}...`);
+                        }
+                    }
+                } catch(e) {
+                    console.error("Parse error", e);
+                }
+            };
+        });
+
+        symbolInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") connectBtn.click();
+        });
+
+        function renderTrade(data) {
+            if (data.price === undefined || referencePrice === null) return;
+            const price = parseFloat(data.price);
+            const ref = parseFloat(referencePrice);
+            const change = price - ref;
+            const changePct = (change / ref) * 100;
+            
+            const lastPriceEl = document.getElementById('lastPrice');
+            const changeEl = document.getElementById('priceChange');
+            const pctEl = document.getElementById('priceChangePct');
+            
+            lastPriceEl.innerText = price.toFixed(2);
+            
+            if (change > 0) {
+                lastPriceEl.className = "text-5xl font-black text-red-ta drop-shadow-md";
+                changeEl.className = "text-xl font-bold text-red-ta";
+                pctEl.className = "text-lg font-bold text-red-ta bg-red-500/10 px-2 py-1 rounded inline-block";
+                changeEl.innerText = `▲ ${Math.abs(change).toFixed(2)}`;
+                pctEl.innerText = `+${changePct.toFixed(2)}%`;
+            } else if (change < 0) {
+                lastPriceEl.className = "text-5xl font-black text-green-ta drop-shadow-md";
+                changeEl.className = "text-xl font-bold text-green-ta";
+                pctEl.className = "text-lg font-bold text-green-ta bg-green-500/10 px-2 py-1 rounded inline-block";
+                changeEl.innerText = `▼ ${Math.abs(change).toFixed(2)}`;
+                pctEl.innerText = `${changePct.toFixed(2)}%`;
+            } else {
+                lastPriceEl.className = "text-5xl font-black text-white drop-shadow-md";
+                changeEl.className = "text-xl font-bold text-slate-400";
+                pctEl.className = "text-lg font-bold text-slate-400 bg-slate-500/10 px-2 py-1 rounded inline-block";
+                changeEl.innerText = `0.00`;
+                pctEl.innerText = `0.00%`;
+            }
+        }
+
+        // Normalizes [{price: 1, size: 2}] or flat arrays into standard objects
+        function normalizeLevels(arr) {
+            let res = [];
+            for (let i = 0; i < arr.length && i < 5; i++) {
+                let item = arr[i];
+                let p = item.price !== undefined ? item.price : (item.p !== undefined ? item.p : 0);
+                let v = item.size !== undefined ? item.size : (item.volume !== undefined ? item.volume : (item.v !== undefined ? item.v : 0));
+                res.push({ price: p, volume: v, id: `L${i}` });
+            }
+            return res;
+        }
+
+        function createRowHTML(isBid, item, totalVol, prevItem) {
+            const isChange = prevItem && (prevItem.price !== item.price || prevItem.volume !== item.volume);
+            let animStyle = "";
+            if (isChange) {
+                // If it's a bid and volume went up -> flash
+                animStyle = `style="animation: flashUp 0.8s ease-out;"`;
+            }
+
+            const ratio = totalVol > 0 ? (item.volume / totalVol) * 100 : 0;
+            const pText = parseFloat(item.price).toFixed(2);
+            
+            if (isBid) {
+                return `
+                    <div class="row-animation rounded-lg px-2 py-1.5" ${animStyle}>
+                        <div class="grid grid-cols-3 items-center">
+                            <div class="text-lg font-bold text-white">${item.volume}</div>
+                            <div class="text-right text-red-ta text-xl font-bold">${pText}</div>
+                            <div class="text-right text-slate-500 text-xs w-full pl-4 w-full h-full flex flex-col justify-center">
+                                <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
+                                     <div class="h-full bg-red-500" style="width: ${ratio}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                return `
+                    <div class="row-animation rounded-lg px-2 py-1.5" ${animStyle}>
+                        <div class="grid grid-cols-3 items-center">
+                            <div class="text-left text-green-ta text-xl font-bold">${pText}</div>
+                            <div class="text-right text-lg font-bold text-white">${item.volume}</div>
+                            <div class="text-right text-slate-500 text-xs pl-4 w-full h-full flex flex-col justify-center">
+                                <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
+                                     <div class="h-full bg-green-500" style="width: ${ratio}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderBook(payload) {
+            let bidsArr = extractDataArray(payload, ["bids", "bid", "Bids"]);
+            let asksArr = extractDataArray(payload, ["asks", "ask", "Asks", "offers"]);
+
+            if (!bidsArr) bidsArr = [];
+            if (!asksArr) asksArr = [];
+
+            let currentB = normalizeLevels(bidsArr);
+            let currentA = normalizeLevels(asksArr);
+
+            let tBidSum = currentB.reduce((a,b)=>a+b.volume, 0);
+            let tAskSum = currentA.reduce((a,b)=>a+b.volume, 0);
+
+            // Bids view
+            let bHtml = "";
+            for (let i = 0; i < currentB.length; i++) {
+                bHtml += createRowHTML(true, currentB[i], tBidSum, previousBids[i]);
+            }
+            bidsList.innerHTML = bHtml || '<div class="text-center text-slate-500 py-2">--</div>';
+            totalBidSizeEl.innerText = tBidSum;
+
+            // Asks view
+            let aHtml = "";
+            for (let i = 0; i < currentA.length; i++) {
+                aHtml += createRowHTML(false, currentA[i], tAskSum, previousAsks[i]);
+            }
+            asksList.innerHTML = aHtml || '<div class="text-center text-slate-500 py-2">--</div>';
+            totalAskSizeEl.innerText = tAskSum;
+
+            previousBids = currentB;
+            previousAsks = currentA;
+        }
+
+    </script>
+</body>
+</html>
