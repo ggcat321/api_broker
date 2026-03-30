@@ -1,4 +1,4 @@
-# ⚡ Order Book Live — 即時五檔報價觀測
+# ⚡ Order Book Live — 即時五檔報價觀測 (For Fubon)
 
 即時訂閱台股 / 期貨的買賣五檔掛單與成交價，透過瀏覽器即可操作。
 
