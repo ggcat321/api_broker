@@ -37,7 +37,6 @@ class ConnectionManager:
         self.message_queue = asyncio.Queue()
 
     async def connect(self, websocket: WebSocket, symbol: str):
-        await websocket.accept()
         if symbol not in self.active_connections:
             self.active_connections[symbol] = []
         self.active_connections[symbol].append(websocket)
@@ -144,43 +143,47 @@ def shutdown_event():
         except Exception:
             pass
 
-@app.websocket("/ws/{symbol}")
-async def websocket_endpoint(websocket: WebSocket, symbol: str):
-    await manager.connect(websocket, symbol)
+@app.websocket("/ws/{symbols}")
+async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None):
+    await websocket.accept()
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    for symbol in symbol_list:
+        await manager.connect(websocket, symbol)
     
-    # Subscribe to books
+    # Subscribe to books and trades
     try:
         if sdk:
-            is_futopt = symbol[0].isalpha()
-            target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
-            sub_req = {
-                "channel": "books",
-                "symbol": symbol
-            }
-            if is_futopt:
-                from datetime import datetime
+            from datetime import datetime
+            if night is not None:
+                after_hours = night
+            else:
                 h = datetime.now().hour
                 after_hours = (h >= 14 or h < 8)
-                target_client.subscribe({
-                    "channel": "books",
-                    "symbol": symbol,
-                    "afterHours": after_hours
-                })
-                target_client.subscribe({
-                    "channel": "trades",
-                    "symbol": symbol,
-                    "afterHours": after_hours
-                })
-            else:
-                target_client.subscribe({
-                    "channel": "books",
-                    "symbol": symbol
-                })
-                target_client.subscribe({
-                    "channel": "trades",
-                    "symbol": symbol
-                })
-            print(f"Subscribed SDK to books: {symbol}")
+            
+            for symbol in symbol_list:
+                is_futopt = symbol[0].isalpha() and symbol != "IX0001"
+                target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
+                if is_futopt:
+                    target_client.subscribe({
+                        "channel": "books",
+                        "symbol": symbol,
+                        "afterHours": after_hours
+                    })
+                    target_client.subscribe({
+                        "channel": "trades",
+                        "symbol": symbol,
+                        "afterHours": after_hours
+                    })
+                else:
+                    target_client.subscribe({
+                        "channel": "books",
+                        "symbol": symbol
+                    })
+                    target_client.subscribe({
+                        "channel": "trades",
+                        "symbol": symbol
+                    })
+            print(f"Subscribed SDK to {len(symbol_list)} symbols")
     except Exception as e:
         print("Subscription error:", e)
         
@@ -189,41 +192,43 @@ async def websocket_endpoint(websocket: WebSocket, symbol: str):
             # wait for messages (like keepalives or unsubscriptions)
             await websocket.receive_text()
     except WebSocketDisconnect:
-        should_unsubscribe = manager.disconnect(websocket, symbol)
-        if should_unsubscribe and sdk:
-            try:
-                is_futopt = symbol[0].isalpha()
-                target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
-                unsub_req = {
-                    "channel": "books",
-                    "symbol": symbol
-                }
-                if is_futopt:
-                    from datetime import datetime
-                    h = datetime.now().hour
-                    after_hours = (h >= 14 or h < 8)
-                    target_client.unsubscribe({
-                        "channel": "books",
-                        "symbol": symbol,
-                        "afterHours": after_hours
-                    })
-                    target_client.unsubscribe({
-                        "channel": "trades",
-                        "symbol": symbol,
-                        "afterHours": after_hours
-                    })
-                else:
-                    target_client.unsubscribe({
-                        "channel": "books",
-                        "symbol": symbol
-                    })
-                    target_client.unsubscribe({
-                        "channel": "trades",
-                        "symbol": symbol
-                    })
-                print(f"Unsubscribed SDK from books: {symbol}")
-            except Exception:
-                pass
+        if sdk:
+            from datetime import datetime
+            if night is not None:
+                after_hours = night
+            else:
+                h = datetime.now().hour
+                after_hours = (h >= 14 or h < 8)
+            
+            for symbol in symbol_list:
+                should_unsubscribe = manager.disconnect(websocket, symbol)
+                if should_unsubscribe:
+                    try:
+                        is_futopt = symbol[0].isalpha() and symbol != "IX0001"
+                        target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
+                        if is_futopt:
+                            target_client.unsubscribe({
+                                "channel": "books",
+                                "symbol": symbol,
+                                "afterHours": after_hours
+                            })
+                            target_client.unsubscribe({
+                                "channel": "trades",
+                                "symbol": symbol,
+                                "afterHours": after_hours
+                            })
+                        else:
+                            target_client.unsubscribe({
+                                "channel": "books",
+                                "symbol": symbol
+                            })
+                            target_client.unsubscribe({
+                                "channel": "trades",
+                                "symbol": symbol
+                            })
+                        print(f"Unsubscribed SDK from: {symbol}")
+                    except Exception as e:
+                        print(f"Unsubscribe error for {symbol}:", e)
 
 
 # Ensure static dir exists
@@ -246,7 +251,7 @@ async def get_meta(symbol: str):
         return {"error": str(e)}
 
 @app.get("/api/options-chain/{futures_symbol}")
-async def get_options_chain(futures_symbol: str, strikes: int = 10, interval: int = 100, weekly: bool = True):
+async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: int = 100, weekly: bool = True, night: bool = False):
     """Fetch options chain centered around the current futures price.
     weekly=True (default): use nearest weekly options (TX1/TX2/TX4/TX5)
     weekly=False: use monthly options (TXO)
@@ -261,10 +266,17 @@ async def get_options_chain(futures_symbol: str, strikes: int = 10, interval: in
         fut_client = sdk.marketdata.rest_client.futopt
         stock_client = sdk.marketdata.rest_client.stock
         
+        fut_kwargs = {"type": "afterHours"} if night else {}
+        
         ev_loop = asyncio.get_event_loop()
         with ThreadPoolExecutor(max_workers=2) as pool:
-            fut_task = ev_loop.run_in_executor(pool, lambda: fut_client.intraday.quote(symbol=futures_symbol))
-            spot_task = ev_loop.run_in_executor(pool, lambda: stock_client.intraday.quote(symbol='IX0001'))
+            fut_task = ev_loop.run_in_executor(pool, lambda: fut_client.intraday.quote(symbol=futures_symbol, **fut_kwargs))
+            if night:
+                # Stock market does not have afterHours quote, but we can fetch it. It just returns last close.
+                spot_task = ev_loop.run_in_executor(pool, lambda: stock_client.intraday.quote(symbol='IX0001'))
+            else:
+                spot_task = ev_loop.run_in_executor(pool, lambda: stock_client.intraday.quote(symbol='IX0001'))
+                
             futures_quote, spot_quote = await asyncio.gather(fut_task, spot_task, return_exceptions=True)
         
         if isinstance(futures_quote, Exception):
@@ -379,7 +391,7 @@ async def get_options_chain(futures_symbol: str, strikes: int = 10, interval: in
         # 6. Fetch all quotes in parallel using thread pool
         def fetch_one(opt_type, strike, symbol):
             try:
-                q = fut_client.intraday.quote(symbol=symbol)
+                q = fut_client.intraday.quote(symbol=symbol, **fut_kwargs)
                 return (opt_type, strike, symbol, q)
             except Exception:
                 return (opt_type, strike, symbol, {})

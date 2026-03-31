@@ -368,6 +368,10 @@
             <button id="weeklyBtn" class="active" onclick="setMode(true)">周選</button>
             <button id="monthlyBtn" onclick="setMode(false)">月選</button>
         </div>
+        <div class="mode-toggle">
+            <button id="dayBtn" onclick="setNightMode(false)">日盤</button>
+            <button id="nightBtn" onclick="setNightMode(true)">夜盤</button>
+        </div>
         <button id="loadBtn" class="load-btn" onclick="loadChain()">載入</button>
     </div>
 
@@ -405,9 +409,20 @@
 </div>
 
 <script>
-    let autoRefreshTimer = null;
+    let ws = null;
+    let autoRefreshTimer = null; // kept for fallback or removal
     let currentFutSymbol = null;
     let isWeekly = true;
+    let isNight = (new Date().getHours() >= 14 || new Date().getHours() < 8);
+    let optionsData = null;
+    let symbolMap = {};
+    let renderTimer = null;
+
+    // Initialize night button state
+    document.addEventListener("DOMContentLoaded", () => {
+        document.getElementById('nightBtn').classList.toggle('active', isNight);
+        document.getElementById('dayBtn').classList.toggle('active', !isNight);
+    });
 
     document.getElementById('futInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') loadChain();
@@ -420,6 +435,13 @@
         if (currentFutSymbol) loadChain();
     }
 
+    function setNightMode(night) {
+        isNight = night;
+        document.getElementById('nightBtn').classList.toggle('active', night);
+        document.getElementById('dayBtn').classList.toggle('active', !night);
+        if (currentFutSymbol) loadChain();
+    }
+
     async function loadChain() {
         const sym = document.getElementById('futInput').value.trim().toUpperCase();
         if (!sym) return;
@@ -428,17 +450,20 @@
         const btn = document.getElementById('loadBtn');
         btn.disabled = true;
         btn.textContent = '載入中...';
+        
+        if (ws) { ws.close(); ws = null; }
 
         const modeLabel = isWeekly ? '周選' : '月選';
+        const sessionLabel = isNight ? '夜盤' : '日盤';
         document.getElementById('chainContainer').innerHTML = `
             <div class="loading-overlay">
                 <div class="spinner"></div>
-                <div>正在載入 ${sym} ${modeLabel}報價...</div>
-                <div style="margin-top:8px;font-size:0.75rem;color:#475569">批次查詢 42 個合約中，約需 3-5 秒</div>
+                <div>正在載入 ${sym} ${modeLabel} (${sessionLabel})報價...</div>
+                <div style="margin-top:8px;font-size:0.75rem;color:#475569">批次查詢大約 60 個合約中，約需 3-5 秒</div>
             </div>`;
 
         try {
-            const res = await fetch(`/api/options-chain/${sym}?weekly=${isWeekly}`);
+            const res = await fetch(`/api/options-chain/${sym}?weekly=${isWeekly}&night=${isNight}`);
             const data = await res.json();
 
             if (data.error) {
@@ -448,11 +473,13 @@
                 return;
             }
 
-            renderFuturesTicker(data);
-            renderChain(data);
+            optionsData = data;
+            buildSymbolMap();
+            
+            renderFuturesTicker(optionsData);
+            renderChain(optionsData);
 
-            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-            autoRefreshTimer = setInterval(() => refreshChain(sym), 5000);
+            setupWebSocket();
 
         } catch (e) {
             document.getElementById('chainContainer').innerHTML = `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
@@ -462,15 +489,130 @@
         btn.textContent = '載入';
     }
 
-    async function refreshChain(sym) {
-        try {
-            const res = await fetch(`/api/options-chain/${sym}?weekly=${isWeekly}`);
-            const data = await res.json();
-            if (!data.error) {
-                renderFuturesTicker(data);
-                renderChain(data, true);
+    function buildSymbolMap() {
+        symbolMap = {};
+        const d = optionsData;
+        
+        // Calculate ref prices to compute changes when trades arrive
+        const futRef = d.futuresPrice - d.futuresChange;
+        symbolMap[d.futuresSymbol] = { type: 'futures', refPrice: futRef };
+        
+        if (d.spot) {
+            const spotRef = d.spot.previousClose != null ? d.spot.previousClose : (d.spot.price - d.spot.change);
+            symbolMap[d.spot.symbol] = { type: 'spot', refPrice: spotRef };
+        }
+        
+        d.chain.forEach(row => {
+            if (row.call && row.call.symbol) {
+                symbolMap[row.call.symbol] = { type: 'call', row: row, refPrice: row.call.closePrice };
             }
-        } catch(e) { /* silent */ }
+            if (row.put && row.put.symbol) {
+                symbolMap[row.put.symbol] = { type: 'put', row: row, refPrice: row.put.closePrice };
+            }
+        });
+    }
+
+    function scheduleRender() {
+        if (!renderTimer) {
+            renderTimer = requestAnimationFrame(() => {
+                if (optionsData) {
+                    renderFuturesTicker(optionsData);
+                    renderChain(optionsData, true);
+                }
+                renderTimer = null;
+            });
+        }
+    }
+
+    function setupWebSocket() {
+        const symbolsToSub = Object.keys(symbolMap);
+        if (symbolsToSub.length === 0) return;
+        
+        const wsUrl = `ws://${window.location.host}/ws/${symbolsToSub.join(',')}?night=${isNight}`;
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+            console.log("WebSocket connected to", symbolsToSub.length, "symbols");
+        };
+        
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if ((msg.event === "data" || msg.event === "snapshot") && msg.data) {
+                    const channel = msg.channel;
+                    const d = msg.data;
+                    const sym = d.symbol;
+                    const mapInfo = symbolMap[sym];
+                    if (!mapInfo) return;
+                    
+                    let updated = false;
+
+                    if (channel === "trades") {
+                        // Resolve trade price robustly
+                        let tradePrice = d.price;
+                        if (tradePrice === undefined && Array.isArray(d.trades) && d.trades.length > 0) {
+                            tradePrice = d.trades[d.trades.length - 1].price;
+                        }
+                        if (tradePrice === undefined && d.lastPrice !== undefined) tradePrice = d.lastPrice;
+                        if (tradePrice === undefined && d.close !== undefined) tradePrice = d.close;
+                        if (tradePrice === undefined && Array.isArray(d) && d.length > 0) tradePrice = d[0].price;
+                        
+                        if (tradePrice !== undefined) {
+                            const newChg = mapInfo.refPrice ? (tradePrice - mapInfo.refPrice) : 0;
+                            const newPct = mapInfo.refPrice ? (newChg / mapInfo.refPrice) * 100 : 0;
+                            const vol = d.volume || (Array.isArray(d.trades) && d.trades.length > 0 ? d.trades[d.trades.length - 1].volume : null);
+                            
+                            if (mapInfo.type === 'futures') {
+                                optionsData.futuresPrice = tradePrice;
+                                optionsData.futuresChange = newChg;
+                                optionsData.futuresChangePct = newPct;
+                                updated = true;
+                            } else if (mapInfo.type === 'spot') {
+                                optionsData.spot.price = tradePrice;
+                                optionsData.spot.change = newChg;
+                                optionsData.spot.changePct = newPct;
+                                updated = true;
+                            } else if (mapInfo.type === 'call') {
+                                mapInfo.row.call.lastPrice = tradePrice;
+                                mapInfo.row.call.change = newChg;
+                                if (vol != null) mapInfo.row.call.volume = vol;
+                                updated = true;
+                            } else if (mapInfo.type === 'put') {
+                                mapInfo.row.put.lastPrice = tradePrice;
+                                mapInfo.row.put.change = newChg;
+                                if (vol != null) mapInfo.row.put.volume = vol;
+                                updated = true;
+                            }
+                        }
+                    } else if (channel === "books") {
+                        const bids = d.bids || d.Bids || [];
+                        const asks = d.asks || d.Asks || [];
+                        const bestBid = bids.length > 0 ? bids[0].price : null;
+                        const bestAsk = asks.length > 0 ? asks[0].price : null;
+                        
+                        if (mapInfo.type === 'call') {
+                            if (bestBid !== null) mapInfo.row.call.bidPrice = bestBid;
+                            if (bestAsk !== null) mapInfo.row.call.askPrice = bestAsk;
+                            updated = true;
+                        } else if (mapInfo.type === 'put') {
+                            if (bestBid !== null) mapInfo.row.put.bidPrice = bestBid;
+                            if (bestAsk !== null) mapInfo.row.put.askPrice = bestAsk;
+                            updated = true;
+                        }
+                    }
+                    
+                    if (updated) {
+                        scheduleRender();
+                    }
+                }
+            } catch(e) {
+                // ignore
+            }
+        };
+        
+        ws.onclose = () => {
+            console.log("WebSocket disconnected");
+        };
     }
 
     function renderFuturesTicker(data) {
@@ -604,8 +746,8 @@
         // Refresh bar
         const now = new Date().toLocaleTimeString('zh-TW');
         html += `<div class="refresh-bar">
-            <div><span class="dot"></span> 每 5 秒自動更新</div>
-            <div>最後更新: ${now}</div>
+            <div><span class="dot" style="background:${ws && ws.readyState===1?'#10b981':'#f59e0b'};box-shadow:0 0 6px ${ws && ws.readyState===1?'#10b981':'#f59e0b'}"></span> WebSocket 即時更新連線中</div>
+            <div>伺服器初次抓取擷取: ${now}</div>
         </div>`;
 
         document.getElementById('chainContainer').innerHTML = html;
