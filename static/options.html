@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ 選擇權報價看板 | Options Chain</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: #0a0e1a;
+            background-image:
+                radial-gradient(ellipse at 10% 0%, rgba(99, 102, 241, 0.2) 0%, transparent 50%),
+                radial-gradient(ellipse at 90% 100%, rgba(236, 72, 153, 0.15) 0%, transparent 50%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 30px 20px 60px; }
+
+        /* === Header === */
+        .page-header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .page-header h1 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+        .page-header p { color: #64748b; font-size: 0.95rem; }
+        .page-header .nav-link {
+            color: #818cf8;
+            text-decoration: none;
+            font-size: 0.85rem;
+            border: 1px solid rgba(129,140,248,0.3);
+            padding: 4px 14px;
+            border-radius: 20px;
+            transition: all 0.2s;
+            display: inline-block;
+            margin-top: 8px;
+        }
+        .page-header .nav-link:hover {
+            background: rgba(129,140,248,0.15);
+            border-color: rgba(129,140,248,0.6);
+        }
+
+        /* === Glass Card === */
+        .glass {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+
+        /* === Search Bar === */
+        .search-bar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+        }
+        .search-bar input {
+            flex: 1;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(100,116,139,0.3);
+            color: #f1f5f9;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: all 0.2s;
+        }
+        .search-bar input:focus {
+            border-color: rgba(56,189,248,0.7);
+            box-shadow: 0 0 12px rgba(56,189,248,0.3);
+        }
+        .search-bar input::placeholder { color: #475569; }
+        .search-bar .load-btn {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .search-bar .load-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.4); }
+        .search-bar .load-btn:disabled { opacity: 0.5; cursor: wait; transform: none; }
+
+        /* Toggle buttons */
+        .mode-toggle {
+            display: flex;
+            gap: 0;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(100,116,139,0.3);
+        }
+        .mode-toggle button {
+            padding: 10px 16px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(30, 41, 59, 0.6);
+            color: #94a3b8;
+            font-family: 'Inter', sans-serif;
+            white-space: nowrap;
+        }
+        .mode-toggle button.active {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+        }
+        .mode-toggle button:hover:not(.active) { background: rgba(51,65,85,0.8); }
+
+        /* Expiry badge */
+        .expiry-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(99,102,241,0.15);
+            border: 1px solid rgba(99,102,241,0.3);
+            padding: 3px 10px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            color: #a5b4fc;
+            margin-top: 4px;
+        }
+        .expiry-badge .dte { color: #fbbf24; font-weight: 700; }
+
+        /* === Futures Ticker === */
+        .futures-ticker {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 28px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(99,102,241,0.25);
+        }
+        .futures-ticker .left .symbol { font-size: 1.6rem; font-weight: 800; color: #f8fafc; }
+        .futures-ticker .left .name { color: #94a3b8; font-size: 0.85rem; margin-top: 2px; }
+        .futures-ticker .left .meta { color: #64748b; font-size: 0.75rem; margin-top: 4px; }
+        .futures-ticker .right { text-align: right; }
+        .futures-ticker .price { font-size: 2.2rem; font-weight: 800; }
+        .futures-ticker .change { font-size: 1rem; font-weight: 600; margin-top: 2px; }
+
+        /* Spot index (displayed alongside futures) */
+        .spot-index {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 12px;
+            padding: 12px 20px;
+            margin-top: 12px;
+        }
+        .spot-index .label {
+            color: #64748b;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        .spot-index .spot-price {
+            font-size: 1.3rem;
+            font-weight: 800;
+        }
+        .spot-index .spot-change {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .spot-index .spot-basis {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            margin-left: auto;
+            white-space: nowrap;
+        }
+
+        /* === Options Chain Table === */
+        .chain-wrapper {
+            padding: 0;
+            overflow: hidden;
+        }
+        .chain-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .chain-table thead th {
+            padding: 14px 8px;
+            font-weight: 700;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid rgba(255,255,255,0.06);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: rgba(15, 23, 42, 0.95);
+        }
+        .chain-table thead th.call-header { color: #f87171; }
+        .chain-table thead th.strike-header {
+            color: #94a3b8;
+            background: rgba(30, 41, 59, 0.95);
+        }
+        .chain-table thead th.put-header { color: #4ade80; }
+
+        .chain-table tbody td {
+            padding: 10px 8px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            transition: background 0.15s;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .chain-table tbody tr:hover td { background: rgba(255,255,255,0.04); }
+
+        /* Call side */
+        .chain-table .call-cell { }
+        .chain-table .call-price {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #fca5a5;
+        }
+        .chain-table .call-itm {
+            background: rgba(239, 68, 68, 0.06);
+        }
+
+        /* Strike column */
+        .chain-table .strike-cell {
+            background: rgba(30, 41, 59, 0.5);
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #cbd5e1;
+            border-left: 1px solid rgba(255,255,255,0.06);
+            border-right: 1px solid rgba(255,255,255,0.06);
+            min-width: 90px;
+        }
+
+        /* Put side */
+        .chain-table .put-cell { }
+        .chain-table .put-price {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #86efac;
+        }
+        .chain-table .put-itm {
+            background: rgba(34, 197, 94, 0.06);
+        }
+
+        /* ATM row */
+        .chain-table .atm-row .strike-cell {
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+            box-shadow: inset 0 0 20px rgba(99,102,241,0.15);
+            font-size: 1.05rem;
+        }
+        .chain-table .atm-row td {
+            border-top: 1px solid rgba(99,102,241,0.3);
+            border-bottom: 1px solid rgba(99,102,241,0.3);
+        }
+
+        /* Positive / Negative */
+        .up { color: #ef4444; }
+        .down { color: #22c55e; }
+        .neutral { color: #64748b; }
+
+        .volume-cell { color: #64748b; font-size: 0.8rem; }
+
+        /* === Loading === */
+        .loading-overlay {
+            text-align: center;
+            padding: 80px 20px;
+            color: #64748b;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(99,102,241,0.2);
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #475569;
+        }
+        .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+
+        .error-msg {
+            text-align: center;
+            padding: 20px;
+            color: #f87171;
+            background: rgba(239,68,68,0.1);
+            border-radius: 12px;
+            margin: 20px;
+        }
+
+        /* === Auto-refresh indicator === */
+        .refresh-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            font-size: 0.75rem;
+            color: #475569;
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
+        .refresh-bar .dot {
+            width: 8px; height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+            box-shadow: 0 0 6px #10b981;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; transform: scale(0.9); }
+            50% { opacity: 1; transform: scale(1.15); }
+        }
+
+        /* No data placeholder */
+        .no-data { color: #334155; font-style: italic; font-size: 0.8rem; }
+
+        @media (max-width: 768px) {
+            .chain-table { font-size: 0.75rem; }
+            .chain-table thead th { padding: 10px 4px; font-size: 0.65rem; }
+            .chain-table tbody td { padding: 8px 4px; }
+            .futures-ticker { flex-direction: column; text-align: center; gap: 12px; }
+            .futures-ticker .right { text-align: center; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- Header -->
+    <div class="page-header">
+        <h1>Options Chain Live</h1>
+        <p>選擇權報價看板 — 即時 Call / Put 報價一覽</p>
+        <a href="/" class="nav-link">← 返回五檔掛單</a>
+    </div>
+
+    <!-- Search -->
+    <div class="glass search-bar">
+        <input id="futInput" type="text" placeholder="輸入期貨代號 (例如 TXFD6)" value="TXFD6">
+        <div class="mode-toggle">
+            <button id="weeklyBtn" class="active" onclick="setMode(true)">周選</button>
+            <button id="monthlyBtn" onclick="setMode(false)">月選</button>
+        </div>
+        <button id="loadBtn" class="load-btn" onclick="loadChain()">載入</button>
+    </div>
+
+    <!-- Futures Ticker -->
+    <div id="futuresTicker" class="glass futures-ticker" style="display:none;">
+        <div class="left">
+            <div class="symbol" id="futSymbol">---</div>
+            <div class="name" id="futName">---</div>
+            <div class="meta" id="futMeta"></div>
+        </div>
+        <div class="right">
+            <div class="price" id="futPrice">---</div>
+            <div class="change" id="futChange">---</div>
+        </div>
+    </div>
+
+    <!-- Spot Index -->
+    <div id="spotTicker" class="glass" style="display:none; padding:0 28px 20px; margin-top:-12px; border-top:none; border-radius:0 0 16px 16px;">
+        <div class="spot-index">
+            <div class="label">🏦 台指現貨</div>
+            <div class="spot-price" id="spotPrice">---</div>
+            <div class="spot-change" id="spotChange">---</div>
+            <div class="spot-basis" id="spotBasis"></div>
+        </div>
+    </div>
+
+    <!-- Chain Container -->
+    <div id="chainContainer" class="glass chain-wrapper">
+        <div class="empty-state">
+            <div class="icon">📊</div>
+            <div>輸入期貨代號後按「載入」</div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    let autoRefreshTimer = null;
+    let currentFutSymbol = null;
+    let isWeekly = true;
+
+    document.getElementById('futInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') loadChain();
+    });
+
+    function setMode(weekly) {
+        isWeekly = weekly;
+        document.getElementById('weeklyBtn').classList.toggle('active', weekly);
+        document.getElementById('monthlyBtn').classList.toggle('active', !weekly);
+        if (currentFutSymbol) loadChain();
+    }
+
+    async function loadChain() {
+        const sym = document.getElementById('futInput').value.trim().toUpperCase();
+        if (!sym) return;
+
+        currentFutSymbol = sym;
+        const btn = document.getElementById('loadBtn');
+        btn.disabled = true;
+        btn.textContent = '載入中...';
+
+        const modeLabel = isWeekly ? '周選' : '月選';
+        document.getElementById('chainContainer').innerHTML = `
+            <div class="loading-overlay">
+                <div class="spinner"></div>
+                <div>正在載入 ${sym} ${modeLabel}報價...</div>
+                <div style="margin-top:8px;font-size:0.75rem;color:#475569">批次查詢 42 個合約中，約需 3-5 秒</div>
+            </div>`;
+
+        try {
+            const res = await fetch(`/api/options-chain/${sym}?weekly=${isWeekly}`);
+            const data = await res.json();
+
+            if (data.error) {
+                document.getElementById('chainContainer').innerHTML = `<div class="error-msg">❌ ${data.error}</div>`;
+                btn.disabled = false;
+                btn.textContent = '載入';
+                return;
+            }
+
+            renderFuturesTicker(data);
+            renderChain(data);
+
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            autoRefreshTimer = setInterval(() => refreshChain(sym), 5000);
+
+        } catch (e) {
+            document.getElementById('chainContainer').innerHTML = `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
+        }
+
+        btn.disabled = false;
+        btn.textContent = '載入';
+    }
+
+    async function refreshChain(sym) {
+        try {
+            const res = await fetch(`/api/options-chain/${sym}?weekly=${isWeekly}`);
+            const data = await res.json();
+            if (!data.error) {
+                renderFuturesTicker(data);
+                renderChain(data, true);
+            }
+        } catch(e) { /* silent */ }
+    }
+
+    function renderFuturesTicker(data) {
+        const ticker = document.getElementById('futuresTicker');
+        ticker.style.display = 'flex';
+
+        document.getElementById('futSymbol').textContent = data.futuresSymbol;
+        document.getElementById('futName').textContent = data.futuresName;
+
+        // Show product code, expiry date, and days to expiry
+        const modeLabel = data.weekly ? '周選' : '月選';
+        const dteText = data.daysToExpiry === 0 ? '今日到期' : `${data.daysToExpiry} 天`;
+        document.getElementById('futMeta').innerHTML =
+            `<span>${modeLabel} | 產品: ${data.product} | Call: ${data.callMonth}${data.yearCode} / Put: ${data.putMonth}${data.yearCode}</span>` +
+            `<span class="expiry-badge">📅 到期: ${data.expiryDate} <span class="dte">DTE ${dteText}</span></span>`;
+
+        const priceEl = document.getElementById('futPrice');
+        const changeEl = document.getElementById('futChange');
+        const price = data.futuresPrice;
+        const chg = data.futuresChange || 0;
+        const pct = data.futuresChangePct || 0;
+
+        priceEl.textContent = price.toLocaleString();
+
+        if (chg > 0) {
+            priceEl.className = 'price up';
+            changeEl.className = 'change up';
+            changeEl.textContent = `▲ ${Math.abs(chg)} (+${pct.toFixed(2)}%)`;
+        } else if (chg < 0) {
+            priceEl.className = 'price down';
+            changeEl.className = 'change down';
+            changeEl.textContent = `▼ ${Math.abs(chg)} (${pct.toFixed(2)}%)`;
+        } else {
+            priceEl.className = 'price neutral';
+            changeEl.className = 'change neutral';
+            changeEl.textContent = `0 (0.00%)`;
+        }
+
+        // Render TAIEX spot index
+        renderSpotIndex(data);
+    }
+
+    function renderSpotIndex(data) {
+        const spotEl = document.getElementById('spotTicker');
+        if (!data.spot || !data.spot.price) {
+            spotEl.style.display = 'none';
+            return;
+        }
+        spotEl.style.display = 'block';
+
+        const s = data.spot;
+        const sp = document.getElementById('spotPrice');
+        const sc = document.getElementById('spotChange');
+        const sb = document.getElementById('spotBasis');
+
+        sp.textContent = s.price.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+
+        const chg = s.change || 0;
+        const pct = s.changePct || 0;
+        if (chg > 0) {
+            sp.className = 'spot-price up';
+            sc.className = 'spot-change up';
+            sc.textContent = `▲ ${Math.abs(chg).toFixed(2)} (+${pct.toFixed(2)}%)`;
+        } else if (chg < 0) {
+            sp.className = 'spot-price down';
+            sc.className = 'spot-change down';
+            sc.textContent = `▼ ${Math.abs(chg).toFixed(2)} (${pct.toFixed(2)}%)`;
+        } else {
+            sp.className = 'spot-price neutral';
+            sc.className = 'spot-change neutral';
+            sc.textContent = '0.00 (0.00%)';
+        }
+
+        // Basis = futures - spot
+        const basis = data.futuresPrice - s.price;
+        const basisSign = basis >= 0 ? '+' : '';
+        sb.textContent = `正逆價差: ${basisSign}${basis.toFixed(2)}`;
+    }
+
+    function renderChain(data, isRefresh = false) {
+        const chain = data.chain;
+        const center = data.centerStrike;
+        const futPrice = data.futuresPrice;
+
+        let html = `<table class="chain-table">
+            <thead>
+                <tr>
+                    <th class="call-header">成交量</th>
+                    <th class="call-header">漲跌</th>
+                    <th class="call-header">買價</th>
+                    <th class="call-header">最新價</th>
+                    <th class="call-header">賣價</th>
+                    <th class="strike-header">履約價</th>
+                    <th class="put-header">買價</th>
+                    <th class="put-header">最新價</th>
+                    <th class="put-header">賣價</th>
+                    <th class="put-header">漲跌</th>
+                    <th class="put-header">成交量</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        for (const row of chain) {
+            const strike = row.strike;
+            const isATM = strike === center;
+            const callITM = strike < futPrice;
+            const putITM = strike > futPrice;
+            const rowClass = isATM ? 'atm-row' : '';
+
+            const call = row.call || {};
+            const put = row.put || {};
+
+            html += `<tr class="${rowClass}">`;
+
+            // --- CALL side ---
+            const callCellClass = callITM ? 'call-cell call-itm' : 'call-cell';
+            html += renderCallCells(call, callCellClass);
+
+            // --- Strike ---
+            html += `<td class="strike-cell">${strike.toLocaleString()}</td>`;
+
+            // --- PUT side ---
+            const putCellClass = putITM ? 'put-cell put-itm' : 'put-cell';
+            html += renderPutCells(put, putCellClass);
+
+            html += `</tr>`;
+        }
+
+        html += `</tbody></table>`;
+
+        // Refresh bar
+        const now = new Date().toLocaleTimeString('zh-TW');
+        html += `<div class="refresh-bar">
+            <div><span class="dot"></span> 每 5 秒自動更新</div>
+            <div>最後更新: ${now}</div>
+        </div>`;
+
+        document.getElementById('chainContainer').innerHTML = html;
+    }
+
+    function renderCallCells(opt, cellClass) {
+        const lp = opt.lastPrice;
+        const chg = opt.change;
+        const vol = opt.volume;
+        const bid = opt.bidPrice;
+        const ask = opt.askPrice;
+
+        const priceText = lp != null ? lp.toFixed(1) : '<span class="no-data">—</span>';
+        const chgClass = chg > 0 ? 'up' : chg < 0 ? 'down' : 'neutral';
+        const chgText = chg != null ? (chg > 0 ? `+${chg}` : `${chg}`) : '—';
+        const volText = vol != null ? vol.toLocaleString() : '—';
+        const bidText = bid != null ? bid.toFixed(1) : '—';
+        const askText = ask != null ? ask.toFixed(1) : '—';
+
+        return `
+            <td class="${cellClass} volume-cell">${volText}</td>
+            <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.8rem">${chgText}</td>
+            <td class="${cellClass}" style="color:#94a3b8">${bidText}</td>
+            <td class="${cellClass} call-price">${priceText}</td>
+            <td class="${cellClass}" style="color:#94a3b8">${askText}</td>`;
+    }
+
+    function renderPutCells(opt, cellClass) {
+        const lp = opt.lastPrice;
+        const chg = opt.change;
+        const vol = opt.volume;
+        const bid = opt.bidPrice;
+        const ask = opt.askPrice;
+
+        const priceText = lp != null ? lp.toFixed(1) : '<span class="no-data">—</span>';
+        const chgClass = chg > 0 ? 'up' : chg < 0 ? 'down' : 'neutral';
+        const chgText = chg != null ? (chg > 0 ? `+${chg}` : `${chg}`) : '—';
+        const volText = vol != null ? vol.toLocaleString() : '—';
+        const bidText = bid != null ? bid.toFixed(1) : '—';
+        const askText = ask != null ? ask.toFixed(1) : '—';
+
+        return `
+            <td class="${cellClass}" style="color:#94a3b8">${bidText}</td>
+            <td class="${cellClass} put-price">${priceText}</td>
+            <td class="${cellClass}" style="color:#94a3b8">${askText}</td>
+            <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.8rem">${chgText}</td>
+            <td class="${cellClass} volume-cell">${volText}</td>`;
+    }
+</script>
+</body>
+</html>

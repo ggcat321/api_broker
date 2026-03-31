@@ -2,6 +2,7 @@ import os
 import time
 import json
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -244,9 +245,208 @@ async def get_meta(symbol: str):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/options-chain/{futures_symbol}")
+async def get_options_chain(futures_symbol: str, strikes: int = 10, interval: int = 100, weekly: bool = True):
+    """Fetch options chain centered around the current futures price.
+    weekly=True (default): use nearest weekly options (TX1/TX2/TX4/TX5)
+    weekly=False: use monthly options (TXO)
+    """
+    if not sdk:
+        return {"error": "SDK not initialized"}
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # 1. Get current futures price + TAIEX spot index in parallel
+        fut_client = sdk.marketdata.rest_client.futopt
+        stock_client = sdk.marketdata.rest_client.stock
+        
+        ev_loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_task = ev_loop.run_in_executor(pool, lambda: fut_client.intraday.quote(symbol=futures_symbol))
+            spot_task = ev_loop.run_in_executor(pool, lambda: stock_client.intraday.quote(symbol='IX0001'))
+            futures_quote, spot_quote = await asyncio.gather(fut_task, spot_task, return_exceptions=True)
+        
+        if isinstance(futures_quote, Exception):
+            return {"error": f"Cannot fetch futures: {futures_quote}"}
+        
+        futures_price = futures_quote.get("lastPrice") or futures_quote.get("closePrice", 0)
+        futures_change = futures_quote.get("change", 0)
+        futures_change_pct = futures_quote.get("changePercent", 0)
+        futures_name = futures_quote.get("name", futures_symbol)
+        
+        # TAIEX spot index uses closePrice (no lastPrice for indices)
+        spot_data = None
+        if not isinstance(spot_quote, Exception) and spot_quote:
+            spot_price = spot_quote.get("closePrice") or spot_quote.get("lastPrice")
+            spot_data = {
+                "symbol": "IX0001",
+                "name": spot_quote.get("name", "加權指數"),
+                "price": spot_price,
+                "change": spot_quote.get("change", 0),
+                "changePct": spot_quote.get("changePercent", 0),
+                "previousClose": spot_quote.get("previousClose"),
+            }
+        
+        if not futures_price:
+            return {"error": f"Cannot get price for {futures_symbol}"}
+        
+        # 2. Determine option product code and month/year
+        if weekly:
+            # Calculate nearest Wednesday expiry
+            now = datetime.now()
+            today = now.date()
+            weekday = today.weekday()  # Monday=0 ... Sunday=6
+            
+            # Find next Wednesday
+            days_to_wed = (2 - weekday) % 7
+            if days_to_wed == 0:
+                # Today is Wednesday — if past 13:30 settlement, use next week
+                if now.hour >= 14:
+                    days_to_wed = 7
+            
+            expiry_date = today + timedelta(days=days_to_wed)
+            days_to_expiry = (expiry_date - today).days
+            
+            # Determine which week of the month (1-5)
+            day = expiry_date.day
+            if day <= 7:
+                week_num = 1
+            elif day <= 14:
+                week_num = 2
+            elif day <= 21:
+                week_num = 3
+            elif day <= 28:
+                week_num = 4
+            else:
+                week_num = 5
+            
+            # Product code: week 3 = monthly (TXO), others = TX{n}
+            if week_num == 3:
+                product = "TXO"
+            else:
+                product = f"TX{week_num}"
+            
+            # Month/year from the expiry date (NOT the futures symbol)
+            call_month = chr(ord('A') + expiry_date.month - 1)
+            put_month = chr(ord('M') + expiry_date.month - 1)
+            year_code = str(expiry_date.year % 10)
+            
+            expiry_str = expiry_date.strftime("%Y-%m-%d")
+            expiry_weekday = ["一", "二", "三", "四", "五", "六", "日"][expiry_date.weekday()]
+            
+            print(f"[OPTIONS] Weekly mode: product={product}, expiry={expiry_str}(週{expiry_weekday}), "
+                  f"days_to_expiry={days_to_expiry}, call={call_month}{year_code}, put={put_month}{year_code}")
+        else:
+            # Monthly mode: extract from futures symbol (e.g. TXFD6 → month=D, year=6)
+            product = "TXO"
+            call_month = futures_symbol[-2]
+            year_code = futures_symbol[-1]
+            put_month = chr(ord('M') + (ord(call_month.upper()) - ord('A')))
+            
+            # Estimate expiry: 3rd Wednesday of the month
+            month_idx = ord(call_month.upper()) - ord('A')  # 0-based
+            year = 2020 + int(year_code)
+            # Find 3rd Wednesday
+            import calendar
+            cal = calendar.monthcalendar(year, month_idx + 1)
+            third_wed = [week[2] for week in cal if week[2] != 0][2]
+            from datetime import date
+            expiry_date = date(year, month_idx + 1, third_wed)
+            days_to_expiry = (expiry_date - datetime.now().date()).days
+            expiry_str = expiry_date.strftime("%Y-%m-%d")
+            expiry_weekday = ["一", "二", "三", "四", "五", "六", "日"][expiry_date.weekday()]
+            week_num = 3
+            
+            print(f"[OPTIONS] Monthly mode: product=TXO, expiry={expiry_str}, "
+                  f"days_to_expiry={days_to_expiry}, call={call_month}{year_code}, put={put_month}{year_code}")
+        
+        # 3. Calculate center strike (round to nearest interval)
+        center_strike = round(futures_price / interval) * interval
+        
+        # 4. Generate strike list
+        strike_list = [center_strike + (i - strikes) * interval for i in range(2 * strikes + 1)]
+        
+        # 5. Build all option symbols to fetch
+        symbols_to_fetch = []
+        for strike in strike_list:
+            s = int(strike)
+            call_sym = f"{product}{s}{call_month}{year_code}"
+            put_sym = f"{product}{s}{put_month}{year_code}"
+            symbols_to_fetch.append(("call", s, call_sym))
+            symbols_to_fetch.append(("put", s, put_sym))
+        
+        # 6. Fetch all quotes in parallel using thread pool
+        def fetch_one(opt_type, strike, symbol):
+            try:
+                q = fut_client.intraday.quote(symbol=symbol)
+                return (opt_type, strike, symbol, q)
+            except Exception:
+                return (opt_type, strike, symbol, {})
+        
+        results = {}
+        ev_loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            tasks = [
+                ev_loop.run_in_executor(pool, fetch_one, ot, st, sy)
+                for ot, st, sy in symbols_to_fetch
+            ]
+            completed = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for item in completed:
+            if isinstance(item, Exception):
+                continue
+            opt_type, strike, symbol, quote = item
+            if strike not in results:
+                results[strike] = {"strike": strike}
+            total = quote.get("total", {})
+            last_trade = quote.get("lastTrade", {})
+            results[strike][opt_type] = {
+                "symbol": symbol,
+                "name": quote.get("name", ""),
+                "lastPrice": quote.get("lastPrice"),
+                "closePrice": quote.get("closePrice"),
+                "change": quote.get("change"),
+                "changePercent": quote.get("changePercent"),
+                "volume": total.get("tradeVolume") if isinstance(total, dict) else None,
+                "bidPrice": last_trade.get("bid") if isinstance(last_trade, dict) else None,
+                "askPrice": last_trade.get("ask") if isinstance(last_trade, dict) else None,
+            }
+        
+        # Sort by strike ascending
+        chain = sorted(results.values(), key=lambda x: x["strike"])
+        
+        return {
+            "futuresSymbol": futures_symbol,
+            "futuresName": futures_name,
+            "futuresPrice": futures_price,
+            "futuresChange": futures_change,
+            "futuresChangePct": futures_change_pct,
+            "spot": spot_data,
+            "centerStrike": center_strike,
+            "product": product,
+            "callMonth": call_month,
+            "putMonth": put_month,
+            "yearCode": year_code,
+            "interval": interval,
+            "weekly": weekly,
+            "expiryDate": expiry_str,
+            "daysToExpiry": days_to_expiry,
+            "chain": chain
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
 @app.get("/")
 async def get_root():
     with open(os.path.join(BASE_DIR, "static", "index.html"), "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+@app.get("/options")
+async def get_options():
+    with open(os.path.join(BASE_DIR, "static", "options.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
 if __name__ == "__main__":
