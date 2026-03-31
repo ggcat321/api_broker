@@ -201,7 +201,19 @@
             width: 100%;
             border-collapse: collapse;
             font-size: 0.85rem;
+            table-layout: fixed;
         }
+        .chain-table th:nth-child(1), .chain-table td:nth-child(1) { width: 8%;  } /* Call Vol */
+        .chain-table th:nth-child(2), .chain-table td:nth-child(2) { width: 9%;  } /* Call Chg */
+        .chain-table th:nth-child(3), .chain-table td:nth-child(3) { width: 9%;  } /* Call Bid */
+        .chain-table th:nth-child(4), .chain-table td:nth-child(4) { width: 9%;  } /* Call Price */
+        .chain-table th:nth-child(5), .chain-table td:nth-child(5) { width: 9%;  } /* Call Ask */
+        .chain-table th:nth-child(6), .chain-table td:nth-child(6) { width: 12%; } /* Strike */
+        .chain-table th:nth-child(7), .chain-table td:nth-child(7) { width: 9%;  } /* Put Bid */
+        .chain-table th:nth-child(8), .chain-table td:nth-child(8) { width: 9%;  } /* Put Price */
+        .chain-table th:nth-child(9), .chain-table td:nth-child(9) { width: 9%;  } /* Put Ask */
+        .chain-table th:nth-child(10), .chain-table td:nth-child(10) { width: 9%; } /* Put Chg */
+        .chain-table th:nth-child(11), .chain-table td:nth-child(11) { width: 8%; } /* Put Vol */
         .chain-table thead th {
             padding: 14px 8px;
             font-weight: 700;
@@ -232,7 +244,6 @@
         .chain-table tbody tr:hover td { background: rgba(255,255,255,0.04); }
 
         /* Call side */
-        .chain-table .call-cell { }
         .chain-table .call-price {
             font-weight: 700;
             font-size: 0.95rem;
@@ -254,7 +265,6 @@
         }
 
         /* Put side */
-        .chain-table .put-cell { }
         .chain-table .put-price {
             font-weight: 700;
             font-size: 0.95rem;
@@ -323,7 +333,8 @@
             padding: 10px 20px;
             font-size: 0.75rem;
             color: #475569;
-            border-top: 1px solid rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            margin-bottom: 8px;
         }
         .refresh-bar .dot {
             width: 8px; height: 8px;
@@ -436,10 +447,31 @@
     }
 
     function setNightMode(night) {
+        if (isNight === night) return;
         isNight = night;
         document.getElementById('nightBtn').classList.toggle('active', night);
         document.getElementById('dayBtn').classList.toggle('active', !night);
-        if (currentFutSymbol) loadChain();
+        
+        if (optionsData) {
+            // Hot-swap day/night reference prices without downloading standard option chain again
+            buildSymbolMap();
+            
+            if (isNight && optionsData.futuresClosePrice) {
+                optionsData.futuresChange = optionsData.futuresPrice - optionsData.futuresClosePrice;
+                optionsData.futuresChangePct = (optionsData.futuresChange / optionsData.futuresClosePrice) * 100;
+            } else if (!isNight && optionsData.futuresPreviousClose) {
+                optionsData.futuresChange = optionsData.futuresPrice - optionsData.futuresPreviousClose;
+                optionsData.futuresChangePct = (optionsData.futuresChange / optionsData.futuresPreviousClose) * 100;
+            }
+
+            renderFuturesTicker(optionsData);
+            renderChain(optionsData, true); // true avoids reloading the DOM, just rewrites values
+
+            if (ws) { ws.close(); ws = null; }
+            setupWebSocket(); // Subscribe to proper night/day channel instantly
+        } else if (currentFutSymbol) {
+            loadChain();
+        }
     }
 
     async function loadChain() {
@@ -476,6 +508,12 @@
             optionsData = data;
             buildSymbolMap();
             
+            // Override the initial change/changePct for night session so it is correct before WebSocket pushes
+            if (isNight && optionsData.futuresClosePrice) {
+                optionsData.futuresChange = optionsData.futuresPrice - optionsData.futuresClosePrice;
+                optionsData.futuresChangePct = (optionsData.futuresChange / optionsData.futuresClosePrice) * 100;
+            }
+
             renderFuturesTicker(optionsData);
             renderChain(optionsData);
 
@@ -493,21 +531,31 @@
         symbolMap = {};
         const d = optionsData;
         
-        // Calculate ref prices to compute changes when trades arrive
-        const futRef = d.futuresPrice - d.futuresChange;
+        // Calculate true reference prices for Day vs Night
+        // Day session uses previousClose (yesterday's close). Night session uses closePrice (today's day session close).
+        const futRef = isNight ? d.futuresClosePrice : d.futuresPreviousClose;
         symbolMap[d.futuresSymbol] = { type: 'futures', refPrice: futRef };
         
         if (d.spot) {
+            // Spot index only has Day session, always use previousClose as refPrice
             const spotRef = d.spot.previousClose != null ? d.spot.previousClose : (d.spot.price - d.spot.change);
             symbolMap[d.spot.symbol] = { type: 'spot', refPrice: spotRef };
         }
         
         d.chain.forEach(row => {
             if (row.call && row.call.symbol) {
-                symbolMap[row.call.symbol] = { type: 'call', row: row, refPrice: row.call.closePrice };
+                const callRef = isNight ? row.call.closePrice : row.call.previousClose;
+                symbolMap[row.call.symbol] = { type: 'call', row: row, refPrice: callRef };
+                if (callRef) {
+                    row.call.change = row.call.lastPrice ? (row.call.lastPrice - callRef) : 0;
+                }
             }
             if (row.put && row.put.symbol) {
-                symbolMap[row.put.symbol] = { type: 'put', row: row, refPrice: row.put.closePrice };
+                const putRef = isNight ? row.put.closePrice : row.put.previousClose;
+                symbolMap[row.put.symbol] = { type: 'put', row: row, refPrice: putRef };
+                if (putRef) {
+                    row.put.change = row.put.lastPrice ? (row.put.lastPrice - putRef) : 0;
+                }
             }
         });
     }
@@ -697,7 +745,13 @@
         const center = data.centerStrike;
         const futPrice = data.futuresPrice;
 
-        let html = `<table class="chain-table">
+        const now = new Date().toLocaleTimeString('zh-TW');
+        const refreshHtml = `<div class="refresh-bar">
+            <div><span class="dot" style="background:${(typeof ws !== 'undefined' && ws && ws.readyState===1)?'#10b981':'#f59e0b'};box-shadow:0 0 6px ${(typeof ws !== 'undefined' && ws && ws.readyState===1)?'#10b981':'#f59e0b'}"></span> WebSocket 即時更新連線中</div>
+            <div>伺服器初次抓取擷取: ${now}</div>
+        </div>`;
+
+        let html = refreshHtml + `<table class="chain-table">
             <thead>
                 <tr>
                     <th class="call-header">成交量</th>
@@ -741,14 +795,7 @@
             html += `</tr>`;
         }
 
-        html += `</tbody></table>`;
-
-        // Refresh bar
-        const now = new Date().toLocaleTimeString('zh-TW');
-        html += `<div class="refresh-bar">
-            <div><span class="dot" style="background:${ws && ws.readyState===1?'#10b981':'#f59e0b'};box-shadow:0 0 6px ${ws && ws.readyState===1?'#10b981':'#f59e0b'}"></span> WebSocket 即時更新連線中</div>
-            <div>伺服器初次抓取擷取: ${now}</div>
-        </div>`;
+        html += `</tbody></table></div>`;
 
         document.getElementById('chainContainer').innerHTML = html;
     }

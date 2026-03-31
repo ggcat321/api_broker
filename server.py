@@ -286,6 +286,8 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
         futures_change = futures_quote.get("change", 0)
         futures_change_pct = futures_quote.get("changePercent", 0)
         futures_name = futures_quote.get("name", futures_symbol)
+        futures_close_price = futures_quote.get("closePrice")
+        futures_prev_close = futures_quote.get("previousClose")
         
         # TAIEX spot index uses closePrice (no lastPrice for indices)
         spot_data = None
@@ -298,6 +300,7 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
                 "change": spot_quote.get("change", 0),
                 "changePct": spot_quote.get("changePercent", 0),
                 "previousClose": spot_quote.get("previousClose"),
+                "closePrice": spot_quote.get("closePrice"),
             }
         
         if not futures_price:
@@ -418,6 +421,7 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
                 "name": quote.get("name", ""),
                 "lastPrice": quote.get("lastPrice"),
                 "closePrice": quote.get("closePrice"),
+                "previousClose": quote.get("previousClose"),
                 "change": quote.get("change"),
                 "changePercent": quote.get("changePercent"),
                 "volume": total.get("tradeVolume") if isinstance(total, dict) else None,
@@ -432,6 +436,8 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
             "futuresSymbol": futures_symbol,
             "futuresName": futures_name,
             "futuresPrice": futures_price,
+            "futuresClosePrice": futures_close_price,
+            "futuresPreviousClose": futures_prev_close,
             "futuresChange": futures_change,
             "futuresChangePct": futures_change_pct,
             "spot": spot_data,
