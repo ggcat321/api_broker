@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
+import requests
 from fubon_neo.sdk import FubonSDK
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -116,6 +117,39 @@ async def startup_event():
         print(f"Failed to login or connect to python sdk: {e}")
         
     asyncio.create_task(message_processor())
+    asyncio.create_task(vix_scraper())
+
+async def vix_scraper():
+    print("Started VIX scraper background task")
+    while True:
+        try:
+            # Use run_in_executor to avoid blocking the event loop
+            loop = asyncio.get_running_loop()
+            res = await loop.run_in_executor(None, lambda: requests.post(
+                'https://mis.taifex.com.tw/futures/api/getQuoteListVIX', 
+                json={'SortColumn':'','AscDesc':'A'}, 
+                headers={'User-Agent': 'Mozilla/5.0'},
+                timeout=5
+            ))
+            data = res.json()
+            if data and data.get("RtCode") == "0" and "QuoteList" in data.get("RtData", {}):
+                vixes = data["RtData"]["QuoteList"]
+                if vixes:
+                    msg = {"event": "vix_update", "data": vixes[0]}
+                    # broadcast to all unique websockets
+                    unique_websockets = set()
+                    for websockets in manager.active_connections.values():
+                        unique_websockets.update(websockets)
+                    
+                    for ws in unique_websockets:
+                        try:
+                            await ws.send_json(msg)
+                        except Exception:
+                            pass
+        except Exception as e:
+            print("VIX scraper error:", e)
+        
+        await asyncio.sleep(15)
 
 async def message_processor():
     while True:

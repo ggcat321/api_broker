@@ -104,7 +104,12 @@
             Order Book Live
         </h1>
         <p class="text-slate-400 text-lg">Ultra-Low Latency | 買賣五檔觀測</p>
-        <a href="/options" style="color:#818cf8;text-decoration:none;font-size:0.85rem;border:1px solid rgba(129,140,248,0.3);padding:4px 14px;border-radius:20px;display:inline-block;margin-top:8px;transition:all 0.2s;">📊 選擇權看板 →</a>
+        <div class="mt-4 flex flex-wrap justify-center items-center gap-4">
+            <a href="/options" style="color:#818cf8;text-decoration:none;font-size:0.85rem;border:1px solid rgba(129,140,248,0.3);padding:4px 14px;border-radius:20px;display:inline-block;transition:all 0.2s;">📊 選擇權看板 →</a>
+            <div id="vixWidget" class="hidden items-center px-4 py-1.5 rounded-full border border-slate-700/50 bg-slate-800/40 text-sm font-medium backdrop-blur-sm transition-all shadow-lg text-indigo-100 placeholder-pulse">
+                <!-- VIX Data Populated by JS -->
+            </div>
+        </div>
     </div>
 
     <!-- Search Bar -->
@@ -355,6 +360,19 @@
                         statusText.innerText = "Subscription Error";
                         statusText.className = "ml-2 font-bold text-red-500";
                         if(ws) ws.close();
+                    }
+                    else if(fullMsg.event === "vix_update" && fullMsg.data) {
+                        const v = fullMsg.data;
+                        const w = document.getElementById("vixWidget");
+                        if(w && v.CLastPrice) {
+                            const price = parseFloat(v.CLastPrice).toFixed(2);
+                            const diff = parseFloat(v.CDiff);
+                            const diffStr = diff > 0 ? `▲${Math.abs(diff)}` : (diff < 0 ? `▼${Math.abs(diff)}` : `0.0`);
+                            const colorClass = diff > 0 ? "text-red-400" : (diff < 0 ? "text-green-400" : "text-slate-400");
+                            w.innerHTML = `<span class="text-slate-400 mr-2 flex items-center">🇹🇼 TAIWAN VIX:</span><span class="font-bold text-white text-base mr-2 tracking-wide">${price}</span><span class="${colorClass}">${diffStr}</span>`;
+                            w.classList.remove("hidden");
+                            w.classList.add("flex");
+                        }
                     }
                     else if(fullMsg.event === "data" && fullMsg.data) {
                         if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);

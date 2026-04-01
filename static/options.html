@@ -203,17 +203,21 @@
             font-size: 0.85rem;
             table-layout: fixed;
         }
-        .chain-table th:nth-child(1), .chain-table td:nth-child(1) { width: 8%;  } /* Call Vol */
-        .chain-table th:nth-child(2), .chain-table td:nth-child(2) { width: 9%;  } /* Call Chg */
-        .chain-table th:nth-child(3), .chain-table td:nth-child(3) { width: 9%;  } /* Call Bid */
-        .chain-table th:nth-child(4), .chain-table td:nth-child(4) { width: 9%;  } /* Call Price */
-        .chain-table th:nth-child(5), .chain-table td:nth-child(5) { width: 9%;  } /* Call Ask */
-        .chain-table th:nth-child(6), .chain-table td:nth-child(6) { width: 12%; } /* Strike */
-        .chain-table th:nth-child(7), .chain-table td:nth-child(7) { width: 9%;  } /* Put Bid */
-        .chain-table th:nth-child(8), .chain-table td:nth-child(8) { width: 9%;  } /* Put Price */
-        .chain-table th:nth-child(9), .chain-table td:nth-child(9) { width: 9%;  } /* Put Ask */
-        .chain-table th:nth-child(10), .chain-table td:nth-child(10) { width: 9%; } /* Put Chg */
-        .chain-table th:nth-child(11), .chain-table td:nth-child(11) { width: 8%; } /* Put Vol */
+        .chain-table th:nth-child(1), .chain-table td:nth-child(1) { width: 6%; }  /* Call IV */
+        .chain-table th:nth-child(2), .chain-table td:nth-child(2) { width: 6%; }  /* Call Vol */
+        .chain-table th:nth-child(3), .chain-table td:nth-child(3) { width: 6%; }  /* Call Chg */
+        .chain-table th:nth-child(4), .chain-table td:nth-child(4) { width: 7%; }  /* Call Pct */
+        .chain-table th:nth-child(5), .chain-table td:nth-child(5) { width: 7%; }  /* Call Bid */
+        .chain-table th:nth-child(6), .chain-table td:nth-child(6) { width: 8%; }  /* Call Price */
+        .chain-table th:nth-child(7), .chain-table td:nth-child(7) { width: 7%; }  /* Call Ask */
+        .chain-table th:nth-child(8), .chain-table td:nth-child(8) { width: 8%; } /* Strike */
+        .chain-table th:nth-child(9), .chain-table td:nth-child(9) { width: 7%; }  /* Put Bid */
+        .chain-table th:nth-child(10), .chain-table td:nth-child(10) { width: 8%; }  /* Put Price */
+        .chain-table th:nth-child(11), .chain-table td:nth-child(11) { width: 7%; } /* Put Ask */
+        .chain-table th:nth-child(12), .chain-table td:nth-child(12) { width: 6%; } /* Put Chg */
+        .chain-table th:nth-child(13), .chain-table td:nth-child(13) { width: 7%; } /* Put Pct */
+        .chain-table th:nth-child(14), .chain-table td:nth-child(14) { width: 6%; } /* Put Vol */
+        .chain-table th:nth-child(15), .chain-table td:nth-child(15) { width: 6%; } /* Put IV */
         .chain-table thead th {
             padding: 14px 8px;
             font-weight: 700;
@@ -369,7 +373,10 @@
     <div class="page-header">
         <h1>Options Chain Live</h1>
         <p>選擇權報價看板 — 即時 Call / Put 報價一覽</p>
-        <a href="/" class="nav-link">← 返回五檔掛單</a>
+        <div style="display:flex; justify-content:center; align-items:center; gap: 12px; margin-top: 8px;">
+            <a href="/" class="nav-link" style="margin-top:0;">← 返回五檔掛單</a>
+            <div id="vixWidget" style="display:none; align-items:center; background:rgba(30,41,59,0.8); border:1px solid rgba(100,116,139,0.5); border-radius:20px; padding:4px 14px; font-size:0.85rem;"></div>
+        </div>
     </div>
 
     <!-- Search -->
@@ -428,6 +435,67 @@
     let optionsData = null;
     let symbolMap = {};
     let renderTimer = null;
+
+    // --- Black-Scholes IV Calculation ---
+    function normCDF(x) {
+        let b1 =  0.319381530, b2 = -0.356563782, b3 =  1.781477937, b4 = -1.821255978, b5 =  1.330274429;
+        let p  =  0.2316419, c  =  0.39894228;
+        if(x >= 0.0) {
+            let t = 1.0 / ( 1.0 + p * x );
+            return (1.0 - c * Math.exp( -x * x / 2.0 ) * t * ( t *( t * ( t * ( t * b5 + b4 ) + b3 ) + b2 ) + b1 ));
+        } else {
+            let t = 1.0 / ( 1.0 - p * x );
+            return ( c * Math.exp( -x * x / 2.0 ) * t * ( t *( t * ( t * ( t * b5 + b4 ) + b3 ) + b2 ) + b1 ));
+        }
+    }
+    function black76Price(isCall, F, K, T, v, r) {
+        if (T <= 0 || v <= 0) return Math.max(0, isCall ? F - K : K - F);
+        let d1 = (Math.log(F / K) + 0.5 * v * v * T) / (v * Math.sqrt(T));
+        let d2 = d1 - v * Math.sqrt(T);
+        let discount = Math.exp(-r * T);
+        return discount * (isCall ? (F * normCDF(d1) - K * normCDF(d2)) : (K * normCDF(-d2) - F * normCDF(-d1)));
+    }
+    function black76Vega(F, K, T, v, r) {
+        if (T <= 0 || v <= 0) return 0;
+        let d1 = (Math.log(F / K) + 0.5 * v * v * T) / (v * Math.sqrt(T));
+        return Math.exp(-r * T) * F * (Math.exp(-0.5 * d1 * d1) / Math.sqrt(2 * Math.PI)) * Math.sqrt(T);
+    }
+    function calculateIV(isCall, targetPrice, F, K, T, r = 0.01) {
+        if (T <= 0 || targetPrice == null || !F || !K) return null;
+        
+        let discount = Math.exp(-r * T);
+        let intrinsic = isCall ? Math.max(0, (F - K) * discount) : Math.max(0, (K - F) * discount);
+        
+        if (targetPrice <= intrinsic) {
+            // Option is trading below or exactly at theoretical parity (often Deep ITM).
+            // Mathematically implied vol is 0 or undefined, return 0.0001 to show 0.0% instead of null (-)
+            return 0.0001;
+        }
+        
+        // 使用二分逼近法 (Bisection Method) 取代牛頓法，確保極度價外(Deep OTM)的冷門履約價也能100%收斂算出IV
+        let low = 0.0001; 
+        let high = 5.0;  // 最高計算到 500% 的波動率，再高就失真了
+        
+        if (targetPrice > black76Price(isCall, F, K, T, high, r)) {
+            return high; // 若目標價大於 500% 波動率所對應的價格，直接封頂
+        }
+
+        let v = (low + high) / 2;
+        for (let i = 0; i < 50; i++) {
+            let p = black76Price(isCall, F, K, T, v, r);
+            let diff = p - targetPrice;
+            if (Math.abs(diff) < 1e-4) return v;
+            
+            if (diff > 0) {
+                high = v;
+            } else {
+                low = v;
+            }
+            v = (low + high) / 2;
+        }
+        return v;
+    }
+    // ------------------------------------
 
     // Initialize night button state
     document.addEventListener("DOMContentLoaded", () => {
@@ -548,6 +616,7 @@
                 symbolMap[row.call.symbol] = { type: 'call', row: row, refPrice: callRef };
                 if (callRef) {
                     row.call.change = row.call.lastPrice ? (row.call.lastPrice - callRef) : 0;
+                    row.call.changePercent = (row.call.change / callRef) * 100;
                 }
             }
             if (row.put && row.put.symbol) {
@@ -555,6 +624,7 @@
                 symbolMap[row.put.symbol] = { type: 'put', row: row, refPrice: putRef };
                 if (putRef) {
                     row.put.change = row.put.lastPrice ? (row.put.lastPrice - putRef) : 0;
+                    row.put.changePercent = (row.put.change / putRef) * 100;
                 }
             }
         });
@@ -586,6 +656,22 @@
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
+                
+                if (msg.event === "vix_update" && msg.data) {
+                    const v = msg.data;
+                    const w = document.getElementById("vixWidget");
+                    if(w && v.CLastPrice) {
+                        window.latestVix = parseFloat(v.CLastPrice);
+                        const price = window.latestVix.toFixed(2);
+                        const diff = parseFloat(v.CDiff);
+                        const diffStr = diff > 0 ? `▲${Math.abs(diff)}` : (diff < 0 ? `▼${Math.abs(diff)}` : `0.0`);
+                        const colorClass = diff > 0 ? "text-red-400" : (diff < 0 ? "text-green-400" : "text-slate-400");
+                        w.innerHTML = `<span style="color:#94a3b8;margin-right:6px">🇹🇼 TAIWAN VIX:</span><span style="color:white;font-weight:700;margin-right:6px">${price}</span><span class="${colorClass}">${diffStr}</span>`;
+                        w.style.display = "flex";
+                    }
+                    return;
+                }
+                
                 if ((msg.event === "data" || msg.event === "snapshot") && msg.data) {
                     const channel = msg.channel;
                     const d = msg.data;
@@ -623,11 +709,13 @@
                             } else if (mapInfo.type === 'call') {
                                 mapInfo.row.call.lastPrice = tradePrice;
                                 mapInfo.row.call.change = newChg;
+                                mapInfo.row.call.changePercent = newPct;
                                 if (vol != null) mapInfo.row.call.volume = vol;
                                 updated = true;
                             } else if (mapInfo.type === 'put') {
                                 mapInfo.row.put.lastPrice = tradePrice;
                                 mapInfo.row.put.change = newChg;
+                                mapInfo.row.put.changePercent = newPct;
                                 if (vol != null) mapInfo.row.put.volume = vol;
                                 updated = true;
                             }
@@ -754,8 +842,10 @@
         let html = refreshHtml + `<table class="chain-table">
             <thead>
                 <tr>
+                    <th class="call-header">IV(%)</th>
                     <th class="call-header">成交量</th>
                     <th class="call-header">漲跌</th>
+                    <th class="call-header">幅(%)</th>
                     <th class="call-header">買價</th>
                     <th class="call-header">最新價</th>
                     <th class="call-header">賣價</th>
@@ -764,10 +854,16 @@
                     <th class="put-header">最新價</th>
                     <th class="put-header">賣價</th>
                     <th class="put-header">漲跌</th>
+                    <th class="put-header">幅(%)</th>
                     <th class="put-header">成交量</th>
+                    <th class="put-header">IV(%)</th>
                 </tr>
             </thead>
             <tbody>`;
+            
+        // calculate Time to Expiration in years (assuming roughly hours remaining mapped to days for extreme precision, otherwise just days/365)
+        const T = Math.max(data.daysToExpiry / 365.0, 0.001); // fallback to 0.001 years to calculate IV
+        const F = data.futuresPrice;
 
         for (const row of chain) {
             const strike = row.strike;
@@ -781,16 +877,22 @@
 
             html += `<tr class="${rowClass}">`;
 
+            let callPrice = call.lastPrice != null ? call.lastPrice : ((call.bidPrice != null && call.askPrice != null) ? (call.bidPrice + call.askPrice)/2 : null);
+            let putPrice = put.lastPrice != null ? put.lastPrice : ((put.bidPrice != null && put.askPrice != null) ? (put.bidPrice + put.askPrice)/2 : null);
+            
+            let callIV = callPrice != null ? calculateIV(true, callPrice, F, strike, T) : null;
+            let putIV = putPrice != null ? calculateIV(false, putPrice, F, strike, T) : null;
+
             // --- CALL side ---
             const callCellClass = callITM ? 'call-cell call-itm' : 'call-cell';
-            html += renderCallCells(call, callCellClass);
+            html += renderCallCells(call, callCellClass, callIV);
 
             // --- Strike ---
             html += `<td class="strike-cell">${strike.toLocaleString()}</td>`;
 
             // --- PUT side ---
             const putCellClass = putITM ? 'put-cell put-itm' : 'put-cell';
-            html += renderPutCells(put, putCellClass);
+            html += renderPutCells(put, putCellClass, putIV);
 
             html += `</tr>`;
         }
@@ -800,48 +902,112 @@
         document.getElementById('chainContainer').innerHTML = html;
     }
 
-    function renderCallCells(opt, cellClass) {
+    function renderCallCells(opt, cellClass, iv) {
         const lp = opt.lastPrice;
         const chg = opt.change;
+        const pct = opt.changePercent;
         const vol = opt.volume;
         const bid = opt.bidPrice;
         const ask = opt.askPrice;
 
-        const priceText = lp != null ? lp.toFixed(1) : '<span class="no-data">—</span>';
-        const chgClass = chg > 0 ? 'up' : chg < 0 ? 'down' : 'neutral';
-        const chgText = chg != null ? (chg > 0 ? `+${chg}` : `${chg}`) : '—';
+        const priceText = lp != null ? parseFloat(lp.toFixed(2)) : '<span class="no-data">—</span>';
+        
+        const cleanChg = chg != null ? parseFloat(chg.toFixed(4)) : null;
+        const chgClass = cleanChg > 0 ? 'up' : cleanChg < 0 ? 'down' : 'neutral';
+        
+        let chgText = '—';
+        let pctText = '—';
+        if (cleanChg != null) {
+            const sign = cleanChg > 0 ? '+' : '';
+            chgText = `<span>${sign}${cleanChg}</span>`;
+            if (pct != null && cleanChg !== 0) {
+                pctText = `<span>${sign}${Math.abs(pct).toFixed(2)}%</span>`;
+            } else if (cleanChg === 0) {
+                pctText = `<span>0.00%</span>`;
+            }
+        }
+        
         const volText = vol != null ? vol.toLocaleString() : '—';
-        const bidText = bid != null ? bid.toFixed(1) : '—';
-        const askText = ask != null ? ask.toFixed(1) : '—';
+        const bidText = bid != null ? parseFloat(bid.toFixed(2)) : '—';
+        const askText = ask != null ? parseFloat(ask.toFixed(2)) : '—';
+        
+        if (vol == null || vol < 10) {
+            iv = null;
+        }
+        
+        let ivText = '<span class="no-data">—</span>';
+        if (iv != null) {
+            const ivPct = iv * 100;
+            // 判斷如果比 VIX 高出 30 點以上 (或高出 30%)，則明顯標示
+            if (window.latestVix && (ivPct >= window.latestVix + 30)) {
+                ivText = `<span style="color:#ef4444;font-weight:900;text-shadow:0 0 8px rgba(239,68,68,0.6)">🔥 ${(ivPct).toFixed(1)}%</span>`;
+            } else {
+                ivText = `<span style="color:#fbbf24;font-weight:600">${(ivPct).toFixed(1)}%</span>`;
+            }
+        }
 
         return `
+            <td class="${cellClass}">${ivText}</td>
             <td class="${cellClass} volume-cell">${volText}</td>
             <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.8rem">${chgText}</td>
+            <td class="${cellClass} ${chgClass}" style="font-size:0.75rem;opacity:0.85">${pctText}</td>
             <td class="${cellClass}" style="color:#94a3b8">${bidText}</td>
             <td class="${cellClass} call-price">${priceText}</td>
             <td class="${cellClass}" style="color:#94a3b8">${askText}</td>`;
     }
 
-    function renderPutCells(opt, cellClass) {
+    function renderPutCells(opt, cellClass, iv) {
         const lp = opt.lastPrice;
         const chg = opt.change;
+        const pct = opt.changePercent;
         const vol = opt.volume;
         const bid = opt.bidPrice;
         const ask = opt.askPrice;
 
-        const priceText = lp != null ? lp.toFixed(1) : '<span class="no-data">—</span>';
-        const chgClass = chg > 0 ? 'up' : chg < 0 ? 'down' : 'neutral';
-        const chgText = chg != null ? (chg > 0 ? `+${chg}` : `${chg}`) : '—';
+        const priceText = lp != null ? parseFloat(lp.toFixed(2)) : '<span class="no-data">—</span>';
+        
+        const cleanChg = chg != null ? parseFloat(chg.toFixed(4)) : null;
+        const chgClass = cleanChg > 0 ? 'up' : cleanChg < 0 ? 'down' : 'neutral';
+        
+        let chgText = '—';
+        let pctText = '—';
+        if (cleanChg != null) {
+            const sign = cleanChg > 0 ? '+' : '';
+            chgText = `<span>${sign}${cleanChg}</span>`;
+            if (pct != null && cleanChg !== 0) {
+                pctText = `<span>${sign}${Math.abs(pct).toFixed(2)}%</span>`;
+            } else if (cleanChg === 0) {
+                pctText = `<span>0.00%</span>`;
+            }
+        }
+
         const volText = vol != null ? vol.toLocaleString() : '—';
-        const bidText = bid != null ? bid.toFixed(1) : '—';
-        const askText = ask != null ? ask.toFixed(1) : '—';
+        const bidText = bid != null ? parseFloat(bid.toFixed(2)) : '—';
+        const askText = ask != null ? parseFloat(ask.toFixed(2)) : '—';
+        
+        if (vol == null || vol < 10) {
+            iv = null;
+        }
+        
+        let ivText = '<span class="no-data">—</span>';
+        if (iv != null) {
+            const ivPct = iv * 100;
+            // 判斷如果比 VIX 高出 30 點以上 (或高出 30%)，則明顯標示
+            if (window.latestVix && (ivPct >= window.latestVix + 30)) {
+                ivText = `<span style="color:#ef4444;font-weight:900;text-shadow:0 0 8px rgba(239,68,68,0.6)">🔥 ${(ivPct).toFixed(1)}%</span>`;
+            } else {
+                ivText = `<span style="color:#fbbf24;font-weight:600">${(ivPct).toFixed(1)}%</span>`;
+            }
+        }
 
         return `
             <td class="${cellClass}" style="color:#94a3b8">${bidText}</td>
             <td class="${cellClass} put-price">${priceText}</td>
             <td class="${cellClass}" style="color:#94a3b8">${askText}</td>
             <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.8rem">${chgText}</td>
-            <td class="${cellClass} volume-cell">${volText}</td>`;
+            <td class="${cellClass} ${chgClass}" style="font-size:0.75rem;opacity:0.85">${pctText}</td>
+            <td class="${cellClass} volume-cell">${volText}</td>
+            <td class="${cellClass}">${ivText}</td>`;
     }
 </script>
 </body>
