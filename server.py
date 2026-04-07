@@ -178,13 +178,13 @@ def shutdown_event():
             pass
 
 @app.websocket("/ws/{symbols}")
-async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None):
+async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None, trades_only: bool = False):
     await websocket.accept()
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     for symbol in symbol_list:
         await manager.connect(websocket, symbol)
     
-    # Subscribe to books and trades
+    # Subscribe to books and/or trades
     try:
         if sdk:
             from datetime import datetime
@@ -198,32 +198,20 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                 is_futopt = symbol[0].isalpha() and symbol != "IX0001"
                 target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
                 if is_futopt:
-                    target_client.subscribe({
-                        "channel": "books",
-                        "symbol": symbol,
-                        "afterHours": after_hours
-                    })
-                    target_client.subscribe({
-                        "channel": "trades",
-                        "symbol": symbol,
-                        "afterHours": after_hours
-                    })
+                    if not trades_only:
+                        target_client.subscribe({"channel": "books", "symbol": symbol, "afterHours": after_hours})
+                    target_client.subscribe({"channel": "trades", "symbol": symbol, "afterHours": after_hours})
                 else:
-                    target_client.subscribe({
-                        "channel": "books",
-                        "symbol": symbol
-                    })
-                    target_client.subscribe({
-                        "channel": "trades",
-                        "symbol": symbol
-                    })
-            print(f"Subscribed SDK to {len(symbol_list)} symbols")
+                    if not trades_only:
+                        target_client.subscribe({"channel": "books", "symbol": symbol})
+                    target_client.subscribe({"channel": "trades", "symbol": symbol})
+            mode = "trades-only" if trades_only else "books+trades"
+            print(f"Subscribed SDK to {len(symbol_list)} symbols [{mode}]")
     except Exception as e:
         print("Subscription error:", e)
         
     try:
         while True:
-            # wait for messages (like keepalives or unsubscriptions)
             await websocket.receive_text()
     except WebSocketDisconnect:
         if sdk:
@@ -241,25 +229,13 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                         is_futopt = symbol[0].isalpha() and symbol != "IX0001"
                         target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
                         if is_futopt:
-                            target_client.unsubscribe({
-                                "channel": "books",
-                                "symbol": symbol,
-                                "afterHours": after_hours
-                            })
-                            target_client.unsubscribe({
-                                "channel": "trades",
-                                "symbol": symbol,
-                                "afterHours": after_hours
-                            })
+                            if not trades_only:
+                                target_client.unsubscribe({"channel": "books", "symbol": symbol, "afterHours": after_hours})
+                            target_client.unsubscribe({"channel": "trades", "symbol": symbol, "afterHours": after_hours})
                         else:
-                            target_client.unsubscribe({
-                                "channel": "books",
-                                "symbol": symbol
-                            })
-                            target_client.unsubscribe({
-                                "channel": "trades",
-                                "symbol": symbol
-                            })
+                            if not trades_only:
+                                target_client.unsubscribe({"channel": "books", "symbol": symbol})
+                            target_client.unsubscribe({"channel": "trades", "symbol": symbol})
                         print(f"Unsubscribed SDK from: {symbol}")
                     except Exception as e:
                         print(f"Unsubscribe error for {symbol}:", e)
@@ -500,6 +476,129 @@ async def get_root():
 async def get_options():
     with open(os.path.join(BASE_DIR, "static", "options.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
+
+@app.get("/etf0050")
+async def get_etf0050():
+    with open(os.path.join(BASE_DIR, "static", "etf0050.html"), "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+@app.get("/api/etf0050-pcf")
+async def get_etf0050_pcf():
+    """Proxy endpoint to fetch 0050 PCF data from Yuanta ETF API."""
+    import uuid
+    device_id = str(uuid.uuid4())
+    url = (
+        f"https://etfapi.yuantaetfs.com/ectranslation/api/bridge"
+        f"?APIType=ETFAPI&CompanyName=YUANTAFUNDS&PageName=%2F"
+        f"&DeviceId={device_id}&FuncId=PCF%2FDaily&AppName=ETF"
+        f"&Device=3&Platform=ETF&ticker=0050&ndate="
+    )
+    try:
+        ev_loop = asyncio.get_event_loop()
+        res = await ev_loop.run_in_executor(None, lambda: requests.get(
+            url,
+            headers={
+                "Referer": "https://www.yuantaetfs.com/",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                "Accept": "application/json, text/plain, */*",
+            },
+            timeout=10
+        ))
+        return res.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/stock-quotes")
+async def get_stock_quotes(symbols: str):
+    """
+    Fetch latest prices and previous closes for a comma-separated list of stock symbols.
+    Returns: { "symbol": {"price": float, "prev": float}, ... }
+    """
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    if not symbol_list:
+        return {}
+
+    try:
+        ev_loop = asyncio.get_event_loop()
+
+        def fetch_twse_all():
+            r = requests.get(
+                "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+                headers={"Accept": "application/json"},
+                timeout=10
+            )
+            r.raise_for_status()
+            data = {}
+            for item in r.json():
+                try:
+                    code = item["Code"]
+                    close_str = item.get("ClosingPrice", "").replace(",", "")
+                    change_str = item.get("Change", "").replace(",", "")
+                    if close_str and close_str not in ("", "--"):
+                        price = float(close_str)
+                        # PrevClose = Close - Change
+                        change = float(change_str) if change_str and change_str not in ("", "--") else 0
+                        data[code] = {"price": price, "prev": (price - change)}
+                except (ValueError, KeyError):
+                    continue
+            return data
+
+        price_map = await ev_loop.run_in_executor(None, fetch_twse_all)
+
+        quotes = {}
+        missing = []
+        for sym in symbol_list:
+            if sym in price_map:
+                quotes[sym] = price_map[sym]
+            else:
+                missing.append(sym)
+
+        # Fallback to Fubon SDK
+        if missing and sdk:
+            def fetch_one(sym):
+                try:
+                    q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
+                    price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
+                    prev  = q.get("previousClose") or price
+                    return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+                except Exception:
+                    return (sym, None)
+
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                tasks = [ev_loop.run_in_executor(pool, fetch_one, sym) for sym in missing]
+                fallback_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for item in fallback_results:
+                if isinstance(item, Exception): continue
+                sym, data = item
+                if data: quotes[sym] = data
+
+        return quotes
+
+    except Exception as e:
+        print(f"TWSE stock-quotes error: {e}, falling back to Fubon SDK full")
+        if not sdk: return {"error": "SDK not initialized and TWSE unavailable"}
+
+        def fetch_one_sdk(sym):
+            try:
+                q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
+                price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
+                prev  = q.get("previousClose") or price
+                return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+            except Exception:
+                return (sym, None)
+
+        ev_loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            tasks = [ev_loop.run_in_executor(pool, fetch_one_sdk, sym) for sym in symbol_list]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        quotes = {}
+        for item in results:
+            if isinstance(item, Exception): continue
+            sym, data = item
+            if data: quotes[sym] = data
+        return quotes
 
 if __name__ == "__main__":
     import uvicorn

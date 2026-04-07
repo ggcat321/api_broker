@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ 0050 即時估算淨值 | Real-time iNAV</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            background-color: #080e1a;
+            background-image:
+                radial-gradient(ellipse at 10% 0%, rgba(16,185,129,0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 90% 100%, rgba(56,189,248,0.10) 0%, transparent 50%);
+            color: #f1f5f9;
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        .glass {
+            background: rgba(15,23,42,0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 1.25rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3), 0 20px 40px rgba(0,0,0,0.5);
+        }
+
+        .glass-sm {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 0.75rem;
+        }
+
+        /* Big NAV card */
+        .nav-card {
+            background: linear-gradient(135deg, rgba(16,185,129,0.07), rgba(56,189,248,0.05));
+            border: 1px solid rgba(16,185,129,0.2);
+            border-radius: 1.5rem;
+            box-shadow: 0 0 40px rgba(16,185,129,0.04), inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+
+        /* NAV number flash */
+        @keyframes nav-flash {
+            0%   { color: #fbbf24; text-shadow: 0 0 30px rgba(251,191,36,0.6); }
+            100% { color: #34d399; text-shadow: none; }
+        }
+        .nav-flash { animation: nav-flash 1s ease-out; }
+
+        /* Row price flash */
+        @keyframes px-up   { 0% { background: rgba(239,68,68,0.22); } 100% { background: transparent; } }
+        @keyframes px-down { 0% { background: rgba(34,197,94,0.22); } 100% { background: transparent; } }
+        .flash-up   { animation: px-up   0.7s ease-out; border-radius: 4px; }
+        .flash-down { animation: px-down 0.7s ease-out; border-radius: 4px; }
+
+        /* Live dot */
+        .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .dot-green  { background: #10b981; box-shadow: 0 0 8px #10b981; animation: blink 1.4s infinite; }
+        .dot-yellow { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+        .dot-red    { background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: none; }
+        .dot-grey   { background: #475569; }
+        @keyframes blink {
+            0%,100% { opacity:0.7; transform:scale(0.9); }
+            50%      { opacity:1;   transform:scale(1.15); }
+        }
+
+        /* stock row */
+        .srow { transition: background 0.15s; border-radius: 6px; }
+        .srow:hover { background: rgba(255,255,255,0.035); }
+
+        /* nav link */
+        .nav-a {
+            color: #64748b; text-decoration: none; font-size: 0.8rem;
+            border: 1px solid rgba(100,116,139,0.25); padding: 4px 14px;
+            border-radius: 20px; transition: all 0.18s;
+        }
+        .nav-a:hover { color: #cbd5e1; border-color: rgba(203,213,225,0.3); }
+        .nav-a.active { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.07); }
+
+        /* badge */
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 0.75rem; font-weight: 600;
+            padding: 3px 10px; border-radius: 9999px;
+        }
+        .badge-red    { background:rgba(239,68,68,0.12);  color:#f87171; border:1px solid rgba(239,68,68,0.25); }
+        .badge-green  { background:rgba(52,211,153,0.12); color:#34d399; border:1px solid rgba(52,211,153,0.25); }
+        .badge-yellow { background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.25); }
+
+        /* gradient text */
+        .g-green { background: linear-gradient(90deg,#10b981,#34d399); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .g-cyan  { background: linear-gradient(90deg,#38bdf8,#818cf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+        /* skeleton */
+        @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
+        .skel {
+            background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 75%);
+            background-size: 1200px 100%; animation: shimmer 1.5s infinite; border-radius:6px;
+        }
+
+        /* progress */
+        .prog-track { background: rgba(255,255,255,0.07); border-radius:9999px; height:3px; overflow:hidden; }
+        .prog-fill-g { background:linear-gradient(90deg,#10b981,#34d399); height:100%; transition:width 0.4s ease; }
+
+        /* spin */
+        @keyframes spin{ from{transform:rotate(0)} to{transform:rotate(360deg)} }
+        .spin { animation: spin 0.9s linear infinite; display:inline-block; }
+
+        /* scrollbar */
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    </style>
+</head>
+<body class="pt-8 pb-20 px-4">
+
+<!-- ── Header ────────────────────── -->
+<div class="max-w-5xl mx-auto mb-7 flex flex-wrap items-center justify-between gap-4">
+    <div>
+        <h1 class="text-3xl font-black tracking-tight g-cyan">0050 即時估算淨值</h1>
+        <p class="text-slate-500 text-sm mt-0.5">元大台灣卓越50 · Real-time iNAV via WebSocket</p>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+        <a href="/" class="nav-a">📊 Order Book</a>
+        <a href="/options" class="nav-a">📈 選擇權看板</a>
+        <a href="/etf0050" class="nav-a active">💹 0050 iNAV</a>
+    </div>
+</div>
+
+<div class="max-w-5xl mx-auto space-y-5">
+
+<!-- ── Row 1: NAV + Stats ──────────────────────────────────────────── -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+    <!-- Big iNAV -->
+    <div class="lg:col-span-2 nav-card p-7">
+
+        <!-- Top bar -->
+        <div class="flex items-center justify-between mb-5">
+            <div class="flex items-center gap-2.5">
+                <span class="dot dot-grey" id="wsDot"></span>
+                <span class="text-slate-400 text-sm font-medium" id="wsStatus">初始化...</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <!-- Sub counter -->
+                <span class="text-slate-600 text-xs mono" id="subCounter">0/0 訂閱</span>
+                <!-- Refresh -->
+                <button id="refreshBtn" title="重新載入" class="text-slate-500 hover:text-slate-300 transition p-1">
+                    <svg id="refreshIcon" width="15" height="15" viewBox="0 0 15 15" fill="none">
+                        <path d="M14 2v4h-4M1 13V9h4M2 5a6.5 6.5 0 0 1 11-1.5M13 10a6.5 6.5 0 0 1-11 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- NAV number -->
+        <div class="text-center py-3">
+            <div class="text-slate-500 text-xs uppercase tracking-widest font-semibold mb-1.5">估算即時淨值 iNAV</div>
+            <div id="navDisplay" class="text-7xl font-black mono g-green leading-none">--</div>
+            <div class="text-slate-500 text-sm mt-1.5">元 / 單位</div>
+
+            <!-- 0050 market price & premium -->
+            <div class="flex items-center justify-center gap-3 mt-3">
+                <span class="text-slate-500 text-sm">0050 市價</span>
+                <span id="etfPriceDisplay" class="text-white font-bold mono text-base">--</span>
+                <span id="premiumBadge" class="badge badge-yellow hidden">--</span>
+            </div>
+        </div>
+
+        <!-- Breakdown -->
+        <div class="mt-5 pt-5 border-t border-white/5 grid grid-cols-3 gap-3">
+            <div class="glass-sm p-3 text-center">
+                <div class="text-slate-500 text-xs mb-1">∑ 成分股市值</div>
+                <div id="stocksValue" class="text-white font-semibold text-sm mono">--</div>
+            </div>
+            <div class="glass-sm p-3 text-center">
+                <div class="text-slate-500 text-xs mb-1">+ 估計現金差額</div>
+                <div id="cashDiffVal" class="text-cyan-300 font-semibold text-sm mono">--</div>
+            </div>
+            <div class="glass-sm p-3 text-center">
+                <div class="text-slate-500 text-xs mb-1">÷ 每單位受益股數</div>
+                <div id="baseUnitVal" class="text-slate-300 font-semibold text-sm mono">500,000</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right panel -->
+    <div class="space-y-4">
+
+        <!-- PCF Info -->
+        <div class="glass p-5">
+            <div class="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-3">PCF 單位資訊</div>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-white/5 p-2 rounded-lg border border-white/5">
+                    <div class="text-slate-500 text-[10px]">交易日</div>
+                    <div id="infoDate" class="text-white font-bold mono text-xs mt-0.5">--</div>
+                </div>
+                <div class="bg-white/5 p-2 rounded-lg border border-white/5">
+                    <div class="text-slate-500 text-[10px]">前日 NAV</div>
+                    <div id="infoPcfNav" class="text-white font-bold mono text-xs mt-0.5">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strong Stocks Alert -->
+        <div class="glass p-5 border-l-2 border-l-amber-500/50">
+            <div class="flex items-center justify-between mb-3 text-slate-500 text-xs uppercase tracking-wider font-semibold">
+                <span>強勢股表態監控</span>
+                <div class="flex items-center gap-1.5">
+                    <span class="text-[9px]">門檻</span>
+                    <input id="strongThreshold" type="number" value="9" step="0.5" 
+                           class="bg-slate-900/60 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white mono font-bold w-12 text-center focus:outline-none">
+                    <span class="text-[9px]">%</span>
+                </div>
+            </div>
+            <div class="flex items-baseline gap-2">
+                <span id="strongCount" class="text-4xl font-black mono text-amber-400">0</span>
+                <span class="text-slate-500 text-xs">支成分股表態</span>
+            </div>
+        </div>
+
+        <!-- WS Coverage -->
+        <div class="glass p-5">
+            <div class="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-3">即時報價覆蓋率</div>
+            <div class="flex items-center gap-2 mb-2">
+                <div class="flex-1 prog-track">
+                    <div class="prog-fill-g" id="coverBar" style="width:0%"></div>
+                </div>
+                <span id="coverPct" class="text-emerald-400 font-bold text-xs mono w-9 text-right">0%</span>
+            </div>
+            <div class="text-slate-600 text-xs" id="coverLabel">等待成交...</div>
+            <div class="flex justify-between mt-3 text-xs text-slate-600">
+                <span>成分股 <span id="totalStocks" class="text-slate-400">--</span> 支</span>
+                <span id="lastTick" class="mono">--</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 2: Pseudo iNAV (TSMC Focus) ──────────────────────────────── -->
+<div class="glass p-5">
+    <div class="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-xs font-bold text-white uppercase tracking-widest">目標套利價設算 (Spread Target)</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-[10px] text-slate-500 font-bold">目標價差 (bps)</span>
+            <input id="targetSpreadInput" type="number" value="20" step="1" 
+                   class="bg-slate-900/60 border border-white/10 rounded-lg px-2 py-1 text-xs text-white font-bold w-16 text-center focus:outline-none focus:border-emerald-500/50">
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Bid Pseudo -->
+        <div class="flex flex-col">
+            <div class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5 line-clamp-1">
+                台積電 (2330) 委買價設算
+            </div>
+            <div class="bg-white/5 rounded-xl p-3 border border-white/5 grid grid-cols-2 gap-2">
+                <div class="border-r border-white/5 pr-2">
+                    <div class="text-slate-400 text-[10px]">設算淨值</div>
+                    <div id="pseudoBidNav" class="text-xl font-black mono text-white">--</div>
+                    <div class="text-[9px] text-slate-600 mt-1">
+                        Bid: <span id="val2330Bid" class="text-slate-500 font-bold">--</span>
+                    </div>
+                </div>
+                <div class="pl-2">
+                    <div class="text-slate-400 text-[10px]">目標賣出價</div>
+                    <div id="targetBidPx" class="text-xl font-black mono text-emerald-400">--</div>
+                    <div class="text-[9px] text-slate-600 mt-1">
+                        實際: <span id="actualBidBps" class="font-bold">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ask Pseudo -->
+        <div class="flex flex-col">
+            <div class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2 flex items-center gap-1.5 line-clamp-1">
+                台積電 (2330) 委賣價設算
+            </div>
+            <div class="bg-white/5 rounded-xl p-3 border border-white/5 grid grid-cols-2 gap-2">
+                <div class="border-r border-white/5 pr-2">
+                    <div class="text-slate-400 text-[10px]">設算淨值</div>
+                    <div id="pseudoAskNav" class="text-xl font-black mono text-white">--</div>
+                    <div class="text-[9px] text-slate-600 mt-1">
+                        Ask: <span id="val2330Ask" class="text-slate-500 font-bold">--</span>
+                    </div>
+                </div>
+                <div class="pl-2">
+                    <div class="text-slate-400 text-[10px]">目標賣出價</div>
+                    <div id="targetAskPx" class="text-xl font-black mono text-red-500">--</div>
+                    <div class="text-[9px] text-slate-600 mt-1">
+                        實際: <span id="actualAskBps" class="font-bold">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 3: Stock Table ───────────────────────────────────────────── -->
+<div class="glass p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-white/5">
+        <div>
+            <h2 class="text-base font-bold text-white">成分股即時明細</h2>
+            <p class="text-slate-600 text-xs mt-0.5">PCF 申購清單 × WebSocket 即時成交價</p>
+        </div>
+        <input id="searchInput" type="text" placeholder="搜尋股票..." class="bg-slate-800/60 text-white text-sm rounded-xl px-4 py-2 border border-slate-700/40 placeholder-slate-600 focus:outline-none focus:border-emerald-500/50 transition w-40">
+    </div>
+
+    <!-- column headers -->
+    <div class="grid text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1 px-3" style="grid-template-columns:2rem 1fr 5.5rem 5.5rem 4.5rem 1fr 5rem;">
+        <div>#</div>
+        <div>股票</div>
+        <div class="text-right">PCF 股數</div>
+        <div class="text-right">即時價格</div>
+        <div class="text-right">漲跌</div>
+        <div class="text-right pr-4">市值貢獻</div>
+        <div class="text-right">佔比</div>
+    </div>
+
+    <!-- body -->
+    <div id="tableBody" class="space-y-0.5 max-h-[480px] overflow-y-auto pr-1">
+        <div id="skelWrap" class="space-y-1.5 pt-1">
+            <div class="skel h-9 w-full"></div><div class="skel h-9 w-full"></div>
+            <div class="skel h-9 w-full"></div><div class="skel h-9 w-full"></div>
+            <div class="skel h-9 w-full"></div><div class="skel h-9 w-full"></div>
+        </div>
+    </div>
+
+    <!-- footer total -->
+    <div class="mt-4 pt-4 border-t border-white/5">
+        <div class="grid text-sm font-bold px-3" style="grid-template-columns:2rem 1fr 5.5rem 5.5rem 4.5rem 1fr 5rem;">
+            <div></div>
+            <div class="text-slate-500 text-xs">合計</div>
+            <div></div><div></div><div></div>
+            <div id="totalContrib" class="text-right pr-4 text-white mono text-xs">--</div>
+            <div class="text-right text-slate-500 text-xs">100%</div>
+        </div>
+    </div>
+</div>
+
+</div><!-- /max-w -->
+
+<script>
+// ═══════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════
+let pcfData       = null;
+let composition   = [];       // [{stkcd, name, qty, ename}]
+let estdvalue     = 0;
+let baseunit      = 500000;
+let stockPrices   = {};       // stkcd -> current price
+let stockPrevCloses = {};     // stkcd -> yesterday's close (from REST)
+let stockPrevPx   = {};       // stkcd -> previous tick price (for flash)
+let etf0050Price  = null;
+let bid2330       = null;
+let ask2330       = null;
+let ws            = null;
+let subscribedSet = new Set(); // symbols confirmed subscribed
+let isTraded      = {};       // stkcd -> boolean (received real trade)
+let filterText    = '';
+
+// DOM cache (will be populated after PCF load)
+let priceEls  = {};  // stkcd -> <span> for price
+let changeEls = {};  // stkcd -> <span> for change
+let contribEls= {};  // stkcd -> <span> for contribution
+let rowEls    = {};  // stkcd -> row <div>
+
+// ═══════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════
+// Taiwan ETF Tick Size
+const getTickSize = (px) => (px < 50 ? 0.01 : 0.05);
+
+const fmt  = (n, d=2) => n == null || isNaN(n) ? '--' : Number(n).toLocaleString('zh-TW', {minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtM = (n) => n == null || isNaN(n) ? '--' : '$\u00a0' + fmt(n, 0);
+
+// ═══════════════════════════════════════════════════════
+// Extract trade price from Fubon SDK message (same logic as index.html)
+// ═══════════════════════════════════════════════════════
+function extractTradePrice(d) {
+    if (d == null) return undefined;
+    let p = d.price;
+    if (p === undefined && Array.isArray(d.trades) && d.trades.length > 0)
+        p = d.trades[d.trades.length - 1].price;
+    if (p === undefined && d.lastPrice !== undefined) p = d.lastPrice;
+    if (p === undefined && d.close    !== undefined) p = d.close;
+    if (p === undefined && Array.isArray(d) && d.length > 0) p = d[0].price;
+    return p;
+}
+
+// ═══════════════════════════════════════════════════════
+// Fetch PCF (REST, once at startup)
+// ═══════════════════════════════════════════════════════
+async function fetchPCF() {
+    const r = await fetch('/api/etf0050-pcf');
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    return d;
+}
+
+// ═══════════════════════════════════════════════════════
+// Calculate NAV
+// ═══════════════════════════════════════════════════════
+function calcNAV() {
+    let total = 0, covered = 0;
+    for (const s of composition) {
+        const p = stockPrices[s.stkcd];
+        if (p != null) { total += p * s.qty; covered++; }
+    }
+    return { nav: (total + estdvalue) / baseunit, stocksTotal: total, covered, n: composition.length };
+}
+
+// ═══════════════════════════════════════════════════════
+// Update NAV display
+// ═══════════════════════════════════════════════════════
+function renderNAV() {
+    const { nav, stocksTotal, covered, n } = calcNAV();
+
+    // Big number
+    const navEl = document.getElementById('navDisplay');
+    const navStr = nav > 0 ? fmt(nav, 2) : '--';
+    if (navEl.textContent !== navStr) {
+        navEl.textContent = navStr;
+        navEl.classList.remove('nav-flash');
+        void navEl.offsetWidth;
+        navEl.classList.add('nav-flash');
+    }
+
+    // Breakdown
+    document.getElementById('stocksValue').textContent = fmtM(stocksTotal);
+    document.getElementById('cashDiffVal').textContent = fmtM(estdvalue);
+    document.getElementById('baseUnitVal').textContent = fmt(baseunit, 0) + ' 股';
+    document.getElementById('totalContrib').textContent = fmtM(stocksTotal + estdvalue);
+
+    // Coverage - Only count REAL TRADES as requested
+    const tradeCount = composition.filter(s => isTraded[s.stkcd]).length;
+    const pct = n > 0 ? Math.round((tradeCount / n) * 100) : 0;
+    document.getElementById('coverBar').style.width = pct + '%';
+    document.getElementById('coverPct').textContent = pct + '%';
+    document.getElementById('coverLabel').textContent = `WebSocket 已收到 ${tradeCount} / ${n} 支成交`;
+    document.getElementById('lastTick').textContent = new Date().toLocaleTimeString('zh-TW');
+
+    // Strong stocks calculation
+    let strongCount = 0;
+    const threshold = parseFloat(document.getElementById('strongThreshold').value) || 9;
+    for (const s of composition) {
+        const cp = stockPrices[s.stkcd];
+        const pp = stockPrevCloses[s.stkcd];
+        if (cp && pp) {
+            const chg = (cp - pp) / pp * 100;
+            if (chg >= threshold) strongCount++;
+        }
+    }
+    document.getElementById('strongCount').textContent = strongCount;
+
+    // Premium
+    if (etf0050Price != null && nav > 0) {
+        const b = document.getElementById('premiumBadge');
+        const premBps = ((etf0050Price - nav) / nav * 10000); // 1% = 100bps
+        b.classList.remove('hidden');
+        if (premBps > 0.5) {
+            b.textContent = `溢價 +${fmt(premBps, 1)} bps`;
+            b.className = 'badge badge-red';
+        } else if (premBps < -0.5) {
+            b.textContent = `折價 ${fmt(premBps, 1)} bps`;
+            b.className = 'badge badge-green';
+        } else {
+            b.textContent = '平價';
+            b.className = 'badge badge-yellow';
+        }
+    }
+
+    // Pseudo iNAV (TSMC Focus)
+    const tsmc = composition.find(s => s.stkcd === '2330');
+    if (tsmc && nav > 0 && etf0050Price > 0) {
+        const targetSpreadBps = parseFloat(document.getElementById('targetSpreadInput').value) || 0;
+        const currentTsmcPx = stockPrices['2330'] || 0;
+        const baseStocksVal = stocksTotal - (currentTsmcPx * tsmc.qty);
+
+        const renderPseudo = (targetPx, navId, targetId, bpsId, valId) => {
+            if (targetPx > 0) {
+                const pseudoNav = (baseStocksVal + (targetPx * tsmc.qty) + estdvalue) / baseunit;
+                
+                // Calculate Target 0050 Selling Price (Ceil to next tick)
+                const targetRaw = pseudoNav * (1 + targetSpreadBps / 10000);
+                const tickSize  = getTickSize(targetRaw);
+                const targetPriceFixed = Math.ceil(targetRaw / tickSize) * tickSize;
+                const actualBps = ((targetPriceFixed - pseudoNav) / pseudoNav * 10000);
+
+                document.getElementById(navId).textContent = fmt(pseudoNav, 2);
+                document.getElementById(valId).textContent = fmt(targetPx, 1);
+                document.getElementById(targetId).textContent = fmt(targetPriceFixed, 2);
+                
+                const bEl = document.getElementById(bpsId);
+                bEl.textContent = fmt(actualBps, 1) + ' bps';
+                bEl.className = actualBps > 0.5 ? 'text-red-400 font-bold' 
+                               : actualBps < -0.5 ? 'text-emerald-400 font-bold' 
+                               : 'text-slate-500 font-bold';
+            }
+        };
+
+        renderPseudo(bid2330, 'pseudoBidNav', 'targetBidPx', 'actualBidBps', 'val2330Bid');
+        renderPseudo(ask2330, 'pseudoAskNav', 'targetAskPx', 'actualAskBps', 'val2330Ask');
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// Update a single stock row (targeted DOM update — no full re-render)
+// ═══════════════════════════════════════════════════════
+function updateRow(stkcd, newPx, oldPx, isUntraded = false) {
+    const priceEl  = priceEls[stkcd];
+    const changeEl = changeEls[stkcd];
+    const contribEl= contribEls[stkcd];
+    if (!priceEl) return;  // row might be filtered out
+
+    // Price display
+    if (isUntraded) {
+        priceEl.innerHTML = `<span class="text-slate-500 text-[10px] mr-1">未成交</span>${fmt(newPx, 2)}`;
+        priceEl.className = 'mono text-xs font-semibold text-slate-400';
+    } else {
+        priceEl.textContent = fmt(newPx, 2);
+        priceEl.className = 'mono text-xs font-bold text-white';
+    }
+
+    // Flash
+    if (oldPx != null && Math.abs(newPx - oldPx) > 0.001) {
+        priceEl.classList.remove('flash-up','flash-down');
+        void priceEl.offsetWidth;
+        priceEl.classList.add(newPx > oldPx ? 'flash-up' : 'flash-down');
+    }
+
+    // Change (vs previous close — same logic as existing order book page)
+    // We don't have reference price here, so just show delta from last tick
+    if (oldPx != null) {
+        const diff = newPx - oldPx;
+        if (changeEl) {
+            if (Math.abs(diff) < 0.001) {
+                changeEl.textContent = '--';
+                changeEl.className = 'text-slate-600 mono text-xs';
+            } else if (diff > 0) {
+                changeEl.textContent = `▲${fmt(diff, 2)}`;
+                changeEl.className = 'text-red-400 mono text-xs font-semibold';
+            } else {
+                changeEl.textContent = `▼${fmt(Math.abs(diff), 2)}`;
+                changeEl.className = 'text-emerald-400 mono text-xs font-semibold';
+            }
+        }
+    }
+
+    // Contribution
+    const s = composition.find(x => x.stkcd === stkcd);
+    if (s && contribEl) {
+        contribEl.textContent = fmtM(newPx * s.qty);
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// Update dot indicator for row
+// ═══════════════════════════════════════════════════════
+function updateRowDot(stkcd, hasPrice) {
+    const el = document.getElementById(`dot-${stkcd}`);
+    if (el) {
+        el.className = `dot ${hasPrice ? 'dot-green' : 'dot-grey'}`;
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// Full table render (called once after PCF load, and on search filter)
+// ═══════════════════════════════════════════════════════
+function renderTable() {
+    if (!composition.length) return;
+    // Reset DOM caches
+    priceEls = {}; changeEls = {}; contribEls = {}; rowEls = {};
+
+    // Filter
+    const q = filterText.toLowerCase();
+    const rows = q
+        ? composition.filter(s => s.name.toLowerCase().includes(q) || s.stkcd.includes(q))
+        : [...composition];
+
+    // Sort by contribution desc (use PCF qty × last known price)
+    rows.sort((a, b) => {
+        const av = (stockPrices[a.stkcd] ?? 0) * a.qty;
+        const bv = (stockPrices[b.stkcd] ?? 0) * b.qty;
+        return bv - av;
+    });
+
+    // Total for pct column
+    const totalVal = rows.reduce((s,r) => s + (stockPrices[r.stkcd] ?? 0) * r.qty, 0);
+
+    const body = document.getElementById('tableBody');
+    body.innerHTML = '';
+
+    rows.forEach((s, idx) => {
+        const px = stockPrices[s.stkcd];
+        const hasPx = px != null;
+        const contrib = hasPx ? px * s.qty : null;
+        const pctVal  = totalVal > 0 && contrib != null ? (contrib / totalVal) * 100 : null;
+        const pctStr  = pctVal != null ? fmt(pctVal, 2) + '%' : '--';
+        const barW    = pctVal != null ? Math.min(pctVal * 4, 100) : 0;
+
+        const row = document.createElement('div');
+        row.className = 'srow grid items-center px-3 py-1.5 text-sm';
+        row.style.gridTemplateColumns = '2rem 1fr 5.5rem 5.5rem 4.5rem 1fr 5rem';
+        row.id = `row-${s.stkcd}`;
+        row.innerHTML = `
+            <div class="text-slate-700 text-xs mono">${idx+1}</div>
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="dot dot-${hasPx?'green':'grey'}" id="dot-${s.stkcd}"></span>
+                <div class="min-w-0">
+                    <div class="text-white font-semibold text-xs truncate">${s.name}</div>
+                    <div class="text-slate-600 mono text-xs">${s.stkcd}</div>
+                </div>
+            </div>
+            <div class="text-right text-slate-400 mono text-xs">${fmt(s.qty, 0)}</div>
+            <div class="text-right">
+                <span id="px-${s.stkcd}" class="mono text-xs font-bold ${hasPx?'text-white':'text-slate-700'}">${hasPx ? fmt(px, 2) : '--'}</span>
+            </div>
+            <div class="text-right">
+                <span id="chg-${s.stkcd}" class="mono text-xs text-slate-600">--</span>
+            </div>
+            <div class="text-right pr-4">
+                <span id="contrib-${s.stkcd}" class="mono text-xs text-emerald-300">${contrib != null ? fmtM(contrib) : '--'}</span>
+                ${pctVal != null ? `<div class="mt-1 h-0.5 rounded overflow-hidden bg-white/5"><div class="h-full bg-emerald-500/60" style="width:${barW}%"></div></div>` : ''}
+            </div>
+            <div class="text-right text-slate-400 mono text-xs">${pctStr}</div>
+        `;
+        body.appendChild(row);
+
+        // Cache DOM refs for fast targeted updates
+        priceEls[s.stkcd]  = document.getElementById(`px-${s.stkcd}`);
+        changeEls[s.stkcd] = document.getElementById(`chg-${s.stkcd}`);
+        contribEls[s.stkcd]= document.getElementById(`contrib-${s.stkcd}`);
+        rowEls[s.stkcd]    = row;
+    });
+}
+
+// ═══════════════════════════════════════════════════════
+// WebSocket
+// ═══════════════════════════════════════════════════════
+function setWsStatus(state) {
+    const dot = document.getElementById('wsDot');
+    const lbl = document.getElementById('wsStatus');
+    if (state === 'connecting') {
+        dot.className = 'dot dot-yellow'; lbl.textContent = '連線中...';
+    } else if (state === 'live') {
+        dot.className = 'dot dot-green'; lbl.textContent = '⚡ 即時串流中';
+    } else if (state === 'error') {
+        dot.className = 'dot dot-red'; lbl.textContent = '連線錯誤';
+    } else {
+        dot.className = 'dot dot-grey'; lbl.textContent = '已斷線';
+    }
+}
+
+function updateSubCounter() {
+    const total = composition.length + 1; // +1 for 0050
+    document.getElementById('subCounter').textContent = `${subscribedSet.size}/${total} 訂閱`;
+    if (subscribedSet.size === total) setWsStatus('live');
+}
+
+function connectWS() {
+    if (ws) { try { ws.close(); } catch(_){} }
+    subscribedSet.clear();
+
+    const allSymbols = composition.map(s => s.stkcd).concat(['0050']);
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws/${allSymbols.join(',')}`; // get both books and trades
+
+    setWsStatus('connecting');
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        console.log('[0050-iNAV] WS connected, subscribed', allSymbols.length, 'symbols (trades only)');
+    };
+
+    ws.onclose = () => {
+        setWsStatus('disconnected');
+        // Auto-reconnect after 5s
+        setTimeout(() => { if (pcfData) connectWS(); }, 5000);
+    };
+
+    ws.onerror = () => setWsStatus('error');
+
+    ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+
+        if (msg.event === 'subscribed' && msg.data?.symbol) {
+            subscribedSet.add(msg.data.symbol);
+            updateSubCounter();
+        }
+
+        if (msg.event === 'data' && msg.data) {
+            const sym = msg.data.symbol;
+            if (!sym) return;
+            const channel = msg.channel;
+
+            let price = null;
+            let isCurrentTrade = false;
+
+            if (channel === 'trades') {
+                price = parseFloat(extractTradePrice(msg.data));
+                isCurrentTrade = true;
+                if (sym !== '0050') isTraded[sym] = true;
+            } else if (channel === 'books' && !isTraded[sym]) {
+                const bids = msg.data.bids || msg.data.Bids || [];
+                const asks = msg.data.asks || msg.data.Asks || [];
+                if (bids.length > 0 && asks.length > 0) {
+                    const bp = parseFloat(bids[0].price);
+                    const ap = parseFloat(asks[0].price);
+                    if (!isNaN(bp) && !isNaN(ap)) {
+                        price = (bp + ap) / 2;
+                    }
+                }
+            }
+
+            // Always track 2330's Bid/Ask regardless of trade status for Pseudo calculation
+            if (sym === '2330' && channel === 'books') {
+                const bids = msg.data.bids || msg.data.Bids || [];
+                const asks = msg.data.asks || msg.data.Asks || [];
+                if (bids.length > 0) bid2330 = parseFloat(bids[0].price);
+                if (asks.length > 0) ask2330 = parseFloat(asks[0].price);
+            }
+
+            if (price === null || isNaN(price)) return;
+
+            if (sym === '0050') {
+                const oldPx = etf0050Price;
+                etf0050Price = price;
+                const el = document.getElementById('etfPriceDisplay');
+                if (el) {
+                    el.textContent = fmt(price, 2) + ' 元';
+                    if (oldPx != null) {
+                        el.className = price > oldPx ? 'text-red-400 font-bold mono text-base'
+                                     : price < oldPx ? 'text-emerald-400 font-bold mono text-base'
+                                     : 'text-white font-bold mono text-base';
+                    }
+                }
+            } else {
+                const oldPx = stockPrices[sym];
+                stockPrices[sym] = price;
+                updateRow(sym, price, oldPx, !isTraded[sym]);
+                updateRowDot(sym, true);
+            }
+
+            renderNAV();
+        }
+    };
+}
+
+// ═══════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════
+async function init() {
+    const icon = document.getElementById('refreshIcon');
+    icon.classList.add('spin');
+    document.getElementById('refreshBtn').disabled = true;
+    setWsStatus('connecting');
+
+    try {
+        // 1. 抓取 PCF
+        pcfData = await fetchPCF();
+        const pcf = pcfData.PCF;
+        composition = pcfData.InKind?.FundComposition || [];
+        estdvalue   = pcf.estdvalue  || 0;
+        baseunit    = pcf.baseunit   || 500000;
+
+        // 2. 抓取初始價格 (REST) - 解決 WebSocket 沒資料的問題
+        const symbols = composition.map(s => s.stkcd).concat(['0050']).join(',');
+        try {
+            const quoteRes = await fetch(`/api/stock-quotes?symbols=${symbols}`);
+            const initialData = await quoteRes.json();
+            
+            composition.forEach(s => {
+                const q = initialData[s.stkcd];
+                if (q) {
+                    stockPrices[s.stkcd] = q.price;
+                    stockPrevCloses[s.stkcd] = q.prev;
+                    isTraded[s.stkcd] = false; 
+                } else {
+                    stockPrices[s.stkcd] = null;
+                    stockPrevCloses[s.stkcd] = null;
+                }
+            });
+            if (initialData['0050']) etf0050Price = initialData['0050'].price;
+        } catch (err) {
+            console.error("Failed to fetch initial prices:", err);
+        }
+
+        // PCF info panel
+        const td = pcf.trandate || '';
+        document.getElementById('infoDate').textContent  = td ? `${td.slice(0,4)}/${td.slice(4,6)}/${td.slice(6,8)}` : '--';
+        document.getElementById('infoPcfNav').textContent= pcf.nav != null ? fmt(pcf.nav, 2) + ' 元' : '--';
+        document.getElementById('totalStocks').textContent = composition.length;
+        document.getElementById('cashDiffVal').textContent = fmtM(estdvalue);
+        document.getElementById('baseUnitVal').textContent = fmt(baseunit, 0) + ' 股';
+
+        // Remove skeleton & render table
+        document.getElementById('skelWrap')?.remove();
+        renderTable();
+        renderNAV(); // 立即計算一次
+
+        // 3. Connect WebSocket for live prices
+        connectWS();
+
+    } catch(e) {
+        console.error(e);
+        setWsStatus('error');
+        document.getElementById('wsStatus').textContent = '❌ 載入失敗：' + e.message;
+    } finally {
+        icon.classList.remove('spin');
+        document.getElementById('refreshBtn').disabled = false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// Events
+// ═══════════════════════════════════════════════════════
+document.getElementById('refreshBtn').addEventListener('click', () => {
+    stockPrices = {}; etf0050Price = null; subscribedSet.clear();
+    init();
+});
+
+document.getElementById('searchInput').addEventListener('input', e => {
+    filterText = e.target.value.trim();
+    renderTable();
+    // Re-bind DOM refs after table re-render
+    composition.forEach(s => {
+        priceEls[s.stkcd]  = document.getElementById(`px-${s.stkcd}`);
+        changeEls[s.stkcd] = document.getElementById(`chg-${s.stkcd}`);
+        contribEls[s.stkcd]= document.getElementById(`contrib-${s.stkcd}`);
+    });
+});
+
+// Start
+init();
+</script>
+</body>
+</html>
