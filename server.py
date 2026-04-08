@@ -278,16 +278,11 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
         
         fut_kwargs = {"type": "afterHours"} if night else {}
         
-        ev_loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            fut_task = ev_loop.run_in_executor(pool, lambda: fut_client.intraday.quote(symbol=futures_symbol, **fut_kwargs))
-            if night:
-                # Stock market does not have afterHours quote, but we can fetch it. It just returns last close.
-                spot_task = ev_loop.run_in_executor(pool, lambda: stock_client.intraday.quote(symbol='IX0001'))
-            else:
-                spot_task = ev_loop.run_in_executor(pool, lambda: stock_client.intraday.quote(symbol='IX0001'))
-                
-            futures_quote, spot_quote = await asyncio.gather(fut_task, spot_task, return_exceptions=True)
+        ev_loop = asyncio.get_running_loop()
+        fut_task = ev_loop.run_in_executor(None, lambda: fut_client.intraday.quote(symbol=futures_symbol, **fut_kwargs))
+        spot_task = ev_loop.run_in_executor(None, lambda: stock_client.intraday.quote(symbol='IX0001'))
+            
+        futures_quote, spot_quote = await asyncio.gather(fut_task, spot_task, return_exceptions=True)
         
         if isinstance(futures_quote, Exception):
             return {"error": f"Cannot fetch futures: {futures_quote}"}
@@ -327,7 +322,7 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
             days_to_wed = (2 - weekday) % 7
             if days_to_wed == 0:
                 # Today is Wednesday — if past 13:30 settlement, use next week
-                if now.hour >= 14:
+                if now.hour > 13 or (now.hour == 13 and now.minute >= 30):
                     days_to_wed = 7
             
             expiry_date = today + timedelta(days=days_to_wed)
@@ -410,13 +405,12 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
                 return (opt_type, strike, symbol, {})
         
         results = {}
-        ev_loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            tasks = [
-                ev_loop.run_in_executor(pool, fetch_one, ot, st, sy)
-                for ot, st, sy in symbols_to_fetch
-            ]
-            completed = await asyncio.gather(*tasks, return_exceptions=True)
+        ev_loop = asyncio.get_running_loop()
+        tasks = [
+            ev_loop.run_in_executor(None, fetch_one, ot, st, sy)
+            for ot, st, sy in symbols_to_fetch
+        ]
+        completed = await asyncio.gather(*tasks, return_exceptions=True)
         
         for item in completed:
             if isinstance(item, Exception):
@@ -494,7 +488,7 @@ async def get_etf0050_pcf():
         f"&Device=3&Platform=ETF&ticker=0050&ndate="
     )
     try:
-        ev_loop = asyncio.get_event_loop()
+        ev_loop = asyncio.get_running_loop()
         res = await ev_loop.run_in_executor(None, lambda: requests.get(
             url,
             headers={
@@ -519,7 +513,7 @@ async def get_stock_quotes(symbols: str):
         return {}
 
     try:
-        ev_loop = asyncio.get_event_loop()
+        ev_loop = asyncio.get_running_loop()
 
         def fetch_twse_all():
             r = requests.get(
@@ -564,9 +558,8 @@ async def get_stock_quotes(symbols: str):
                 except Exception:
                     return (sym, None)
 
-            with ThreadPoolExecutor(max_workers=10) as pool:
-                tasks = [ev_loop.run_in_executor(pool, fetch_one, sym) for sym in missing]
-                fallback_results = await asyncio.gather(*tasks, return_exceptions=True)
+            tasks = [ev_loop.run_in_executor(None, fetch_one, sym) for sym in missing]
+            fallback_results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for item in fallback_results:
                 if isinstance(item, Exception): continue
@@ -588,10 +581,9 @@ async def get_stock_quotes(symbols: str):
             except Exception:
                 return (sym, None)
 
-        ev_loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            tasks = [ev_loop.run_in_executor(pool, fetch_one_sdk, sym) for sym in symbol_list]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        ev_loop = asyncio.get_running_loop()
+        tasks = [ev_loop.run_in_executor(None, fetch_one_sdk, sym) for sym in symbol_list]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         quotes = {}
         for item in results:
