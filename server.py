@@ -775,5 +775,9 @@ async def get_stock_quotes(symbols: str):
 
 if __name__ == "__main__":
     import uvicorn
+    import webbrowser
+    from threading import Timer
+    
     print("Starting Web Server at http://127.0.0.1:8000")
+    Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:8000/etf0050")).start()
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
