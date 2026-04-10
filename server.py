@@ -2,6 +2,9 @@ import os
 import time
 import json
 import asyncio
+import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -598,8 +601,8 @@ async def get_etf_pcf(ticker: str):
             }
             ev_loop = asyncio.get_running_loop()
             res_list, res_meta = await asyncio.gather(
-                ev_loop.run_in_executor(None, lambda: requests.get(url_list, headers=h, timeout=10)),
-                ev_loop.run_in_executor(None, lambda: requests.get(url_meta, headers=h, timeout=10))
+                ev_loop.run_in_executor(None, lambda: requests.get(url_list, headers=h, timeout=10, verify=False)),
+                ev_loop.run_in_executor(None, lambda: requests.get(url_meta, headers=h, timeout=10, verify=False))
             )
             data = res_list.json()
             meta = res_meta.json().get("result", {})
@@ -628,6 +631,7 @@ async def get_etf_pcf(ticker: str):
                 pcf_cache[ticker] = {"date": today_str, "data": res_data}
                 return res_data
         except Exception as e:
+            print(f"00922 Cathay API Scraper Error: {e}")
             pass
 
     # For any failures, try loading static JSON
