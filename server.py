@@ -540,23 +540,53 @@ async def get_etf_pcf(ticker: str):
             # Scrape futures for 006208
             if tables:
                 tx_qty = 0
+                futures_symbol = "TXFR1"
+                futures_name = "台指期"
                 for tr in tables[0].find_all("tr"):
-                    cols = tr.find_all("td")
-                    if len(cols) >= 5 and "期貨" in cols[1].text:
+                    cols = [c.text.strip() for c in tr.find_all("td")]
+                    if len(cols) >= 5 and "期貨" in cols[1]:
+                        import re
+                        m = re.search(r"(\d{4})/(\d{2})", cols[1])
+                        if m:
+                            y = m.group(1)[-1]
+                            mo = int(m.group(2))
+                            month_letter = chr(ord("A") + mo - 1)
+                            futures_symbol = f"TXF{month_letter}{y}"
+                            futures_name = f"{m.group(1)}/{m.group(2)} 台指期"
                         try:
-                            tx_qty += float(cols[2].text.strip().replace(",", ""))
+                            tx_qty += float(cols[2].replace(",", ""))
                         except:
                             pass
                 if tx_qty > 0:
-                    comp.append({"stkcd": "TXFR1", "name": "台指期", "qty": tx_qty * 200})
+                    comp.append({"stkcd": futures_symbol, "name": futures_name, "qty": tx_qty * 200})
+
+            # Extract units, nav, cash
+            units = 1
+            nav_val = 0
+            for d in soup.find_all(["div", "span", "td"]):
+                if "基金在外流通單位數(單位)" in d.text:
+                    try:
+                        parts = d.text.split("基金在外流通單位數(單位)")
+                        units = float(parts[1].split()[0].replace(",", ""))
+                        nav_val = float(parts[1].split("基金每單位淨值(新台幣)")[1].strip().split()[0].replace(",", ""))
+                    except: pass
+            
+            cash_val = 0
+            if len(tables) > 2:
+                for tr in tables[2].find_all("tr"):
+                    cols = tr.find_all("td")
+                    if len(cols) >= 2:
+                        try: cash_val += float(cols[1].text.strip().replace(",", ""))
+                        except: pass
 
             res_data = {
-                "PCF": {"estdvalue": 0, "baseunit": 1, "is_total_fund": True},
+                "PCF": {"estdvalue": cash_val, "baseunit": units or 1, "is_total_fund": False, "nav": nav_val},
                 "InKind": {"FundComposition": comp}
             }
             pcf_cache[ticker] = {"date": today_str, "data": res_data}
             return res_data
         except Exception as e:
+            print("Fubon scraper error:", e)
             # Fallback to local json if scraper fails
             pass
 
@@ -565,8 +595,9 @@ async def get_etf_pcf(ticker: str):
         try:
             from datetime import datetime
             today_str = datetime.now().strftime("%Y-%m-%d")
-            url_list = f"https://cwapi.cathaysite.com.tw/api/ETF/GetETFDetailStockList?FundCode=DO&SearchDate={today_str}"
-            url_meta = f"https://cwapi.cathaysite.com.tw/api/BuySale/GetBuySale?FundCode=DO&SearchDate={today_str}&IsTest=false"
+            today_str_slash = datetime.now().strftime("%Y/%m/%d")
+            url_list = f"https://cwapi.cathaysite.com.tw/api/BuySale/GetStocksList?FundCode=DO&SearchDate={today_str_slash}&IsTest=false"
+            url_meta = f"https://cwapi.cathaysite.com.tw/api/BuySale/GetBuySale?FundCode=DO&SearchDate={today_str_slash}&IsTest=false"
             h = {
                 "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiI0MzI1ODU2IiwidW5pcXVlX25hbWUiOiIiLCJyb2xlIjoiMCIsIkVDSUQiOiIwIiwiU2Vzc2lvbklkIjoiIiwibmJmIjoxNzc1NzIzMzcxLCJleHAiOjE4MzU3MjMzMTEsImlhdCI6MTc3NTcyMzM3MX0.ZpnvUeyN5mmjWZ8lrSRaOEirbr0pu4N3YEmI3wbCZlg",
                 "Origin": "https://www.cathaysite.com.tw",
@@ -582,22 +613,24 @@ async def get_etf_pcf(ticker: str):
             meta = res_meta.json().get("result", {})
             try:
                 estdvalue = float(meta.get("bm", "0").replace(",", ""))
+                basket_unit = float(meta.get("basketUnit", "500000").replace(",", ""))
             except:
                 estdvalue = 0
+                basket_unit = 500000
 
             comp = []
             for item in data.get("result", []):
-                stkcd = item.get("stockCode")
-                name = item.get("stockName")
+                stkcd = item.get("prod")
+                name = item.get("prodName")
                 try:
-                    qty = float(item.get("volumn", "0").replace(",", ""))
+                    qty = float(item.get("basketShares", "0").replace(",", ""))
                     if stkcd and name:
                         comp.append({"stkcd": stkcd, "name": name, "qty": qty})
                 except:
                     pass
             if comp:
                 res_data = {
-                    "PCF": {"estdvalue": estdvalue, "baseunit": 1, "is_total_fund": True},
+                    "PCF": {"estdvalue": estdvalue, "baseunit": basket_unit, "is_total_fund": False},
                     "InKind": {"FundComposition": comp}
                 }
                 pcf_cache[ticker] = {"date": today_str, "data": res_data}
@@ -691,7 +724,9 @@ async def get_stock_quotes(symbols: str):
 
         def fetch_one_sdk(sym):
             try:
-                q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
+                is_futopt = sym[0].isalpha() and sym != "IX0001"
+                client = sdk.marketdata.rest_client.futopt if is_futopt else sdk.marketdata.rest_client.stock
+                q = client.intraday.quote(symbol=sym)
                 price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
                 prev  = q.get("previousClose") or price
                 return (sym, {"price": float(price), "prev": float(prev)} if price else None)
