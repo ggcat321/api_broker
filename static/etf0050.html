@@ -123,17 +123,24 @@
 </head>
 <body class="pt-8 pb-20 px-4">
 
-<!-- ── Header ────────────────────── -->
 <div class="max-w-5xl mx-auto mb-7 flex flex-wrap items-center justify-between gap-4">
     <div>
-        <h1 class="text-3xl font-black tracking-tight g-cyan">0050 即時估算淨值</h1>
-        <p class="text-slate-500 text-sm mt-0.5">元大台灣卓越50 · Real-time iNAV via WebSocket</p>
+        <h1 class="text-3xl font-black tracking-tight g-cyan" id="pageTitle">0050 即時估算淨值</h1>
+        <p class="text-slate-500 text-sm mt-0.5" id="pageSubtitle">元大台灣卓越50 · Real-time iNAV via WebSocket</p>
     </div>
     <div class="flex items-center gap-2 flex-wrap">
         <a href="/" class="nav-a">📊 Order Book</a>
         <a href="/options" class="nav-a">📈 選擇權看板</a>
-        <a href="/etf0050" class="nav-a active">💹 0050 iNAV</a>
+        <a href="/etf0050" class="nav-a active">💹 即時 iNAV</a>
     </div>
+</div>
+
+<!-- ETF Selector -->
+<div class="max-w-5xl mx-auto mb-5 flex items-center gap-3 border-b border-white/10 pb-4">
+    <span class="text-slate-400 text-xs font-bold uppercase tracking-widest">切換標的</span>
+    <button onclick="switchETF('0050', '元大台灣卓越50')" id="btn-0050" class="nav-a active">0050 元大</button>
+    <button onclick="switchETF('006208', '富邦台50')" id="btn-006208" class="nav-a">006208 富邦</button>
+    <button onclick="switchETF('00922', '國泰台灣領袖50')" id="btn-00922" class="nav-a">00922 國泰</button>
 </div>
 
 <div class="max-w-5xl mx-auto space-y-5">
@@ -168,9 +175,9 @@
             <div id="navDisplay" class="text-7xl font-black mono g-green leading-none">--</div>
             <div class="text-slate-500 text-sm mt-1.5">元 / 單位</div>
 
-            <!-- 0050 market price & premium -->
+            <!-- ETF market price & premium -->
             <div class="flex items-center justify-center gap-3 mt-3">
-                <span class="text-slate-500 text-sm">0050 市價</span>
+                <span class="text-slate-500 text-sm"><span id="etfSymbolLabel">0050</span> 市價</span>
                 <span id="etfPriceDisplay" class="text-white font-bold mono text-base">--</span>
                 <span id="premiumBadge" class="badge badge-yellow hidden">--</span>
             </div>
@@ -357,6 +364,8 @@
 // ═══════════════════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════════════════
+let activeTicker  = '0050';
+let activeTickerName = '元大台灣卓越50';
 let pcfData       = null;
 let composition   = [];       // [{stkcd, name, qty, ename}]
 let estdvalue     = 0;
@@ -364,7 +373,7 @@ let baseunit      = 500000;
 let stockPrices   = {};       // stkcd -> current price
 let stockPrevCloses = {};     // stkcd -> yesterday's close (from REST)
 let stockPrevPx   = {};       // stkcd -> previous tick price (for flash)
-let etf0050Price  = null;
+let etfPrice      = null;
 let bid2330       = null;
 let ask2330       = null;
 let ws            = null;
@@ -405,7 +414,7 @@ function extractTradePrice(d) {
 // Fetch PCF (REST, once at startup)
 // ═══════════════════════════════════════════════════════
 async function fetchPCF() {
-    const r = await fetch('/api/etf0050-pcf');
+    const r = await fetch(`/api/etf-pcf/${activeTicker}`);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     return d;
@@ -467,9 +476,9 @@ function renderNAV() {
     document.getElementById('strongCount').textContent = strongCount;
 
     // Premium
-    if (etf0050Price != null && nav > 0) {
+    if (etfPrice != null && nav > 0) {
         const b = document.getElementById('premiumBadge');
-        const premBps = ((etf0050Price - nav) / nav * 10000); // 1% = 100bps
+        const premBps = ((etfPrice - nav) / nav * 10000); // 1% = 100bps
         b.classList.remove('hidden');
         if (premBps > 0.5) {
             b.textContent = `溢價 +${fmt(premBps, 1)} bps`;
@@ -485,7 +494,7 @@ function renderNAV() {
 
     // Pseudo iNAV (TSMC Focus)
     const tsmc = composition.find(s => s.stkcd === '2330');
-    if (tsmc && nav > 0 && etf0050Price > 0) {
+    if (tsmc && nav > 0 && etfPrice > 0) {
         const targetSpreadBps = parseFloat(document.getElementById('targetSpreadInput').value) || 0;
         const currentTsmcPx = stockPrices['2330'] || 0;
         const baseStocksVal = stocksTotal - (currentTsmcPx * tsmc.qty);
@@ -666,7 +675,7 @@ function setWsStatus(state) {
 }
 
 function updateSubCounter() {
-    const total = composition.length + 1; // +1 for 0050
+    const total = composition.length + 1; // +1 for ETF itself
     document.getElementById('subCounter').textContent = `${subscribedSet.size}/${total} 訂閱`;
     if (subscribedSet.size === total) setWsStatus('live');
 }
@@ -675,7 +684,7 @@ function connectWS() {
     if (ws) { try { ws.close(); } catch(_){} }
     subscribedSet.clear();
 
-    const allSymbols = composition.map(s => s.stkcd).concat(['0050']);
+    const allSymbols = composition.map(s => s.stkcd).concat([activeTicker]);
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws/${allSymbols.join(',')}`; // get both books and trades
 
@@ -683,7 +692,7 @@ function connectWS() {
     ws = new WebSocket(url);
 
     ws.onopen = () => {
-        console.log('[0050-iNAV] WS connected, subscribed', allSymbols.length, 'symbols (trades only)');
+        console.log(`[${activeTicker}-iNAV] WS connected, subscribed`, allSymbols.length, 'symbols (trades only)');
     };
 
     ws.onclose = () => {
@@ -714,7 +723,7 @@ function connectWS() {
             if (channel === 'trades') {
                 price = parseFloat(extractTradePrice(msg.data));
                 isCurrentTrade = true;
-                if (sym !== '0050') isTraded[sym] = true;
+                if (sym !== activeTicker) isTraded[sym] = true;
             } else if (channel === 'books' && !isTraded[sym]) {
                 const bids = msg.data.bids || msg.data.Bids || [];
                 const asks = msg.data.asks || msg.data.Asks || [];
@@ -737,9 +746,9 @@ function connectWS() {
 
             if (price === null || isNaN(price)) return;
 
-            if (sym === '0050') {
-                const oldPx = etf0050Price;
-                etf0050Price = price;
+            if (sym === activeTicker) {
+                const oldPx = etfPrice;
+                etfPrice = price;
                 const el = document.getElementById('etfPriceDisplay');
                 if (el) {
                     el.textContent = fmt(price, 2) + ' 元';
@@ -769,57 +778,95 @@ async function init() {
     icon.classList.add('spin');
     document.getElementById('refreshBtn').disabled = true;
     setWsStatus('connecting');
+    
+    // reset DOM state
+    document.getElementById('tableBody').innerHTML = `<div id="skelWrap" class="space-y-1.5 pt-1"><div class="skel h-9 w-full"></div><div class="skel h-9 w-full"></div></div>`;
+    document.getElementById('navDisplay').textContent = '--';
+    document.getElementById('totalStocks').textContent = '--';
+    document.getElementById('etfSymbolLabel').textContent = activeTicker;
+
+    document.querySelectorAll('.nav-a').forEach(btn => {
+        if(btn.id && btn.id.startsWith('btn-')) btn.classList.remove('active');
+    });
+    const tb = document.getElementById(`btn-${activeTicker}`);
+    if(tb) tb.classList.add('active');
+    
+    document.getElementById('pageTitle').textContent = `${activeTicker} 即時估算淨值`;
+    document.getElementById('pageSubtitle').textContent = `${activeTickerName} · Real-time iNAV via WebSocket`;
 
     try {
-        // 1. 抓取 PCF
+        // 1. Fetch PCF
         pcfData = await fetchPCF();
-        const pcf = pcfData.PCF;
+        if (pcfData.error) throw new Error(pcfData.error);
+        const pcf = pcfData.PCF || {};
         composition = pcfData.InKind?.FundComposition || [];
-        estdvalue   = pcf.estdvalue  || 0;
-        baseunit    = pcf.baseunit   || 500000;
+        
+        let dynamic_baseunit = false;
+        if (pcf && pcf.is_total_fund) {
+            estdvalue = pcf.estdvalue || 0;
+            dynamic_baseunit = true;
+        } else {
+            estdvalue   = pcf?.estdvalue  || 0;
+            baseunit    = pcf?.baseunit   || 500000;
+        }
 
-        // 2. 抓取初始價格 (REST) - 解決 WebSocket 沒資料的問題
-        const symbols = composition.map(s => s.stkcd).concat(['0050']).join(',');
+        // 2. Fetch Initial Prices
+        const symbols = composition.map(s => s.stkcd).concat([activeTicker]).join(',');
         try {
             const quoteRes = await fetch(`/api/stock-quotes?symbols=${symbols}`);
             const initialData = await quoteRes.json();
             
+            let totalHoldingsVal = 0;
             composition.forEach(s => {
                 const q = initialData[s.stkcd];
                 if (q) {
                     stockPrices[s.stkcd] = q.price;
                     stockPrevCloses[s.stkcd] = q.prev;
                     isTraded[s.stkcd] = false; 
+                    totalHoldingsVal += (q.prev || q.price) * s.qty;
                 } else {
                     stockPrices[s.stkcd] = null;
                     stockPrevCloses[s.stkcd] = null;
                 }
             });
-            if (initialData['0050']) etf0050Price = initialData['0050'].price;
+            if (initialData[activeTicker]) {
+                etfPrice = initialData[activeTicker].price;
+                const etfPrev = initialData[activeTicker].prev;
+                if (dynamic_baseunit && totalHoldingsVal > 0 && etfPrev > 0) {
+                    baseunit = totalHoldingsVal / etfPrev;
+                }
+            } else {
+                 etfPrice = null;
+            }
         } catch (err) {
             console.error("Failed to fetch initial prices:", err);
         }
 
-        // PCF info panel
-        const td = pcf.trandate || '';
+        // Setup Info
+        document.getElementById('totalStocks').textContent = composition.length;
+        document.getElementById('baseUnitVal').textContent = dynamic_baseunit ? '動態精算' : fmt(baseunit, 0) + ' 股';
+        document.getElementById('cashDiffVal').textContent = fmtM(estdvalue);
+        
+        const td = pcf.trandate || pcf.ndate || '';
         document.getElementById('infoDate').textContent  = td ? `${td.slice(0,4)}/${td.slice(4,6)}/${td.slice(6,8)}` : '--';
         document.getElementById('infoPcfNav').textContent= pcf.nav != null ? fmt(pcf.nav, 2) + ' 元' : '--';
-        document.getElementById('totalStocks').textContent = composition.length;
-        document.getElementById('cashDiffVal').textContent = fmtM(estdvalue);
-        document.getElementById('baseUnitVal').textContent = fmt(baseunit, 0) + ' 股';
 
-        // Remove skeleton & render table
+        // Render init
         document.getElementById('skelWrap')?.remove();
         renderTable();
-        renderNAV(); // 立即計算一次
+        renderNAV();
 
-        // 3. Connect WebSocket for live prices
+        // 3. Connect WebSocket
         connectWS();
 
-    } catch(e) {
-        console.error(e);
+    } catch (e) {
+        console.error("Initialization error:", e);
+        if (e.message.includes('Local PCF file')) {
+            alert('後端未找到 ' + activeTicker + ' 的資料！請建立 ' + activeTicker + '.json 設定檔。');
+        } else {
+            alert('初始化失敗：' + e.message);
+        }
         setWsStatus('error');
-        document.getElementById('wsStatus').textContent = '❌ 載入失敗：' + e.message;
     } finally {
         icon.classList.remove('spin');
         document.getElementById('refreshBtn').disabled = false;
@@ -827,10 +874,24 @@ async function init() {
 }
 
 // ═══════════════════════════════════════════════════════
+// Change ETF target
+// ═══════════════════════════════════════════════════════
+function switchETF(ticker, name) {
+    if (activeTicker === ticker) return;
+    activeTicker = ticker;
+    activeTickerName = name;
+    
+    // Clear global data
+    stockPrices = {}; etfPrice = null; subscribedSet.clear(); composition = [];
+    if (ws) { try { ws.close(); } catch(e){} }
+    init();
+}
+
+// ═══════════════════════════════════════════════════════
 // Events
 // ═══════════════════════════════════════════════════════
 document.getElementById('refreshBtn').addEventListener('click', () => {
-    stockPrices = {}; etf0050Price = null; subscribedSet.clear();
+    stockPrices = {}; etfPrice = null; subscribedSet.clear();
     init();
 });
 

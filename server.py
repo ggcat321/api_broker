@@ -476,31 +476,112 @@ async def get_etf0050():
     with open(os.path.join(BASE_DIR, "static", "etf0050.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
-@app.get("/api/etf0050-pcf")
-async def get_etf0050_pcf():
-    """Proxy endpoint to fetch 0050 PCF data from Yuanta ETF API."""
-    import uuid
-    device_id = str(uuid.uuid4())
-    url = (
-        f"https://etfapi.yuantaetfs.com/ectranslation/api/bridge"
-        f"?APIType=ETFAPI&CompanyName=YUANTAFUNDS&PageName=%2F"
-        f"&DeviceId={device_id}&FuncId=PCF%2FDaily&AppName=ETF"
-        f"&Device=3&Platform=ETF&ticker=0050&ndate="
-    )
-    try:
-        ev_loop = asyncio.get_running_loop()
-        res = await ev_loop.run_in_executor(None, lambda: requests.get(
-            url,
-            headers={
-                "Referer": "https://www.yuantaetfs.com/",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                "Accept": "application/json, text/plain, */*",
-            },
-            timeout=10
-        ))
-        return res.json()
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/api/etf-pcf/{ticker}")
+async def get_etf_pcf(ticker: str):
+    """Proxy endpoint to fetch PCF data for different ETFs."""
+    if ticker == "0050":
+        import uuid
+        device_id = str(uuid.uuid4())
+        url = (
+            f"https://etfapi.yuantaetfs.com/ectranslation/api/bridge"
+            f"?APIType=ETFAPI&CompanyName=YUANTAFUNDS&PageName=%2F"
+            f"&DeviceId={device_id}&FuncId=PCF%2FDaily&AppName=ETF"
+            f"&Device=3&Platform=ETF&ticker=0050&ndate="
+        )
+        try:
+            ev_loop = asyncio.get_running_loop()
+            res = await ev_loop.run_in_executor(None, lambda: requests.get(
+                url,
+                headers={
+                    "Referer": "https://www.yuantaetfs.com/",
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+                    "Accept": "application/json",
+                },
+                timeout=10
+            ))
+            return res.json()
+        except Exception as e:
+            return {"error": str(e)}
+
+    elif ticker == "006208":
+        # Scrape Fubon Assets
+        try:
+            from bs4 import BeautifulSoup
+            url = "https://websys.fsit.com.tw/FubonETF/Fund/Assets.aspx?stkId=006208"
+            ev_loop = asyncio.get_running_loop()
+            res = await ev_loop.run_in_executor(None, lambda: requests.get(
+                url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10
+            ))
+            soup = BeautifulSoup(res.text, "html.parser")
+            tables = soup.find_all("table")
+            table = tables[1] if len(tables) > 1 else None
+            comp = []
+            if table:
+                for tr in table.find_all("tr")[1:]:
+                    cols = tr.find_all("td")
+                    if len(cols) >= 5:
+                        stkcd = cols[0].text.strip()
+                        name = cols[1].text.strip()
+                        if not stkcd: continue
+                        try:
+                            # Use total constituent shares as qty
+                            qty = float(cols[2].text.strip().replace(",", ""))
+                            comp.append({"stkcd": stkcd, "name": name, "qty": qty})
+                        except:
+                            pass
+            return {
+                "PCF": {"estdvalue": 0, "baseunit": 1, "is_total_fund": True},
+                "InKind": {"FundComposition": comp}
+            }
+        except Exception as e:
+            # Fallback to local json if scraper fails
+            pass
+
+    elif ticker == "00922":
+        # Scrape Cathay API
+        try:
+            # Construct yesterday's date or today's date
+            from datetime import datetime
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            url = f"https://cwapi.cathaysite.com.tw/api/ETF/GetETFDetailStockList?FundCode=DO&SearchDate={today_str}"
+            h = {
+                "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiI0MzI1ODU2IiwidW5pcXVlX25hbWUiOiIiLCJyb2xlIjoiMCIsIkVDSUQiOiIwIiwiU2Vzc2lvbklkIjoiIiwibmJmIjoxNzc1NzIzMzcxLCJleHAiOjE4MzU3MjMzMTEsImlhdCI6MTc3NTcyMzM3MX0.ZpnvUeyN5mmjWZ8lrSRaOEirbr0pu4N3YEmI3wbCZlg",
+                "Origin": "https://www.cathaysite.com.tw",
+                "Referer": "https://www.cathaysite.com.tw/",
+                "User-Agent": "Mozilla/5.0"
+            }
+            ev_loop = asyncio.get_running_loop()
+            res = await ev_loop.run_in_executor(None, lambda: requests.get(url, headers=h, timeout=10))
+            data = res.json()
+            comp = []
+            for item in data.get("result", []):
+                stkcd = item.get("stockCode")
+                name = item.get("stockName")
+                try:
+                    qty = float(item.get("volumn", "0").replace(",", ""))
+                    if stkcd and name:
+                        comp.append({"stkcd": stkcd, "name": name, "qty": qty})
+                except:
+                    pass
+            if comp:
+                return {
+                    "PCF": {"estdvalue": 0, "baseunit": 1, "is_total_fund": True},
+                    "InKind": {"FundComposition": comp}
+                }
+        except Exception as e:
+            pass
+
+    # For any failures, try loading static JSON
+    path = os.path.join(BASE_DIR, f"{ticker}.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            return {"error": f"Failed to read {ticker}.json: {str(e)}"}
+    
+    return {"error": f"Local PCF file {ticker}.json not found and no scraper available. Please create {ticker}.json manually."}
+
 
 @app.get("/api/stock-quotes")
 async def get_stock_quotes(symbols: str):

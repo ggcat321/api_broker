@@ -1,0 +1,14 @@
+{
+  "PCF": {
+    "estdvalue": 0,
+    "baseunit": 1,
+    "is_total_fund": true
+  },
+  "InKind": {
+    "FundComposition": [
+      {"stkcd": "2330", "name": "台積電", "qty": 100000},
+      {"stkcd": "2454", "name": "聯發科", "qty": 10000},
+      {"stkcd": "2317", "name": "鴻海", "qty": 50000}
+    ]
+  }
+}
