@@ -770,16 +770,6 @@ function connectGlobalWS() {
                 price = parseFloat(extractTradePrice(msg.data));
                 isCurrentTrade = true;
                 if (!TICKERS.includes(sym)) isTraded[sym] = true;
-            } else if (channel === 'books' && !isTraded[sym]) {
-                const bids = msg.data.bids || msg.data.Bids || [];
-                const asks = msg.data.asks || msg.data.Asks || [];
-                if (bids.length > 0 && asks.length > 0) {
-                    const bp = parseFloat(bids[0].price);
-                    const ap = parseFloat(asks[0].price);
-                    if (!isNaN(bp) && !isNaN(ap)) {
-                        price = (bp + ap) / 2;
-                    }
-                }
             }
 
             if (sym === '2330' && channel === 'books') {
@@ -799,9 +789,9 @@ function connectGlobalWS() {
                     if (el) {
                         el.textContent = fmt(price, 2) + ' 元';
                         if (oldPx != null) {
-                            el.className = price > oldPx ? 'text-red-400 font-bold mono text-base'
-                                         : price < oldPx ? 'text-emerald-400 font-bold mono text-base'
-                                         : 'text-white font-bold mono text-base';
+                            el.className = price > oldPx ? 'text-red-400 font-bold mono'
+                                         : price < oldPx ? 'text-emerald-400 font-bold mono'
+                                         : 'text-blue-400 font-bold mono';
                         }
                     }
                 }
