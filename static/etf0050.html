@@ -830,8 +830,9 @@ function renderSpecificETF(ticker, name) {
 
     etfPrice = stockPrices[activeTicker];
     const etfPrev = stockPrevCloses[activeTicker];
-    if (dynamic_baseunit && totalHoldingsVal > 0 && etfPrev > 0) {
-        baseunit = totalHoldingsVal / etfPrev;
+    const effectivePrev = pcf.nav && pcf.nav > 0 ? pcf.nav : etfPrev;
+    if (dynamic_baseunit && totalHoldingsVal > 0 && effectivePrev > 0) {
+        baseunit = totalHoldingsVal / effectivePrev;
     }
 
     // Setup Info

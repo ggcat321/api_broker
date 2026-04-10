@@ -570,17 +570,9 @@ async def get_etf_pcf(ticker: str):
                         units = float(parts[1].split()[0].replace(",", ""))
                         nav_val = float(parts[1].split("基金每單位淨值(新台幣)")[1].strip().split()[0].replace(",", ""))
                     except: pass
-            
-            cash_val = 0
-            if len(tables) > 2:
-                for tr in tables[2].find_all("tr"):
-                    cols = tr.find_all("td")
-                    if len(cols) >= 2:
-                        try: cash_val += float(cols[1].text.strip().replace(",", ""))
-                        except: pass
 
             res_data = {
-                "PCF": {"estdvalue": cash_val, "baseunit": units or 1, "is_total_fund": False, "nav": nav_val},
+                "PCF": {"estdvalue": 0, "baseunit": units or 1, "is_total_fund": False, "nav": nav_val},
                 "InKind": {"FundComposition": comp}
             }
             pcf_cache[ticker] = {"date": today_str, "data": res_data}
