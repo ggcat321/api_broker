@@ -658,34 +658,67 @@ async def get_stock_quotes(symbols: str):
 
     try:
         ev_loop = asyncio.get_running_loop()
+        
+        # 1. Fetch the main ETFs instantly via Fubon SDK for live accuracy
+        etfs_to_fetch = [s for s in symbol_list if s in ["0050", "006208", "00922"]]
+        remaining_symbols = [s for s in symbol_list if s not in etfs_to_fetch]
+        
+        quotes = {}
+        if etfs_to_fetch and sdk:
+            def fetch_etf(sym):
+                try:
+                    q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
+                    price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
+                    prev  = q.get("previousClose") or price
+                    return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+                except Exception:
+                    return (sym, None)
+            
+            tasks = [ev_loop.run_in_executor(None, fetch_etf, sym) for sym in etfs_to_fetch]
+            res = await asyncio.gather(*tasks, return_exceptions=True)
+            for item in res:
+                if not isinstance(item, Exception) and item[1]:
+                    quotes[item[0]] = item[1]
 
         def fetch_twse_all():
+            from datetime import datetime
             r = requests.get(
                 "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
                 headers={"Accept": "application/json"},
-                timeout=10
+                timeout=10,
+                verify=False
             )
             r.raise_for_status()
+            
+            now_dt = datetime.now()
+            today_minguo = f"{now_dt.year - 1911}{now_dt.strftime('%m%d')}"
+            
             data = {}
             for item in r.json():
                 try:
                     code = item["Code"]
                     close_str = item.get("ClosingPrice", "").replace(",", "")
                     change_str = item.get("Change", "").replace(",", "")
+                    item_date = item.get("Date", "")
+                    
                     if close_str and close_str not in ("", "--"):
                         price = float(close_str)
-                        # PrevClose = Close - Change
                         change = float(change_str) if change_str and change_str not in ("", "--") else 0
-                        data[code] = {"price": price, "prev": (price - change)}
+                        
+                        if item_date == today_minguo:
+                            # EOD snapshot for today -> prev is price - change
+                            data[code] = {"price": price, "prev": (price - change)}
+                        else:
+                            # Snapshot from a previous session -> prev is exactly price
+                            data[code] = {"price": price, "prev": price}
                 except (ValueError, KeyError):
                     continue
             return data
 
         price_map = await ev_loop.run_in_executor(None, fetch_twse_all)
 
-        quotes = {}
         missing = []
-        for sym in symbol_list:
+        for sym in remaining_symbols:
             if sym in price_map:
                 quotes[sym] = price_map[sym]
             else:
