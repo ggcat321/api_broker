@@ -476,9 +476,17 @@ async def get_etf0050():
     with open(os.path.join(BASE_DIR, "static", "etf0050.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
+pcf_cache = {}
+
 @app.get("/api/etf-pcf/{ticker}")
 async def get_etf_pcf(ticker: str):
     """Proxy endpoint to fetch PCF data for different ETFs."""
+    from datetime import datetime
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    if ticker in pcf_cache and pcf_cache[ticker].get("date") == today_str:
+        return pcf_cache[ticker]["data"]
+        
     if ticker == "0050":
         import uuid
         device_id = str(uuid.uuid4())
@@ -524,15 +532,30 @@ async def get_etf_pcf(ticker: str):
                         name = cols[1].text.strip()
                         if not stkcd: continue
                         try:
-                            # Use total constituent shares as qty
                             qty = float(cols[2].text.strip().replace(",", ""))
                             comp.append({"stkcd": stkcd, "name": name, "qty": qty})
                         except:
                             pass
-            return {
+            
+            # Scrape futures for 006208
+            if tables:
+                tx_qty = 0
+                for tr in tables[0].find_all("tr"):
+                    cols = tr.find_all("td")
+                    if len(cols) >= 5 and "期貨" in cols[1].text:
+                        try:
+                            tx_qty += float(cols[2].text.strip().replace(",", ""))
+                        except:
+                            pass
+                if tx_qty > 0:
+                    comp.append({"stkcd": "TXFR1", "name": "台指期", "qty": tx_qty * 200})
+
+            res_data = {
                 "PCF": {"estdvalue": 0, "baseunit": 1, "is_total_fund": True},
                 "InKind": {"FundComposition": comp}
             }
+            pcf_cache[ticker] = {"date": today_str, "data": res_data}
+            return res_data
         except Exception as e:
             # Fallback to local json if scraper fails
             pass
@@ -540,10 +563,10 @@ async def get_etf_pcf(ticker: str):
     elif ticker == "00922":
         # Scrape Cathay API
         try:
-            # Construct yesterday's date or today's date
             from datetime import datetime
             today_str = datetime.now().strftime("%Y-%m-%d")
-            url = f"https://cwapi.cathaysite.com.tw/api/ETF/GetETFDetailStockList?FundCode=DO&SearchDate={today_str}"
+            url_list = f"https://cwapi.cathaysite.com.tw/api/ETF/GetETFDetailStockList?FundCode=DO&SearchDate={today_str}"
+            url_meta = f"https://cwapi.cathaysite.com.tw/api/BuySale/GetBuySale?FundCode=DO&SearchDate={today_str}&IsTest=false"
             h = {
                 "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiI0MzI1ODU2IiwidW5pcXVlX25hbWUiOiIiLCJyb2xlIjoiMCIsIkVDSUQiOiIwIiwiU2Vzc2lvbklkIjoiIiwibmJmIjoxNzc1NzIzMzcxLCJleHAiOjE4MzU3MjMzMTEsImlhdCI6MTc3NTcyMzM3MX0.ZpnvUeyN5mmjWZ8lrSRaOEirbr0pu4N3YEmI3wbCZlg",
                 "Origin": "https://www.cathaysite.com.tw",
@@ -551,8 +574,17 @@ async def get_etf_pcf(ticker: str):
                 "User-Agent": "Mozilla/5.0"
             }
             ev_loop = asyncio.get_running_loop()
-            res = await ev_loop.run_in_executor(None, lambda: requests.get(url, headers=h, timeout=10))
-            data = res.json()
+            res_list, res_meta = await asyncio.gather(
+                ev_loop.run_in_executor(None, lambda: requests.get(url_list, headers=h, timeout=10)),
+                ev_loop.run_in_executor(None, lambda: requests.get(url_meta, headers=h, timeout=10))
+            )
+            data = res_list.json()
+            meta = res_meta.json().get("result", {})
+            try:
+                estdvalue = float(meta.get("bm", "0").replace(",", ""))
+            except:
+                estdvalue = 0
+
             comp = []
             for item in data.get("result", []):
                 stkcd = item.get("stockCode")
@@ -564,10 +596,12 @@ async def get_etf_pcf(ticker: str):
                 except:
                     pass
             if comp:
-                return {
-                    "PCF": {"estdvalue": 0, "baseunit": 1, "is_total_fund": True},
+                res_data = {
+                    "PCF": {"estdvalue": estdvalue, "baseunit": 1, "is_total_fund": True},
                     "InKind": {"FundComposition": comp}
                 }
+                pcf_cache[ticker] = {"date": today_str, "data": res_data}
+                return res_data
         except Exception as e:
             pass
 
@@ -632,7 +666,9 @@ async def get_stock_quotes(symbols: str):
         if missing and sdk:
             def fetch_one(sym):
                 try:
-                    q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
+                    is_futopt = sym[0].isalpha() and sym != "IX0001"
+                    client = sdk.marketdata.rest_client.futopt if is_futopt else sdk.marketdata.rest_client.stock
+                    q = client.intraday.quote(symbol=sym)
                     price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
                     prev  = q.get("previousClose") or price
                     return (sym, {"price": float(price), "prev": float(prev)} if price else None)
