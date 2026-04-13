@@ -316,6 +316,76 @@
     </div>
 </div>
 
+<!-- ── Row 2.5: Order Books ───────────────────────────────────────────── -->
+<div class="glass p-5 mb-5 relative group">
+    <div class="flex items-center justify-between cursor-pointer border-b border-white/5 pb-3 mb-2" onclick="toggleBooks()">
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+            <span class="text-xs font-bold text-white uppercase tracking-widest">即時五檔報價對照 (5-Level Order Book)</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-[10px] text-slate-500 font-bold">(點擊展開/收起)</span>
+            <span id="booksToggleIcon" class="text-slate-400 font-mono text-sm transform transition-transform duration-300">▼</span>
+        </div>
+    </div>
+    
+    <div id="booksSection" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <!-- ETF Book -->
+            <div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold mb-2 flex flex-col gap-1">
+                    <div><span id="etfBookLabel" class="text-emerald-400">0050</span> 五檔委託明細</div>
+                </div>
+                <div class="bg-white/5 rounded pl-2 pr-2 py-2 border border-white/5 text-xs mono">
+                    <div class="grid grid-cols-2 text-center text-slate-500 mb-1 border-b border-white/10 pb-1 font-bold">
+                        <div>委買價 (量)</div><div>委賣價 (量)</div>
+                    </div>
+                    <div id="etfBookBody" class="space-y-1">
+                        <!-- rows inserted via JS -->
+                        <div class="text-center text-slate-600 py-3 text-[10px]">等待收盤或報價更新...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2330 Book -->
+            <div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold mb-2 flex flex-col gap-1">
+                    <div><span class="text-emerald-400">2330 台積電</span> 五檔委託明細</div>
+                </div>
+                <div class="bg-white/5 rounded pl-2 pr-2 py-2 border border-white/5 text-xs mono">
+                    <div class="grid grid-cols-2 text-center text-slate-500 mb-1 border-b border-white/10 pb-1 font-bold">
+                        <div>委買價 (量)</div><div>委賣價 (量)</div>
+                    </div>
+                    <div id="tsmcBookBody" class="space-y-1">
+                        <!-- rows inserted via JS -->
+                        <div class="text-center text-slate-600 py-3 text-[10px]">等待收盤或報價更新...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 2.6: Order Tracker ───────────────────────────────────────────── -->
+<div class="glass p-5 mb-5 relative group">
+    <div class="flex items-center justify-between border-b border-white/5 pb-3 mb-4">
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            <span class="text-xs font-bold text-white uppercase tracking-widest">2330 模擬排隊洗價追蹤 (Order Queue Tracker)</span>
+        </div>
+    </div>
+    
+    <div class="flex flex-wrap gap-3 mb-4">
+        <button onclick="placeSimOrder('bid')" class="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/50 px-5 py-2 rounded text-sm font-bold transition">買單：排入當前最佳委買</button>
+        <button onclick="placeSimOrder('ask')" class="bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 border border-emerald-500/50 px-5 py-2 rounded text-sm font-bold transition">賣單：排入當前最佳委賣</button>
+    </div>
+
+    <!-- Active Orders Container -->
+    <div id="simOrdersContainer" class="space-y-3">
+        <div class="text-slate-600 text-xs italic text-center py-4">目前沒有任何模擬委託單，請點擊上方按鈕建立</div>
+    </div>
+</div>
+
 <!-- ── Row 3: Stock Table ───────────────────────────────────────────── -->
 <div class="glass p-6">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-white/5">
@@ -362,6 +432,256 @@
 </div><!-- /max-w -->
 
 <script>
+// ═══════════════════════════════════════════════════════
+// Order Book Methods
+// ═══════════════════════════════════════════════════════
+function toggleBooks() {
+    const sec = document.getElementById('booksSection');
+    const icon = document.getElementById('booksToggleIcon');
+    if (sec.classList.contains('hidden')) {
+        sec.classList.remove('hidden');
+        icon.textContent = '▲';
+    } else {
+        sec.classList.add('hidden');
+        icon.textContent = '▼';
+    }
+}
+
+function renderBook(containerId, bids, asks) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    let html = '';
+    for (let i = 0; i < 5; i++) {
+        const bid = bids[i];
+        const ask = asks[i];
+        
+        let bidVol = bid ? (bid.volume != null ? bid.volume : (bid.size != null ? bid.size : '--')) : '--';
+        let askVol = ask ? (ask.volume != null ? ask.volume : (ask.size != null ? ask.size : '--')) : '--';
+        
+        const bidPx = bid && bid.price != null ? fmt(bid.price, 2) : '--';
+        const askPx = ask && ask.price != null ? fmt(ask.price, 2) : '--';
+        
+        html += `
+        <div class="grid grid-cols-2 text-center py-1 hover:bg-white/5 rounded">
+            <div><span class="text-red-400 font-bold">${bidPx}</span> <span class="text-slate-500 text-[10px] font-normal ml-1">(${bidVol})</span></div>
+            <div><span class="text-emerald-400 font-bold">${askPx}</span> <span class="text-slate-500 text-[10px] font-normal ml-1">(${askVol})</span></div>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// Queue Tracker Methods
+// ═══════════════════════════════════════════════════════
+let simOrders = [];
+let simOrderIdCounter = 0;
+let lastTsmcBook = { bids: {}, asks: {} };
+let currentTsmcBook = { bids: {}, asks: {} };
+let recentTsmcTrades = []; // { price, vol, time }
+
+function normalizeSize(v) {
+    if (v == null) return 0;
+    return typeof v === 'number' ? v : parseInt(v, 10);
+}
+
+function processTsmcBook(bids, asks) {
+    const newBids = {};
+    const newAsks = {};
+    bids.forEach(b => { if(b.price) newBids[b.price] = normalizeSize(b.volume || b.size); });
+    asks.forEach(a => { if(a.price) newAsks[a.price] = normalizeSize(a.volume || a.size); });
+    
+    simOrders.forEach(order => {
+        if (order.status !== 'pending') return;
+        
+        const bookMap = order.side === 'bid' ? newBids : newAsks;
+        const newVol = bookMap[order.price] || 0;
+        
+        if (newVol < order.Q) {
+            // Cancellation happened
+            const C = order.Q - newVol;
+            const ratio = (order.Q > 0) ? (order.k / order.Q) : 0;
+            const canceledAhead = C * ratio;
+            order.k = Math.max(0, order.k - canceledAhead);
+            order.Q = newVol;
+        } else if (newVol > order.Q) {
+            // New orders arriving behind us
+            order.Q = newVol;
+        }
+        
+        if (newVol === 0 && Object.keys(bookMap).length > 0 && !bookMap[order.price]) {
+            order.outOfBounds = true;
+        } else {
+            order.outOfBounds = false;
+        }
+        
+        if (order.k <= 0.5) {
+            order.status = 'filled';
+            order.filledAt = Date.now();
+            order.k = 0;
+        }
+    });
+
+    lastTsmcBook = { bids: newBids, asks: newAsks };
+    currentTsmcBook = { bids: newBids, asks: newAsks };
+    renderSimOrders();
+}
+
+function processTsmcTrade(price, volume) {
+    if (!volume || !price) return;
+    const vol = normalizeSize(volume);
+    
+    recentTsmcTrades.push({ price, vol, time: Date.now() });
+    
+    simOrders.forEach(order => {
+        if (order.status !== 'pending' || order.price !== price) return;
+        
+        order.Q = Math.max(0, order.Q - vol);
+        order.k = Math.max(0, order.k - vol);
+        
+        if (order.k <= 0) {
+            order.status = 'filled';
+            order.filledAt = Date.now();
+            order.k = 0;
+        }
+    });
+    renderSimOrders();
+}
+
+function getBurnRate(price) {
+    const now = Date.now();
+    recentTsmcTrades = recentTsmcTrades.filter(t => now - t.time <= 60000);
+    const tradesAtPrice = recentTsmcTrades.filter(t => t.price === price);
+    const totalVol = tradesAtPrice.reduce((sum, t) => sum + t.vol, 0);
+    return totalVol / 60.0;
+}
+
+function placeSimOrder(side) {
+    let bestPrices = side === 'bid' ? currentTsmcBook.bids : currentTsmcBook.asks;
+    let prices = Object.keys(bestPrices).map(p => parseFloat(p));
+    if (prices.length === 0) return alert('目前無五檔報價，無法模擬下單');
+    
+    let targetPrice = side === 'bid' ? Math.max(...prices) : Math.min(...prices);
+    let currentVol = bestPrices[targetPrice] || 0;
+    
+    if (currentVol === 0) return alert('找不到目標價位掛單量');
+
+    simOrders.unshift({
+        id: ++simOrderIdCounter,
+        side,
+        price: targetPrice,
+        initialQ: currentVol,
+        Q: currentVol,
+        k: currentVol,
+        createdAt: Date.now(),
+        status: 'pending',
+        outOfBounds: false
+    });
+    renderSimOrders();
+}
+
+function cancelSimOrder(id) {
+    const idx = simOrders.findIndex(o => o.id === id);
+    if (idx >= 0 && simOrders[idx].status === 'pending') {
+        simOrders[idx].status = 'canceled';
+        renderSimOrders();
+    }
+}
+
+function renderSimOrders() {
+    const container = document.getElementById('simOrdersContainer');
+    if (!container) return;
+    if (simOrders.length === 0) {
+        container.innerHTML = '<div class="text-slate-600 text-xs italic text-center py-4">目前沒有任何模擬委託單，請點擊上方按鈕建立</div>';
+        return;
+    }
+    
+    let html = '';
+    simOrders.forEach(o => {
+        const sideColor = o.side === 'bid' ? 'text-red-400' : 'text-emerald-400';
+        const sideLabel = o.side === 'bid' ? '買進' : '賣出';
+        
+        let statusBadge = '';
+        if (o.status === 'filled') statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">✅ 已成交</span>';
+        else if (o.status === 'canceled') statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-slate-500/20 text-slate-400 border border-slate-500/30">已取消</span>';
+        else if (o.outOfBounds) statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30">⚠️ 跌出五檔範圍</span>';
+        else statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse">⏳ 排隊洗價中</span>';
+        
+        let pct = (o.initialQ > 0) ? ((o.initialQ - o.k) / o.initialQ) * 100 : 100;
+        if (pct > 100) pct = 100;
+        if (pct < 0) pct = 0;
+        if (o.status === 'filled') pct = 100;
+        
+        let rateStr = '--';
+        let etaStr = '--';
+        if (o.status === 'pending') {
+            const r = getBurnRate(o.price);
+            rateStr = r.toFixed(2);
+            if (r > 0) {
+                const s = o.k / r;
+                if (s > 3600) etaStr = '> 1 小時';
+                else if (s > 60) {
+                    const m = Math.floor(s / 60);
+                    const rs = Math.floor(s % 60);
+                    etaStr = `${m} 分 ${rs} 秒`;
+                } else {
+                    etaStr = `${Math.floor(s)} 秒`;
+                }
+            } else {
+                etaStr = '不動如山 (需等待)';
+            }
+        }
+        
+        const timeObj = new Date(o.createdAt);
+        const tf = `${timeObj.getHours().toString().padStart(2,'0')}:${timeObj.getMinutes().toString().padStart(2,'0')}:${timeObj.getSeconds().toString().padStart(2,'0')}`;
+        
+        html += `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-4 transition hover:bg-white/10">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-3">
+                    <span class="${sideColor} font-black mono text-base">${sideLabel} @ ${o.price}</span>
+                    ${statusBadge}
+                </div>
+                ${o.status === 'pending' ? `<button onclick="cancelSimOrder(${o.id})" class="text-slate-400 hover:text-red-400 bg-white/5 hover:bg-red-500/10 border border-white/5 rounded px-2 py-1 text-[10px] uppercase font-bold transition">✕ 刪單</button>` : ''}
+            </div>
+            
+            <div class="grid grid-cols-4 gap-4 text-xs mt-2">
+                <div class="bg-slate-900/40 rounded p-2 text-center">
+                    <div class="text-slate-500 mb-1 text-[10px] font-bold">送出時間</div>
+                    <div class="mono text-slate-300 font-bold">${tf}</div>
+                </div>
+                <div class="bg-slate-900/40 rounded p-2 text-center">
+                    <div class="text-slate-500 mb-1 text-[10px] font-bold">前方剩餘</div>
+                    <div class="mono font-bold text-white text-sm">${Math.floor(o.k)}<span class="text-slate-500 font-normal text-xs"> / ${o.initialQ}</span></div>
+                </div>
+                <div class="bg-slate-900/40 rounded p-2 text-center">
+                    <div class="text-slate-500 mb-1 text-[10px] font-bold">消耗速率 (60s)</div>
+                    <div class="mono text-blue-300 font-bold">${rateStr} <span class="text-slate-500 font-normal text-[10px]">張/s</span></div>
+                </div>
+                <div class="bg-slate-900/40 rounded p-2 text-center border border-emerald-500/20">
+                    <div class="text-emerald-500/80 mb-1 text-[10px] font-bold">預估 ETA</div>
+                    <div class="mono text-emerald-400 font-bold text-sm ${o.status === 'pending' && !o.outOfBounds ? 'animate-pulse' : ''}">${etaStr}</div>
+                </div>
+            </div>
+            
+            <div class="mt-4 flex items-center gap-3 bg-black/20 p-2 rounded-lg">
+                <span class="text-slate-500 text-[10px] font-bold whitespace-nowrap">排隊進度</span>
+                <div class="flex-1 bg-slate-900 rounded-full h-3 overflow-hidden border border-white/5">
+                    <div class="bg-gradient-to-r from-blue-500 to-emerald-400 h-full rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                </div>
+                <span class="text-white text-xs font-bold mono w-8 text-right">${Math.floor(pct)}%</span>
+            </div>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+setInterval(() => {
+    if (simOrders.some(o => o.status === 'pending')) {
+        renderSimOrders();
+    }
+}, 1000);
+
 // ═══════════════════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════════════════
@@ -770,13 +1090,35 @@ function connectGlobalWS() {
                 price = parseFloat(extractTradePrice(msg.data));
                 isCurrentTrade = true;
                 if (!TICKERS.includes(sym)) isTraded[sym] = true;
+                
+                // For TSMC tracker
+                if (sym === '2330') {
+                    let tVol = 0;
+                    if (Array.isArray(msg.data.trades)) {
+                        msg.data.trades.forEach(t => tVol += (t.volume || t.size || t.qty || 0));
+                    } else {
+                        tVol = msg.data.volume || msg.data.size || msg.data.qty || 0;
+                    }
+                    if (price != null && tVol > 0 && typeof processTsmcTrade === 'function') {
+                        processTsmcTrade(price, tVol);
+                    }
+                }
             }
 
-            if (sym === '2330' && channel === 'books') {
+            if (channel === 'books') {
                 const bids = msg.data.bids || msg.data.Bids || [];
                 const asks = msg.data.asks || msg.data.Asks || [];
-                if (bids.length > 0) bid2330 = parseFloat(bids[0].price);
-                if (asks.length > 0) ask2330 = parseFloat(asks[0].price);
+                
+                if (sym === '2330') {
+                    if (bids.length > 0) bid2330 = parseFloat(bids[0].price);
+                    if (asks.length > 0) ask2330 = parseFloat(asks[0].price);
+                    renderBook('tsmcBookBody', bids, asks);
+                    if (typeof processTsmcBook === 'function') processTsmcBook(bids, asks);
+                }
+                
+                if (sym === activeTicker) {
+                    renderBook('etfBookBody', bids, asks);
+                }
             }
 
             if (price === null || isNaN(price)) return;
@@ -826,6 +1168,10 @@ function renderSpecificETF(ticker, name) {
     document.getElementById('pageTitle').textContent = `${activeTicker} 即時估算淨值`;
     document.getElementById('pageSubtitle').textContent = `${activeTickerName || activeTicker} · Real-time iNAV`;
     document.getElementById('etfSymbolLabel').textContent = activeTicker;
+    
+    // Update book label
+    const etfBookLabel = document.getElementById('etfBookLabel');
+    if (etfBookLabel) etfBookLabel.textContent = activeTicker;
 
     document.getElementById('tableBody').innerHTML = `<div id="skelWrap" class="space-y-1.5 pt-1"><div class="skel h-9 w-full"></div></div>`;
 

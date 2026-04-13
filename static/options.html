@@ -877,8 +877,28 @@
 
             html += `<tr class="${rowClass}">`;
 
-            let callPrice = call.lastPrice != null ? call.lastPrice : ((call.bidPrice != null && call.askPrice != null) ? (call.bidPrice + call.askPrice)/2 : null);
-            let putPrice = put.lastPrice != null ? put.lastPrice : ((put.bidPrice != null && put.askPrice != null) ? (put.bidPrice + put.askPrice)/2 : null);
+            const getPriceForIV = (opt) => {
+                const lp = opt.lastPrice;
+                const bid = opt.bidPrice;
+                const ask = opt.askPrice;
+                const vol = opt.volume || 0;
+                
+                const hasQuotes = bid != null && ask != null && bid > 0;
+                const mid = hasQuotes ? (bid + ask) / 2 : null;
+                const spread = hasQuotes ? (ask - bid) : 0;
+                
+                // 條件：如果沒有最新成交價、或是成交量低於 10、或是滑價超過 10 點或 10%
+                const isIlliquid = (vol < 10);
+                const isWideSpread = hasQuotes && (spread >= 10 || spread / bid >= 0.1);
+                
+                if (lp == null || ((isIlliquid || isWideSpread) && mid != null)) {
+                    return mid;
+                }
+                return lp;
+            };
+
+            let callPrice = getPriceForIV(call);
+            let putPrice = getPriceForIV(put);
             
             let callIV = callPrice != null ? calculateIV(true, callPrice, F, strike, T) : null;
             let putIV = putPrice != null ? calculateIV(false, putPrice, F, strike, T) : null;
@@ -931,7 +951,7 @@
         const bidText = bid != null ? parseFloat(bid.toFixed(2)) : '—';
         const askText = ask != null ? parseFloat(ask.toFixed(2)) : '—';
         
-        if (vol == null || vol < 10) {
+        if (false) {
             iv = null;
         }
         
@@ -985,7 +1005,7 @@
         const bidText = bid != null ? parseFloat(bid.toFixed(2)) : '—';
         const askText = ask != null ? parseFloat(ask.toFixed(2)) : '—';
         
-        if (vol == null || vol < 10) {
+        if (false) {
             iv = null;
         }
         
