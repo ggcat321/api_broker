@@ -701,6 +701,10 @@ let ws            = null;
 let subscribedSet = new Set(); // symbols confirmed subscribed
 let isTraded      = {};       // stkcd -> boolean (received real trade)
 let filterText    = '';
+let wsRetryCount  = 0;
+const WS_MAX_RETRIES = 8;
+const WS_BASE_DELAY  = 5000;   // 5 seconds
+const WS_MAX_DELAY   = 60000;  // 60 seconds cap
 
 // DOM cache (will be populated after PCF load)
 let priceEls  = {};  // stkcd -> <span> for price
@@ -1059,12 +1063,22 @@ function connectGlobalWS() {
     ws = new WebSocket(url);
 
     ws.onopen = () => {
+        wsRetryCount = 0;  // Reset on successful connection
         console.log(`Global WS connected, subscribed ${allArr.length} symbols`);
     };
 
     ws.onclose = () => {
         setWsStatus('disconnected');
-        setTimeout(() => connectGlobalWS(), 5000);
+        if (wsRetryCount < WS_MAX_RETRIES) {
+            wsRetryCount++;
+            const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
+            console.log(`WS disconnected, retry ${wsRetryCount}/${WS_MAX_RETRIES} in ${delay/1000}s...`);
+            setTimeout(() => connectGlobalWS(), delay);
+        } else {
+            console.log(`WS: max retries (${WS_MAX_RETRIES}) reached. Press refresh to reconnect.`);
+            setWsStatus('error');
+            wsRetryCount = 0;
+        }
     };
 
     ws.onerror = () => setWsStatus('error');

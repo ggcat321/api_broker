@@ -4,6 +4,7 @@ import json
 import asyncio
 import requests
 import urllib3
+from contextlib import asynccontextmanager
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -32,7 +33,47 @@ ID = os.getenv("ID")
 PW = os.getenv("PW")
 CERT_PW = os.getenv("c_pw")
 
-app = FastAPI()
+# ─── Lifespan (replaces deprecated on_event) ───────────────────────
+@asynccontextmanager
+async def lifespan(app):
+    global sdk, loop
+    loop = asyncio.get_running_loop()
+    
+    print("Initializing Fubon SDK Connection...")
+    sdk = FubonSDK(300, 3) 
+    try:
+        accounts = sdk.login(ID, PW, pfx_path, CERT_PW)
+        print("Login Success:", accounts)
+        sdk.init_realtime()
+        stock = sdk.marketdata.websocket_client.stock
+        stock.on("message", handle_fubon_message)
+        stock.connect()
+        
+        # Initialize Futures & Options client as well
+        futopt = sdk.marketdata.websocket_client.futopt
+        futopt.on("message", handle_fubon_message)
+        futopt.connect()
+        
+        print("Connected to Fubon Market Data (Stock & FutOpt) Websockets")
+    except Exception as e:
+        print(f"Failed to login or connect to python sdk: {e}")
+        
+    asyncio.create_task(message_processor())
+    asyncio.create_task(vix_scraper())
+    asyncio.create_task(fubon_sdk_watchdog())
+    
+    yield  # ← Server is running
+    
+    # Shutdown
+    if sdk:
+        try:
+            sdk.marketdata.websocket_client.stock.disconnect()
+            sdk.marketdata.websocket_client.futopt.disconnect()
+        except Exception:
+            pass
+    print("Server shutdown complete.")
+
+app = FastAPI(lifespan=lifespan)
 
 class ConnectionManager:
     def __init__(self):
@@ -94,32 +135,69 @@ def handle_fubon_message(message):
     except Exception as e:
         print("Error parsing msg:", e)
 
-@app.on_event("startup")
-async def startup_event():
-    global sdk, loop
-    loop = asyncio.get_running_loop()
+# ─── Fubon SDK Watchdog (auto-reconnect with backoff) ──────────────
+async def fubon_sdk_watchdog():
+    """Periodically check Fubon SDK WS connectivity and reconnect if needed."""
+    MAX_RETRIES = 10
+    BASE_BACKOFF = 30  # seconds
+    MAX_BACKOFF = 300  # 5 minutes cap
     
-    print("Initializing Fubon SDK Connection...")
-    sdk = FubonSDK(300, 3) 
+    print(f"Started Fubon SDK watchdog (max {MAX_RETRIES} consecutive retries)")
+    last_msg_time = time.time()
+    retry_count = 0
+    
+    # Monkey-patch to track last message time
+    original_handler = handle_fubon_message
+    def tracked_handler(message):
+        nonlocal last_msg_time, retry_count
+        last_msg_time = time.time()
+        retry_count = 0  # Reset on any successful message
+        original_handler(message)
+    
     try:
-        accounts = sdk.login(ID, PW, pfx_path, CERT_PW)
-        print("Login Success:", accounts)
-        sdk.init_realtime()
-        stock = sdk.marketdata.websocket_client.stock
-        stock.on("message", handle_fubon_message)
-        stock.connect()
-        
-        # Initialize Futures & Options client as well
-        futopt = sdk.marketdata.websocket_client.futopt
-        futopt.on("message", handle_fubon_message)
-        futopt.connect()
-        
-        print("Connected to Fubon Market Data (Stock & FutOpt) Websockets")
-    except Exception as e:
-        print(f"Failed to login or connect to python sdk: {e}")
-        
-    asyncio.create_task(message_processor())
-    asyncio.create_task(vix_scraper())
+        sdk.marketdata.websocket_client.stock.on("message", tracked_handler)
+        sdk.marketdata.websocket_client.futopt.on("message", tracked_handler)
+    except Exception:
+        pass
+    
+    while True:
+        await asyncio.sleep(30)
+        try:
+            elapsed = time.time() - last_msg_time
+            # If no message received in 90 seconds during trading hours, reconnect
+            from datetime import datetime
+            h = datetime.now().hour
+            is_trading = (9 <= h < 14) or (15 <= h < 24) or (h < 5)  # Day + Night sessions
+            
+            if is_trading and elapsed > 90:
+                if retry_count >= MAX_RETRIES:
+                    print(f"🛑 Fubon SDK: reached max retries ({MAX_RETRIES}), stopping watchdog. Manual restart required.")
+                    return  # Exit the watchdog entirely
+                
+                retry_count += 1
+                backoff = min(BASE_BACKOFF * (2 ** (retry_count - 1)), MAX_BACKOFF)
+                print(f"⚠️ No Fubon SDK message for {elapsed:.0f}s, reconnect attempt {retry_count}/{MAX_RETRIES} (next backoff: {backoff}s)...")
+                
+                try:
+                    sdk.marketdata.websocket_client.stock.disconnect()
+                    sdk.marketdata.websocket_client.futopt.disconnect()
+                except Exception:
+                    pass
+                await asyncio.sleep(2)
+                try:
+                    sdk.marketdata.websocket_client.stock.on("message", tracked_handler)
+                    sdk.marketdata.websocket_client.stock.connect()
+                    sdk.marketdata.websocket_client.futopt.on("message", tracked_handler)
+                    sdk.marketdata.websocket_client.futopt.connect()
+                    last_msg_time = time.time()
+                    print("✅ Fubon SDK reconnected successfully")
+                except Exception as e:
+                    print(f"❌ Fubon SDK reconnect failed: {e}")
+                
+                # Wait the backoff period before checking again
+                await asyncio.sleep(backoff)
+        except Exception as e:
+            print(f"SDK watchdog error: {e}")
 
 async def vix_scraper():
     print("Started VIX scraper background task")
@@ -170,14 +248,6 @@ async def message_processor():
         except Exception as e:
             print("Message processor error:", e)
 
-@app.on_event("shutdown")
-def shutdown_event():
-    if sdk:
-        try:
-            sdk.marketdata.websocket_client.stock.disconnect()
-            sdk.marketdata.websocket_client.futopt.disconnect()
-        except Exception:
-            pass
 
 @app.websocket("/ws/{symbols}")
 async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None, trades_only: bool = False):
@@ -214,8 +284,17 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
         
     try:
         while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
+            # Use wait_for with timeout to create keepalive ping opportunities.
+            # If no client message in 25s, we send a ping. If ping fails → connection is dead.
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=25)
+            except asyncio.TimeoutError:
+                # No client message for 25s — send a ping to verify connection is alive
+                try:
+                    await websocket.send_json({"event": "ping"})
+                except Exception:
+                    break  # Ping failed, connection is dead
+    except (WebSocketDisconnect, Exception):
         if sdk:
             from datetime import datetime
             if night is not None:
@@ -779,4 +858,12 @@ if __name__ == "__main__":
     
     print("Starting Web Server at http://127.0.0.1:8000")
     Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:8000/etf0050")).start()
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "server:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        reload_excludes=["*.log", "*.pyc", "__pycache__", ".DS_Store", "scratch", "log"],
+        ws_ping_interval=20,     # uvicorn sends WS ping every 20s
+        ws_ping_timeout=20,      # close if no pong within 20s
+    )

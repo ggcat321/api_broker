@@ -435,6 +435,10 @@
     let optionsData = null;
     let symbolMap = {};
     let renderTimer = null;
+    let wsRetryCount = 0;
+    const WS_MAX_RETRIES = 8;
+    const WS_BASE_DELAY = 5000;
+    const WS_MAX_DELAY = 60000;
 
     // --- Black-Scholes IV Calculation ---
     function normCDF(x) {
@@ -651,6 +655,7 @@
         ws = new WebSocket(wsUrl);
         
         ws.onopen = () => {
+            wsRetryCount = 0;  // Reset on successful connection
             console.log("WebSocket connected to", symbolsToSub.length, "symbols");
         };
         
@@ -748,7 +753,17 @@
         };
         
         ws.onclose = () => {
-            console.log("WebSocket disconnected");
+            ws = null;
+            // Auto-reconnect with exponential backoff
+            if (optionsData && Object.keys(symbolMap).length > 0 && wsRetryCount < WS_MAX_RETRIES) {
+                wsRetryCount++;
+                const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
+                console.log(`WebSocket disconnected, retry ${wsRetryCount}/${WS_MAX_RETRIES} in ${delay/1000}s...`);
+                setTimeout(() => setupWebSocket(), delay);
+            } else if (wsRetryCount >= WS_MAX_RETRIES) {
+                console.log(`WebSocket: max retries (${WS_MAX_RETRIES}) reached, stopping. Press 載入 to reconnect.`);
+                wsRetryCount = 0;
+            }
         };
     }
 

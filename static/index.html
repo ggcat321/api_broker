@@ -199,6 +199,10 @@
     <script>
         let ws = null;
         let currentSymbol = null;
+        let wsRetryCount = 0;
+        const WS_MAX_RETRIES = 8;
+        const WS_BASE_DELAY = 5000;  // 5 seconds
+        const WS_MAX_DELAY = 60000;  // 60 seconds cap
         
         const connectBtn = document.getElementById('connectBtn');
         const symbolInput = document.getElementById('symbolInput');
@@ -258,6 +262,7 @@
 
             ws.onopen = () => {
                 logRaw(`Connected to backend for symbol ${sym}`);
+                wsRetryCount = 0;  // Reset on successful connection
                 statusText.innerText = "Live";
                 statusText.className = "ml-2 font-bold text-green-400";
                 liveIndicator.style.animation = "pulse 1.5s infinite";
@@ -334,8 +339,28 @@
                 liveIndicator.style.animation = "none";
                 liveIndicator.style.backgroundColor = "#64748b";
                 liveIndicator.style.boxShadow = "0 0 8px #64748b";
-                connectBtn.innerText = "重新訂閱";
                 if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
+                
+                // Auto-reconnect with exponential backoff
+                if (currentSymbol && wsRetryCount < WS_MAX_RETRIES) {
+                    wsRetryCount++;
+                    const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
+                    connectBtn.innerText = "重連中...";
+                    logRaw(`將在 ${delay/1000} 秒後自動重連 (第 ${wsRetryCount}/${WS_MAX_RETRIES} 次)...`);
+                    setTimeout(() => {
+                        if (currentSymbol) {
+                            logRaw(`自動重連: ${currentSymbol}`);
+                            symbolInput.value = currentSymbol;
+                            connectBtn.click();
+                        }
+                    }, delay);
+                } else if (wsRetryCount >= WS_MAX_RETRIES) {
+                    logRaw(`❌ 已達最大重連次數 (${WS_MAX_RETRIES})，請手動重新訂閱`);
+                    connectBtn.innerText = "重新訂閱";
+                    wsRetryCount = 0;
+                } else {
+                    connectBtn.innerText = "重新訂閱";
+                }
             };
 
             ws.onerror = (e) => {
