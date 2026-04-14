@@ -113,7 +113,7 @@ def keep_data_info(stock_num: str):
         return websocket_raw_df_test_df
     except Exception as e:
         print(f"Error in keep_data_info for {stock_num}: {e}")
-        return False, pd.DataFrame()
+        return pd.DataFrame()
 
 def handle_message(message):
     global websocket_raw_df  # 引用全域變數

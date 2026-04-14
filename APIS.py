@@ -23,12 +23,11 @@ def scan_for_Robot(df, bs_type: str, cv_thres: float = 0.399):
     # 清理合併
     def clear_df(df: pd.DataFrame):
         df = df.copy()  # 複製一份，避免修改原始 df
-        df['datetime'] = pd.to_datetime(df['datetime'])
+        df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce').dt.floor('s')
         result = df.groupby(['datetime', 'b_s_type']).agg(
             size=('size', 'sum'),
             price=('price', lambda x: (x * df.loc[x.index, 'size']).sum() / df.loc[x.index, 'size'].sum() if df.loc[x.index, 'size'].sum() != 0 else np.nan)
         ).reset_index()
-        df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce').dt.floor('s')
         return result
 
     def seconds_com_unique_list(df_time: pd.DataFrame, tres: int = 61):
@@ -117,10 +116,13 @@ def scan_for_Robot(df, bs_type: str, cv_thres: float = 0.399):
                     counter_all += 1
                     next_trade_timestamp = next_trade_timestamp + timedelta(seconds=time_interval)
 
-                    possible_trade_timestamp = [next_trade_timestamp, next_trade_timestamp + time_error]
+                    possible_trade_timestamp = [next_trade_timestamp - time_error, next_trade_timestamp, next_trade_timestamp + time_error]
 
                     trade_scan_body_datetimes = trade_scan_Body_df['datetime_trimmed'].to_list()
-                    if possible_trade_timestamp[1] in trade_scan_body_datetimes:
+                    if possible_trade_timestamp[2] in trade_scan_body_datetimes:
+                        next_trade_timestamp = possible_trade_timestamp[2]
+                        counter_yes += 1
+                    elif possible_trade_timestamp[1] in trade_scan_body_datetimes:
                         next_trade_timestamp = possible_trade_timestamp[1]
                         counter_yes += 1
                     elif possible_trade_timestamp[0] in trade_scan_body_datetimes:

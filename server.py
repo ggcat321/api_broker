@@ -10,7 +10,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
-import requests
 from fubon_neo.sdk import FubonSDK
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -127,8 +126,8 @@ async def vix_scraper():
     while True:
         try:
             # Use run_in_executor to avoid blocking the event loop
-            loop = asyncio.get_running_loop()
-            res = await loop.run_in_executor(None, lambda: requests.post(
+            ev_loop = asyncio.get_running_loop()
+            res = await ev_loop.run_in_executor(None, lambda: requests.post(
                 'https://mis.taifex.com.tw/futures/api/getQuoteListVIX', 
                 json={'SortColumn':'','AscDesc':'A'}, 
                 headers={'User-Agent': 'Mozilla/5.0'},
@@ -256,7 +255,7 @@ async def get_meta(symbol: str):
         return {"error": "SDK not initialized"}
     
     try:
-        is_futopt = symbol[0].isalpha()
+        is_futopt = symbol[0].isalpha() and symbol != "IX0001"
         client = sdk.marketdata.rest_client.futopt if is_futopt else sdk.marketdata.rest_client.stock
         res = client.intraday.quote(symbol=symbol)
         return res
@@ -369,7 +368,7 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
             
             # Estimate expiry: 3rd Wednesday of the month
             month_idx = ord(call_month.upper()) - ord('A')  # 0-based
-            year = 2020 + int(year_code)
+            year = (datetime.now().year // 10) * 10 + int(year_code)
             # Find 3rd Wednesday
             import calendar
             cal = calendar.monthcalendar(year, month_idx + 1)

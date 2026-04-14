@@ -646,7 +646,8 @@
         const symbolsToSub = Object.keys(symbolMap);
         if (symbolsToSub.length === 0) return;
         
-        const wsUrl = `ws://${window.location.host}/ws/${symbolsToSub.join(',')}?night=${isNight}`;
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${proto}//${window.location.host}/ws/${symbolsToSub.join(',')}?night=${isNight}`;
         ws = new WebSocket(wsUrl);
         
         ws.onopen = () => {
@@ -951,9 +952,7 @@
         const bidText = bid != null ? parseFloat(bid.toFixed(2)) : '—';
         const askText = ask != null ? parseFloat(ask.toFixed(2)) : '—';
         
-        if (false) {
-            iv = null;
-        }
+
         
         let ivText = '<span class="no-data">—</span>';
         if (iv != null) {
@@ -1005,10 +1004,7 @@
         const bidText = bid != null ? parseFloat(bid.toFixed(2)) : '—';
         const askText = ask != null ? parseFloat(ask.toFixed(2)) : '—';
         
-        if (false) {
-            iv = null;
-        }
-        
+
         let ivText = '<span class="no-data">—</span>';
         if (iv != null) {
             const ivPct = iv * 100;

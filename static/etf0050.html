@@ -1304,9 +1304,10 @@ document.getElementById('searchInput').addEventListener('input', e => {
     renderTable();
     // Re-bind DOM refs after table re-render
     composition.forEach(s => {
-        priceEls[s.stkcd]  = document.getElementById(`px-${s.stkcd}`);
-        changeEls[s.stkcd] = document.getElementById(`chg-${s.stkcd}`);
-        contribEls[s.stkcd]= document.getElementById(`contrib-${s.stkcd}`);
+        priceEls[s.stkcd]     = document.getElementById(`px-${s.stkcd}`);
+        changeEls[s.stkcd]    = document.getElementById(`chg-${s.stkcd}`);
+        changePctEls[s.stkcd] = document.getElementById(`chgpct-${s.stkcd}`);
+        contribEls[s.stkcd]   = document.getElementById(`contrib-${s.stkcd}`);
     });
 });
 
