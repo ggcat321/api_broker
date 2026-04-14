@@ -367,22 +367,30 @@
 </div>
 
 <!-- ── Row 2.6: Order Tracker ───────────────────────────────────────────── -->
-<div class="glass p-5 mb-5 relative group">
+<div class="glass p-5 mb-5 relative group" id="tsmcTrackerSection">
     <div class="flex items-center justify-between border-b border-white/5 pb-3 mb-4">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 cursor-pointer select-none" onclick="toggleTracker()">
+            <span id="trackerChevron" class="text-slate-500 text-xs transition-transform" style="display:inline-block">▼</span>
             <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
             <span class="text-xs font-bold text-white uppercase tracking-widest">2330 模擬排隊洗價追蹤 (Order Queue Tracker)</span>
+            <span id="trackerOrderCount" class="text-[10px] text-slate-600 mono"></span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="clearCompletedBtn" onclick="clearCompletedOrders()" class="hidden text-slate-500 hover:text-amber-400 bg-white/5 hover:bg-amber-500/10 border border-white/5 rounded px-2 py-1 text-[10px] font-bold transition">清除已完成</button>
+            <button onclick="toggleTracker()" class="text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-[10px] font-bold transition">收合</button>
         </div>
     </div>
     
-    <div class="flex flex-wrap gap-3 mb-4">
-        <button onclick="placeSimOrder('bid')" class="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/50 px-5 py-2 rounded text-sm font-bold transition">買單：排入當前最佳委買</button>
-        <button onclick="placeSimOrder('ask')" class="bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 border border-emerald-500/50 px-5 py-2 rounded text-sm font-bold transition">賣單：排入當前最佳委賣</button>
-    </div>
+    <div id="trackerBody">
+        <div class="flex flex-wrap gap-3 mb-4">
+            <button onclick="placeSimOrder('bid')" class="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/50 px-5 py-2 rounded text-sm font-bold transition">買單：排入當前最佳委買</button>
+            <button onclick="placeSimOrder('ask')" class="bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 border border-emerald-500/50 px-5 py-2 rounded text-sm font-bold transition">賣單：排入當前最佳委賣</button>
+        </div>
 
-    <!-- Active Orders Container -->
-    <div id="simOrdersContainer" class="space-y-3">
-        <div class="text-slate-600 text-xs italic text-center py-4">目前沒有任何模擬委託單，請點擊上方按鈕建立</div>
+        <!-- Active Orders Container -->
+        <div id="simOrdersContainer" class="space-y-3">
+            <div class="text-slate-600 text-xs italic text-center py-4">目前沒有任何模擬委託單，請點擊上方按鈕建立</div>
+        </div>
     </div>
 </div>
 
@@ -552,8 +560,35 @@ function getBurnRate(price) {
     const now = Date.now();
     recentTsmcTrades = recentTsmcTrades.filter(t => now - t.time <= 60000);
     const tradesAtPrice = recentTsmcTrades.filter(t => t.price === price);
+    
+    if (tradesAtPrice.length === 0) return { rate: 0, rawRate: 0, tradeCount: 0, outliers: 0 };
+    
     const totalVol = tradesAtPrice.reduce((sum, t) => sum + t.vol, 0);
-    return totalVol / 60.0;
+    const elapsed = Math.min(60, (now - tradesAtPrice[0].time) / 1000) || 60;
+    const rawRate = totalVol / elapsed;
+    
+    // IQR 自適應離群值過濾
+    // 大量法人掃貨 → Q3 本身就高 → 門檻跟著高 → 不會被誤濾
+    // 偶發單筆大單 → 遠超 Q3+1.5×IQR → 被過濾
+    const vols = tradesAtPrice.map(t => t.vol).sort((a, b) => a - b);
+    const n = vols.length;
+    
+    if (n < 4) {
+        // 筆數太少，直接用原始速率（無法有意義地算 IQR）
+        return { rate: rawRate, rawRate, tradeCount: n, outliers: 0 };
+    }
+    
+    const q1 = vols[Math.floor(n * 0.25)];
+    const q3 = vols[Math.floor(n * 0.75)];
+    const iqr = q3 - q1;
+    const upperFence = q3 + 1.5 * iqr;
+    
+    const filtered = vols.filter(v => v <= upperFence);
+    const outliers = n - filtered.length;
+    const filteredVol = filtered.reduce((s, v) => s + v, 0);
+    const rate = filteredVol / elapsed;
+    
+    return { rate, rawRate, tradeCount: n, outliers };
 }
 
 function placeSimOrder(side) {
@@ -588,6 +623,30 @@ function cancelSimOrder(id) {
     }
 }
 
+function removeSimOrder(id) {
+    simOrders = simOrders.filter(o => o.id !== id);
+    renderSimOrders();
+}
+
+function clearCompletedOrders() {
+    simOrders = simOrders.filter(o => o.status === 'pending');
+    renderSimOrders();
+}
+
+let tsmcTrackerCollapsed = false;
+function toggleTracker() {
+    tsmcTrackerCollapsed = !tsmcTrackerCollapsed;
+    const body = document.getElementById('trackerBody');
+    const chevron = document.getElementById('trackerChevron');
+    if (tsmcTrackerCollapsed) {
+        body.style.display = 'none';
+        chevron.style.transform = 'rotate(-90deg)';
+    } else {
+        body.style.display = '';
+        chevron.style.transform = '';
+    }
+}
+
 function renderSimOrders() {
     const container = document.getElementById('simOrdersContainer');
     if (!container) return;
@@ -613,12 +672,17 @@ function renderSimOrders() {
         if (o.status === 'filled') pct = 100;
         
         let rateStr = '--';
+        let rawRateStr = '';
         let etaStr = '--';
         if (o.status === 'pending') {
-            const r = getBurnRate(o.price);
-            rateStr = r.toFixed(2);
-            if (r > 0) {
-                const s = o.k / r;
+            const { rate, rawRate, tradeCount, outliers } = getBurnRate(o.price);
+            rateStr = rate.toFixed(2);
+            // 如果有離群值被過濾，顯示原始速率供參考
+            if (outliers > 0) {
+                rawRateStr = `<div class="text-[8px] text-amber-500/70 mt-0.5">⚡ ${outliers}筆大單濾除 (原始: ${rawRate.toFixed(2)})</div>`;
+            }
+            if (rate > 0) {
+                const s = o.k / rate;
                 if (s > 3600) etaStr = '> 1 小時';
                 else if (s > 60) {
                     const m = Math.floor(s / 60);
@@ -636,13 +700,16 @@ function renderSimOrders() {
         const tf = `${timeObj.getHours().toString().padStart(2,'0')}:${timeObj.getMinutes().toString().padStart(2,'0')}:${timeObj.getSeconds().toString().padStart(2,'0')}`;
         
         html += `
-        <div class="bg-white/5 border border-white/10 rounded-xl p-4 transition hover:bg-white/10">
+        <div class="bg-white/5 border border-white/10 rounded-xl p-4 transition hover:bg-white/10 ${o.status !== 'pending' ? 'opacity-60' : ''}">
             <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-3">
                     <span class="${sideColor} font-black mono text-base">${sideLabel} @ ${o.price}</span>
                     ${statusBadge}
                 </div>
-                ${o.status === 'pending' ? `<button onclick="cancelSimOrder(${o.id})" class="text-slate-400 hover:text-red-400 bg-white/5 hover:bg-red-500/10 border border-white/5 rounded px-2 py-1 text-[10px] uppercase font-bold transition">✕ 刪單</button>` : ''}
+                <div class="flex items-center gap-1">
+                    ${o.status === 'pending' ? `<button onclick="cancelSimOrder(${o.id})" class="text-slate-400 hover:text-red-400 bg-white/5 hover:bg-red-500/10 border border-white/5 rounded px-2 py-1 text-[10px] uppercase font-bold transition">✕ 刪單</button>` : ''}
+                    ${o.status !== 'pending' ? `<button onclick="removeSimOrder(${o.id})" class="text-slate-500 hover:text-slate-300 bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-[10px] font-bold transition">✕ 移除</button>` : ''}
+                </div>
             </div>
             
             <div class="grid grid-cols-4 gap-4 text-xs mt-2">
@@ -655,8 +722,9 @@ function renderSimOrders() {
                     <div class="mono font-bold text-white text-sm">${Math.floor(o.k)}<span class="text-slate-500 font-normal text-xs"> / ${o.initialQ}</span></div>
                 </div>
                 <div class="bg-slate-900/40 rounded p-2 text-center">
-                    <div class="text-slate-500 mb-1 text-[10px] font-bold">消耗速率 (60s)</div>
+                    <div class="text-slate-500 mb-1 text-[10px] font-bold">消耗速率</div>
                     <div class="mono text-blue-300 font-bold">${rateStr} <span class="text-slate-500 font-normal text-[10px]">張/s</span></div>
+                    ${rawRateStr}
                 </div>
                 <div class="bg-slate-900/40 rounded p-2 text-center border border-emerald-500/20">
                     <div class="text-emerald-500/80 mb-1 text-[10px] font-bold">預估 ETA</div>
@@ -674,6 +742,18 @@ function renderSimOrders() {
         </div>`;
     });
     container.innerHTML = html;
+    
+    // Update header count badge + clear button visibility
+    const pendingCount = simOrders.filter(o => o.status === 'pending').length;
+    const doneCount = simOrders.filter(o => o.status !== 'pending').length;
+    const countEl = document.getElementById('trackerOrderCount');
+    const clearBtn = document.getElementById('clearCompletedBtn');
+    if (countEl) {
+        countEl.textContent = simOrders.length > 0 ? `(${pendingCount} 排隊中${doneCount > 0 ? ` / ${doneCount} 完成` : ''})` : '';
+    }
+    if (clearBtn) {
+        clearBtn.classList.toggle('hidden', doneCount === 0);
+    }
 }
 
 setInterval(() => {
