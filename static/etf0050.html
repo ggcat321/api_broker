@@ -1109,9 +1109,10 @@ function connectGlobalWS() {
                 if (sym === '2330') {
                     let tVol = 0;
                     if (Array.isArray(msg.data.trades)) {
-                        msg.data.trades.forEach(t => tVol += (t.volume || t.size || t.qty || 0));
+                        // size/qty = 單筆成交量（張）, volume = 當天累計量 → 必須用 size
+                        msg.data.trades.forEach(t => tVol += (t.size || t.qty || 0));
                     } else {
-                        tVol = msg.data.volume || msg.data.size || msg.data.qty || 0;
+                        tVol = msg.data.size || msg.data.qty || 0;
                     }
                     if (price != null && tVol > 0 && typeof processTsmcTrade === 'function') {
                         processTsmcTrade(price, tVol);
