@@ -368,16 +368,16 @@
 
 <!-- ── Row 2.6: Order Tracker ───────────────────────────────────────────── -->
 <div class="glass p-5 mb-5 relative group" id="tsmcTrackerSection">
-    <div class="flex items-center justify-between border-b border-white/5 pb-3 mb-4">
-        <div class="flex items-center gap-2 cursor-pointer select-none" onclick="toggleTracker()">
-            <span id="trackerChevron" class="text-slate-500 text-xs transition-transform" style="display:inline-block">▼</span>
+    <div class="flex items-center justify-between border-b border-white/5 pb-3 mb-4 cursor-pointer select-none" onclick="toggleTracker()">
+        <div class="flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
             <span class="text-xs font-bold text-white uppercase tracking-widest">2330 模擬排隊洗價追蹤 (Order Queue Tracker)</span>
             <span id="trackerOrderCount" class="text-[10px] text-slate-600 mono"></span>
         </div>
-        <div class="flex items-center gap-2">
-            <button id="clearCompletedBtn" onclick="clearCompletedOrders()" class="hidden text-slate-500 hover:text-amber-400 bg-white/5 hover:bg-amber-500/10 border border-white/5 rounded px-2 py-1 text-[10px] font-bold transition">清除已完成</button>
-            <button onclick="toggleTracker()" class="text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-[10px] font-bold transition">收合</button>
+        <div class="flex items-center gap-3">
+            <button id="clearCompletedBtn" onclick="event.stopPropagation(); clearCompletedOrders()" class="hidden text-slate-500 hover:text-amber-400 bg-white/5 hover:bg-amber-500/10 border border-white/5 rounded px-2 py-1 text-[10px] font-bold transition">清除已完成</button>
+            <span class="text-[10px] text-slate-500 font-bold">(點擊展開/收起)</span>
+            <span id="trackerChevron" class="text-slate-400 font-mono text-sm">▲</span>
         </div>
     </div>
     
@@ -635,15 +635,16 @@ function clearCompletedOrders() {
 
 let tsmcTrackerCollapsed = false;
 function toggleTracker() {
-    tsmcTrackerCollapsed = !tsmcTrackerCollapsed;
     const body = document.getElementById('trackerBody');
-    const chevron = document.getElementById('trackerChevron');
-    if (tsmcTrackerCollapsed) {
-        body.style.display = 'none';
-        chevron.style.transform = 'rotate(-90deg)';
+    const icon = document.getElementById('trackerChevron');
+    if (body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        icon.textContent = '▲';
+        tsmcTrackerCollapsed = false;
     } else {
-        body.style.display = '';
-        chevron.style.transform = '';
+        body.classList.add('hidden');
+        icon.textContent = '▼';
+        tsmcTrackerCollapsed = true;
     }
 }
 
