@@ -491,21 +491,66 @@ def fetch_disposed_stocks() -> dict:
     回傳 {"disposed": {stock_id: {...}}, "fetch_time": "..."}
     """
     disposed = {}
-    hdrs = {'User-Agent': 'Mozilla/5.0 (compatible; Python/requests)'}
+    hdrs = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.twse.com.tw/zh/announcement/notetrans.html',
+        'Accept': 'application/json, text/plain, */*',
+    }
 
     # ── 1. 上市 TWSE JSON API ────────────────────────────────
     try:
         url = "https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json"
         resp = requests.get(url, headers=hdrs, timeout=10)
         data = resp.json()
-        if data.get("stat") == "OK" and data.get("data"):
+
+        # Debug：印出 stat 與 fields 幫助排查
+        print(f"[TWSE] stat={data.get('stat')!r}  fields={data.get('fields')}  rows={len(data.get('data') or [])}")
+
+        # 動態從 fields 建立欄位 index（更穩健，不寫死）
+        fields = data.get("fields") or []
+        def _fi(name):
+            """從 fields 找欄位位置，找不到回傳 None。"""
+            for i, f in enumerate(fields):
+                if name in f:
+                    return i
+            return None
+
+        idx_id   = _fi("股票代號") if fields else None
+        idx_name = _fi("股票名稱") if fields else None
+        idx_cond = _fi("達") if fields else None          # 達處置標準之情形
+        idx_per  = _fi("處置期間") if fields else None
+        idx_msr  = _fi("處置措施") if fields else None
+
+        # fallback：若 fields 不存在或對應不到，用預設 index
+        # TWSE rwd 格式通常為 7 欄（無序號）：
+        # [公告日期(0), 股票代號(1), 股票名稱(2), 異常情事(3), 達處置標準(4), 處置期間(5), 處置措施(6)]
+        if idx_id   is None: idx_id   = 1
+        if idx_name is None: idx_name = 2
+        if idx_cond is None: idx_cond = 4
+        if idx_per  is None: idx_per  = 5
+        if idx_msr  is None: idx_msr  = 6
+
+        print(f"[TWSE] 欄位索引: 代號={idx_id} 名稱={idx_name} 達標={idx_cond} 期間={idx_per} 措施={idx_msr}")
+
+        stat_ok = data.get("stat") in ("OK", "查詢成功") or (
+            isinstance(data.get("stat"), str) and "查無" not in data.get("stat", "")
+            and "失敗" not in data.get("stat", "") and data.get("data")
+        )
+
+        if stat_ok and data.get("data"):
             for row in data["data"]:
                 try:
-                    stock_id = str(row[2]).strip()
-                    name     = str(row[3]).strip()
-                    cond_txt = str(row[5]).strip() if len(row) > 5 else ""
-                    period   = str(row[6]).strip() if len(row) > 6 else ""
-                    measures = str(row[7]).strip() if len(row) > 7 else ""
+                    if len(row) <= idx_id:
+                        continue
+                    stock_id = str(row[idx_id]).strip()
+                    name     = str(row[idx_name]).strip() if len(row) > idx_name else ""
+                    cond_txt = str(row[idx_cond]).strip() if len(row) > idx_cond else ""
+                    period   = str(row[idx_per]).strip()  if len(row) > idx_per  else ""
+                    measures = str(row[idx_msr]).strip()  if len(row) > idx_msr  else ""
+
+                    # 股票代號應為 4~6 位數字，做基本驗證
+                    if not stock_id or not stock_id[:4].isdigit():
+                        continue
 
                     period_ad = _convert_period(period) if period else ""
 
@@ -517,7 +562,8 @@ def fetch_disposed_stocks() -> dict:
                             "measures": measures[:120] if measures else "",
                             "source": "TWSE"
                         }
-                except Exception:
+                except Exception as row_e:
+                    print(f"[TWSE] row 解析失敗: {row_e}  row={row}")
                     continue
         print(f"✅ TWSE 處置股票: {len([k for k,v in disposed.items() if v.get('source')=='TWSE'])} 檔")
     except Exception as e:
@@ -525,18 +571,24 @@ def fetch_disposed_stocks() -> dict:
 
     # ── 2. 上櫃 TPEx JSON API ──────────────────────────────
     try:
+        tpex_hdrs = {**hdrs, 'Referer': 'https://www.tpex.org.tw/web/stock/attention/disposal/disposal_query.php?l=zh-tw'}
         url = "https://www.tpex.org.tw/web/stock/attention/disposal/disposal_result.php?l=zh-tw&o=json"
-        resp = requests.get(url, headers=hdrs, timeout=10)
+        resp = requests.get(url, headers=tpex_hdrs, timeout=10)
         data = resp.json()
+
         rows = data.get("aaData") or data.get("data") or []
+        print(f"[TPEx] rows={len(rows)}  keys={list(data.keys())[:6]}")
+
         for row in rows:
             try:
+                # TPEx 格式通常為 8+ 欄（有序號）：
+                # [序號(0), 公告日期(1), 股票代號(2), 股票名稱(3), 異常情事(4), 達處置標準(5), 處置期間(6), 處置措施(7)]
                 stock_id = str(row[2]).strip() if len(row) > 2 else ""
                 name     = str(row[3]).strip() if len(row) > 3 else ""
                 period   = str(row[6]).strip() if len(row) > 6 else ""
                 measures = str(row[7]).strip() if len(row) > 7 else ""
 
-                if not stock_id:
+                if not stock_id or not stock_id[:4].isdigit():
                     continue
 
                 period_ad = _convert_period(period) if period else ""
@@ -548,7 +600,8 @@ def fetch_disposed_stocks() -> dict:
                         "measures": measures[:120] if measures else "",
                         "source": "TPEx"
                     }
-            except Exception:
+            except Exception as row_e:
+                print(f"[TPEx] row 解析失敗: {row_e}  row={row}")
                 continue
         print(f"✅ TPEx 處置股票: {len([k for k,v in disposed.items() if v.get('source')=='TPEx'])} 檔")
     except Exception as e:

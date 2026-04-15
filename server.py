@@ -871,6 +871,42 @@ async def api_disposal_disposed():
         return {"error": str(e), "disposed": {}}
 
 
+@app.get("/api/disposal/debug_raw")
+async def api_disposal_debug_raw():
+    """【Debug 用】直接回傳 TWSE/TPEx 的原始 JSON，方便排查欄位結構。"""
+    import requests as _req
+    result = {}
+    hdrs = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.twse.com.tw/zh/announcement/notetrans.html',
+        'Accept': 'application/json, text/plain, */*',
+    }
+    try:
+        r = _req.get("https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json", headers=hdrs, timeout=10)
+        d = r.json()
+        result["twse"] = {
+            "stat": d.get("stat"),
+            "fields": d.get("fields"),
+            "row_count": len(d.get("data") or []),
+            "first_row": (d.get("data") or [None])[0],
+        }
+    except Exception as e:
+        result["twse"] = {"error": str(e)}
+    try:
+        tpex_hdrs = {**hdrs, 'Referer': 'https://www.tpex.org.tw/web/stock/attention/disposal/disposal_query.php?l=zh-tw'}
+        r = _req.get("https://www.tpex.org.tw/web/stock/attention/disposal/disposal_result.php?l=zh-tw&o=json", headers=tpex_hdrs, timeout=10)
+        d = r.json()
+        rows = d.get("aaData") or d.get("data") or []
+        result["tpex"] = {
+            "keys": list(d.keys()),
+            "row_count": len(rows),
+            "first_row": rows[0] if rows else None,
+        }
+    except Exception as e:
+        result["tpex"] = {"error": str(e)}
+    return result
+
+
 @app.get("/api/disposal/scan")
 async def api_disposal_scan(refresh: bool = False):
     """執行全條款掃描，回傳高風險股票清單。首次呼叫約需 15-30 秒。"""
