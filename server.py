@@ -557,6 +557,11 @@ async def get_etf0050():
     with open(os.path.join(BASE_DIR, "static", "etf0050.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
+@app.get("/disposal")
+async def get_disposal():
+    with open(os.path.join(BASE_DIR, "static", "disposal.html"), "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
 pcf_cache = {}
 
 @app.get("/api/etf-pcf/{ticker}")
@@ -850,6 +855,52 @@ async def get_stock_quotes(symbols: str):
             sym, data = item
             if data: quotes[sym] = data
         return quotes
+
+# ─── Disposal / Warning Detection API ──────────────────────────────
+
+@app.get("/api/disposal/disposed")
+async def api_disposal_disposed():
+    """取得目前處置中的股票清單（TWSE + TPEx）。"""
+    try:
+        from disposal_checker import fetch_disposed_stocks
+        ev_loop = asyncio.get_running_loop()
+        result = await ev_loop.run_in_executor(None, fetch_disposed_stocks)
+        return result
+    except Exception as e:
+        print(f"Disposal disposed API error: {e}")
+        return {"error": str(e), "disposed": {}}
+
+
+@app.get("/api/disposal/scan")
+async def api_disposal_scan(refresh: bool = False):
+    """執行全條款掃描，回傳高風險股票清單。首次呼叫約需 15-30 秒。"""
+    try:
+        from disposal_checker import check_all_conditions, clear_cache
+        if refresh:
+            ev_loop = asyncio.get_running_loop()
+            await ev_loop.run_in_executor(None, clear_cache)
+        ev_loop = asyncio.get_running_loop()
+        result = await ev_loop.run_in_executor(None, check_all_conditions)
+        return result
+    except Exception as e:
+        print(f"Disposal scan API error: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/disposal/stock/{stock_id}")
+async def api_disposal_stock(stock_id: str):
+    """查詢個股警示狀態（首次呼叫會觸發全市場掃描）。"""
+    try:
+        from disposal_checker import check_single_stock
+        ev_loop = asyncio.get_running_loop()
+        result = await ev_loop.run_in_executor(None, check_single_stock, stock_id)
+        if result is None:
+            return {"error": f"查無股票 {stock_id}"}
+        return result
+    except Exception as e:
+        print(f"Disposal stock API error: {e}")
+        return {"error": str(e)}
+
 
 if __name__ == "__main__":
     import uvicorn
