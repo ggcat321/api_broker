@@ -1,33 +1,26 @@
 import os
-import sys
-from datetime import date
 from dotenv import load_dotenv
-
 load_dotenv('API.env')
-finlab_token = os.getenv("FINLAB_TOKEN")
-if not finlab_token:
-    print("FINLAB_TOKEN not found in API.env")
-    sys.exit(1)
+token = os.environ.get('FINLAB_TOKEN')
 
+import sys
+sys.path.append(os.getcwd())
+
+from finlab import data
+data.login(token)
 try:
-    import finlab
-    from finlab import data
-    finlab.login(finlab_token)
     df = data.get('disposal_information')
-    if df is not None and not df.empty:
-        print("FinLab Disposal Data found!")
-        print("Columns:", df.columns)
-        
-        today_str = date.today().strftime("%Y-%m-%d")
-        if '處置結束日期' in df.columns:
-            active = df[df['處置結束日期'] >= today_str]
-            print(f"Active disposals matching {today_str}: {len(active)}")
-            if len(active) > 0:
-                print(active[['stock_id', '處置開始日期', '處置結束日期']].head())
-        else:
-            print("No '處置結束日期' column!")
-            print(df.tail())
-    else:
-         print("No data returned or empty.")
+    print("DataFrame shape:", df.shape)
+    print("Columns:", df.columns.tolist())
+    df = df.reset_index()
+    print("Columns after reset:", df.columns.tolist())
+    
+    end_cols = ['處置結束日期', 'end_date', 'disposal_end_date']
+    end_col = next((c for c in end_cols if c in df.columns), None)
+    
+    print("End col:", end_col)
+    
+    if end_col:
+        print("Sample raw dates:", df[end_col].dropna().tail().tolist())
 except Exception as e:
     print("Error:", e)

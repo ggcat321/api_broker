@@ -518,8 +518,8 @@ def fetch_disposed_stocks() -> dict:
 
     # ── 1. 上市 TWSE JSON API ────────────────────────────────
     try:
-        url = "https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json"
-        resp = requests.get(url, headers=hdrs, timeout=10)
+        url = "https://www.twse.com.tw/rwd/zh/announcement/punish?response=json"
+        resp = requests.get(url, headers=hdrs, timeout=10, verify=False)
         data = resp.json()
 
         # Debug：印出 stat 與 fields 幫助排查
@@ -534,20 +534,18 @@ def fetch_disposed_stocks() -> dict:
                     return i
             return None
 
-        idx_id   = _fi("股票代號") if fields else None
-        idx_name = _fi("股票名稱") if fields else None
-        idx_cond = _fi("達") if fields else None          # 達處置標準之情形
-        idx_per  = _fi("處置期間") if fields else None
-        idx_msr  = _fi("處置措施") if fields else None
+        idx_id   = _fi("代號") if fields else None
+        idx_name = _fi("名稱") if fields else None
+        idx_cond = _fi("條件") if fields else _fi("達")
+        idx_per  = _fi("起迄") if fields else _fi("期間")
+        idx_msr  = _fi("措施") if fields else None
 
         # fallback：若 fields 不存在或對應不到，用預設 index
-        # TWSE rwd 格式通常為 7 欄（無序號）：
-        # [公告日期(0), 股票代號(1), 股票名稱(2), 異常情事(3), 達處置標準(4), 處置期間(5), 處置措施(6)]
-        if idx_id   is None: idx_id   = 1
-        if idx_name is None: idx_name = 2
-        if idx_cond is None: idx_cond = 4
-        if idx_per  is None: idx_per  = 5
-        if idx_msr  is None: idx_msr  = 6
+        if idx_id   is None: idx_id   = 2
+        if idx_name is None: idx_name = 3
+        if idx_cond is None: idx_cond = 5
+        if idx_per  is None: idx_per  = 6
+        if idx_msr  is None: idx_msr  = 7
 
         print(f"[TWSE] 欄位索引: 代號={idx_id} 名稱={idx_name} 達標={idx_cond} 期間={idx_per} 措施={idx_msr}")
 
@@ -590,37 +588,53 @@ def fetch_disposed_stocks() -> dict:
 
     # ── 2. 上櫃 TPEx JSON API ──────────────────────────────
     try:
-        tpex_hdrs = {**hdrs, 'Referer': 'https://www.tpex.org.tw/web/stock/attention/disposal/disposal_query.php?l=zh-tw'}
-        url = "https://www.tpex.org.tw/web/stock/attention/disposal/disposal_result.php?l=zh-tw&o=json"
-        resp = requests.get(url, headers=tpex_hdrs, timeout=10)
+        tpex_hdrs = {**hdrs, 'Referer': 'https://www.tpex.org.tw/zh-tw/announce/market/disposal.html', 'X-Requested-With': 'XMLHttpRequest'}
+        url = "https://www.tpex.org.tw/www/zh-tw/bulletin/disposal?response=json"
+        resp = requests.get(url, headers=tpex_hdrs, timeout=10, verify=False)
         data = resp.json()
 
-        rows = data.get("aaData") or data.get("data") or []
-        print(f"[TPEx] rows={len(rows)}  keys={list(data.keys())[:6]}")
+        rows = data.get('tables', [{}])[0].get('data', []) if isinstance(data, dict) else data
+        print(f"[TPEx] rows={len(rows)}")
 
         for row in rows:
             try:
-                # TPEx 格式通常為 8+ 欄（有序號）：
-                # [序號(0), 公告日期(1), 股票代號(2), 股票名稱(3), 異常情事(4), 達處置標準(5), 處置期間(6), 處置措施(7)]
-                stock_id = str(row[2]).strip() if len(row) > 2 else ""
-                name     = str(row[3]).strip() if len(row) > 3 else ""
-                period   = str(row[6]).strip() if len(row) > 6 else ""
-                measures = str(row[7]).strip() if len(row) > 7 else ""
+                if not isinstance(row, (list, tuple)) or len(row) < 8:
+                    continue
+                stock_id = str(row[2]).strip()
+                
+                name_raw = str(row[3]).strip()
+                name = name_raw.split('(')[0] if '(' in name_raw else name_raw
+                
+                period_raw = str(row[5]).strip()
+                import re
+                cond_txt   = str(row[6]).strip()
+                cond_txt   = re.sub(r'\(.*?\)', '', cond_txt)  # 去除像是 (./attention.html) 這樣多餘的連結文字
+                
+                measures_raw = str(row[7]).strip()
+                # 從超長文中嘗試萃取關鍵如 "每5分鐘撮合一次"
+                match = re.search(r'(每\d+分鐘撮合一次)', measures_raw)
+                if match:
+                    measures = f"預收款券、人工管制撮合({match.group(1)})"
+                elif measures_raw:
+                    measures = measures_raw[:30] + "..."
+                else:
+                    measures = ""
 
                 if not stock_id or not stock_id[:4].isdigit():
                     continue
 
-                period_ad = _convert_period(period) if period else ""
+                period_ad = _convert_period(period_raw) if period_raw else ""
 
-                if _is_period_active(period_ad) and stock_id not in disposed:
+                if _is_period_active(period_ad) or not period_ad:
                     disposed[stock_id] = {
                         "name": name,
                         "period": period_ad,
+                        "condition": cond_txt[:80] if cond_txt else "",
                         "measures": measures[:120] if measures else "",
                         "source": "TPEx"
                     }
             except Exception as row_e:
-                print(f"[TPEx] row 解析失敗: {row_e}  row={row}")
+                print(f"[TPEx] row 解析失敗: {row_e} row={row}")
                 continue
         print(f"✅ TPEx 處置股票: {len([k for k,v in disposed.items() if v.get('source')=='TPEx'])} 檔")
     except Exception as e:
@@ -637,12 +651,12 @@ def fetch_disposed_stocks() -> dict:
             # 將可能在 index 的欄位 (如 stock_id, date) 攤平
             disp_df = disp_df.reset_index()
             
-            # 定義可能的欄位名稱
-            end_cols = ['處置結束日期', 'end_date', 'disposal_end_date']
-            start_cols = ['處置開始日期', 'start_date', 'disposal_start_date']
-            id_cols = ['股票代號', 'stock_id', 'symbol', 'code']
-            name_cols = ['股票名稱', 'name', 'stock_name']
-            measure_cols = ['處置措施', 'measure', 'status', 'condition']
+            # 定義可能的欄位名稱 (擴大匹配範圍)
+            end_cols = ['處置結束日期', 'end_date', 'disposal_end_date', '迄日', '結束日期', '處置迄日']
+            start_cols = ['處置開始日期', 'start_date', 'disposal_start_date', '起日', '開始日期', '處置起日']
+            id_cols = ['股票代號', 'stock_id', 'symbol', 'code', '代號', '證券代號']
+            name_cols = ['股票名稱', 'name', 'stock_name', '名稱', '證券名稱', '公司簡稱']
+            measure_cols = ['處置措施', 'measure', 'status', 'condition', '內容', '處置內容', '處置條件']
             
             # 找到實際存在的欄位
             end_col = next((c for c in end_cols if c in disp_df.columns), None)
@@ -652,15 +666,24 @@ def fetch_disposed_stocks() -> dict:
             m_col = next((c for c in measure_cols if c in disp_df.columns), None)
             
             if id_col and end_col:
-                # 轉成 datetime 確保無論原本型態是字串、Timestamp 或 date 都能正確比對
-                # 若為民國年 (如 115/04/20)，轉為西元年 (2026/04/20)
+                # 若為民國年 (如 115/04/20 或 1150420)，轉為西元年字串
                 def _fix_date(val):
-                    if pd.isna(val) or str(val) == 'nan': return val
+                    if pd.isna(val) or str(val).lower() == 'nan': return val
+                    s = str(val).strip()
                     import re
                     # 比對開頭為 2到3位數，接著是 / 或 - 的日期
-                    return re.sub(r'^(\d{2,3})([/-])', lambda m: str(int(m.group(1)) + 1911) + m.group(2), str(val).strip())
+                    s = re.sub(r'^(\d{2,3})([/-])', lambda m: str(int(m.group(1)) + 1911) + m.group(2), s)
+                    # 比對沒有斜線的 6-7 位數字 (如 1130420)
+                    if re.match(r'^\d{6,7}$', s):
+                        l = len(s)
+                        y = s[:l-4]
+                        md = s[l-4:]
+                        s = str(int(y) + 1911) + md
+                    return s
                 
                 fixed_dates = disp_df[end_col].apply(_fix_date)
+                
+                # 將西元年字串強制轉為 datetime，若有格式太奇怪的會變成 NaT
                 disp_df['_end_dt'] = pd.to_datetime(fixed_dates, errors='coerce')
                 
                 # 以今日 00:00:00 作為門檻
