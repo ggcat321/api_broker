@@ -653,11 +653,20 @@ def fetch_disposed_stocks() -> dict:
             
             if id_col and end_col:
                 # 轉成 datetime 確保無論原本型態是字串、Timestamp 或 date 都能正確比對
-                disp_df['_end_dt'] = pd.to_datetime(disp_df[end_col], errors='coerce')
+                # 若為民國年 (如 115/04/20)，轉為西元年 (2026/04/20)
+                def _fix_date(val):
+                    if pd.isna(val) or str(val) == 'nan': return val
+                    import re
+                    # 比對開頭為 2到3位數，接著是 / 或 - 的日期
+                    return re.sub(r'^(\d{2,3})([/-])', lambda m: str(int(m.group(1)) + 1911) + m.group(2), str(val).strip())
+                
+                fixed_dates = disp_df[end_col].apply(_fix_date)
+                disp_df['_end_dt'] = pd.to_datetime(fixed_dates, errors='coerce')
+                
                 # 以今日 00:00:00 作為門檻
                 today_dt = pd.to_datetime(date_type.today())
                 
-                # 篩選未過期的處置（這也會過濾掉 NaT 也就是原本沒日期的列）
+                # 篩選未過期的處置（過濾掉已經結束的處置，包含轉換失敗的 NaT）
                 active = disp_df[disp_df['_end_dt'] >= today_dt]
                 
                 for _, row in active.iterrows():
