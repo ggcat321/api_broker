@@ -660,11 +660,12 @@
         for (const [sid, info] of filtered) {
             const sourceClass = (info.source || 'TWSE').toLowerCase();
             // 如果是20分以上的，標記特殊紅色樣式
-            const isDanger = (info.measures || '').includes('20分') || (info.measures || '').includes('45分');
+            const isDanger = (info.measures || '').includes('20分') || (info.measures || '').includes('45分') || (info.measures || '').includes('停止買賣');
             const condStyle = isDanger ? 'color:#ef4444' : 'color:#fbbf24';
+            const borderStyle = isDanger ? 'border-left-color:#ef4444' : 'border-left-color:#f59e0b';
             
             html += `
-                <div class="disposed-card" onclick="quickQuery('${sid}')">
+                <div class="disposed-card" style="${borderStyle}" onclick="quickQuery('${sid}')">
                     <div class="stock-header">
                         <div>
                             <span class="stock-id">${sid}</span>
