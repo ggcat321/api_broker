@@ -618,7 +618,7 @@
             }
 
             const disposed = data.disposed || {};
-            allDisposedData = Object.entries(disposed);
+            allDisposedData = Object.entries(disposed).sort((a, b) => a[0].localeCompare(b[0]));
             
             renderDisposed('all');
         } catch (e) {
@@ -984,5 +984,17 @@
     // Auto-load disposed stocks on page load
     loadDisposed();
 </script>
+
+<!-- SPA Engine Interceptor -->
+<script>
+    document.addEventListener('click', e => {
+        const a = e.target.closest('a[href^="/"]');
+        if (a && window.parent !== window) {
+            e.preventDefault();
+            window.parent.postMessage({type:'NAVIGATE', path: a.getAttribute('href')}, '*');
+        }
+    });
+</script>
 </body>
+
 </html>

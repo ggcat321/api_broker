@@ -375,7 +375,9 @@
         <p>選擇權報價看板 — 即時 Call / Put 報價一覽</p>
         <div style="display:flex; justify-content:center; align-items:center; gap: 12px; margin-top: 8px;">
             <a href="/" class="nav-link" style="margin-top:0;">← 返回五檔掛單</a>
-            <a href="/disposal" class="nav-link" style="margin-top:0;color:#f59e0b;border-color:rgba(245,158,11,0.3);">⚠️ 處置偵測</a>
+            <a href="/etf0050" class="nav-link" style="margin-top:0;color:#34d399;border-color:rgba(52,211,153,0.3);">💹 0050 iNAV</a>
+            <a href="/queue" class="nav-a">⏱️ 多檔洗價排隊 ↗</a>
+        <a href="/disposal" class="nav-link" style="margin-top:0;color:#f59e0b;border-color:rgba(245,158,11,0.3);">⚠️ 處置偵測</a>
             <div id="vixWidget" style="display:none; align-items:center; background:rgba(30,41,59,0.8); border:1px solid rgba(100,116,139,0.5); border-radius:20px; padding:4px 14px; font-size:0.85rem;"></div>
         </div>
     </div>
@@ -1042,5 +1044,17 @@
             <td class="${cellClass}">${ivText}</td>`;
     }
 </script>
+
+<!-- SPA Engine Interceptor -->
+<script>
+    document.addEventListener('click', e => {
+        const a = e.target.closest('a[href^="/"]');
+        if (a && window.parent !== window) {
+            e.preventDefault();
+            window.parent.postMessage({type:'NAVIGATE', path: a.getAttribute('href')}, '*');
+        }
+    });
+</script>
 </body>
+
 </html>

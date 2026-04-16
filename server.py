@@ -543,24 +543,21 @@ async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: in
         return {"error": str(e)}
 
 @app.get("/")
-async def get_root():
-    with open(os.path.join(BASE_DIR, "static", "index.html"), "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
-
 @app.get("/options")
-async def get_options():
-    with open(os.path.join(BASE_DIR, "static", "options.html"), "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
-
 @app.get("/etf0050")
-async def get_etf0050():
-    with open(os.path.join(BASE_DIR, "static", "etf0050.html"), "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
-
 @app.get("/disposal")
-async def get_disposal():
-    with open(os.path.join(BASE_DIR, "static", "disposal.html"), "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+@app.get("/queue")
+async def get_app_wrapper():
+    with open(os.path.join(BASE_DIR, "static", "app.html"), "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+@app.get("/_content/{page}")
+async def get_content(page: str):
+    valid = {"index", "options", "etf0050", "disposal", "queue"}
+    if page not in valid: 
+        return HTMLResponse("Not Found", status_code=404)
+    with open(os.path.join(BASE_DIR, "static", f"{page}.html"), "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 pcf_cache = {}
 
