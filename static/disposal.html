@@ -500,9 +500,16 @@
     <!-- Tab 1: 處置中 -->
     <!-- ═══════════════════════════════════════════════ -->
     <div class="tab-content active" id="content-disposed">
-        <div class="section-title">
-            <span>目前處置中的股票</span>
-            <span class="count-badge" id="disposed-count">載入中...</span>
+        <div class="section-title" style="justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px; margin-bottom: 16px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span>目前處置中的股票</span>
+                <span class="count-badge" id="disposed-count">載入中...</span>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button id="btn-disp-all" onclick="renderDisposed('all')" class="nav-a active" style="font-size:0.75rem; padding:4px 10px">全部</button>
+                <button id="btn-disp-5" onclick="renderDisposed('5')" class="nav-a" style="font-size:0.75rem; padding:4px 10px; color:#f59e0b; border-color:rgba(245,158,11,0.3)">5分鐘撮合</button>
+                <button id="btn-disp-20" onclick="renderDisposed('20')" class="nav-a" style="font-size:0.75rem; padding:4px 10px; color:#ef4444; border-color:rgba(239,68,68,0.3)">20分鐘以上</button>
+            </div>
         </div>
         <div id="disposed-area">
             <div class="loading-area">
@@ -596,6 +603,8 @@
     // ============================================================
     // Tab 1: 處置中
     // ============================================================
+    let allDisposedData = [];
+
     async function loadDisposed() {
         try {
             const res = await fetch('/api/disposal/disposed');
@@ -609,41 +618,69 @@
             }
 
             const disposed = data.disposed || {};
-            const entries = Object.entries(disposed);
-            document.getElementById('disposed-count').textContent = `${entries.length} 檔`;
-
-            if (entries.length === 0) {
-                document.getElementById('disposed-area').innerHTML =
-                    `<div class="empty-state"><div class="icon">✅</div><div>目前無處置中的股票</div>
-                     <div style="margin-top:8px;font-size:0.75rem;color:#475569">資料來源：TWSE、TPEx</div></div>`;
-                return;
-            }
-
-            let html = '<div class="disposed-grid">';
-            for (const [sid, info] of entries) {
-                const sourceClass = (info.source || 'TWSE').toLowerCase();
-                html += `
-                    <div class="disposed-card" onclick="quickQuery('${sid}')">
-                        <div class="stock-header">
-                            <div>
-                                <span class="stock-id">${sid}</span>
-                                <span class="stock-name">${info.name || ''}</span>
-                            </div>
-                            <span class="source-badge ${sourceClass}">${info.source || ''}</span>
-                        </div>
-                        <div class="period">📅 ${info.period || '—'}</div>
-                        ${info.condition ? `<div class="measures" style="color:#fbbf24">⚡ ${info.condition}</div>` : ''}
-                        ${info.measures ? `<div class="measures">📋 ${info.measures}</div>` : ''}
-                    </div>`;
-            }
-            html += '</div>';
-            document.getElementById('disposed-area').innerHTML = html;
+            allDisposedData = Object.entries(disposed);
+            
+            renderDisposed('all');
         } catch (e) {
             document.getElementById('disposed-area').innerHTML =
                 `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
             document.getElementById('disposed-count').textContent = '錯誤';
         }
     }
+
+    function renderDisposed(mode) {
+        document.getElementById('btn-disp-all').classList.remove('active');
+        document.getElementById('btn-disp-5').classList.remove('active');
+        document.getElementById('btn-disp-20').classList.remove('active');
+        document.getElementById('btn-disp-' + mode).classList.add('active');
+
+        let filtered = allDisposedData;
+        if (mode === '5') {
+            filtered = allDisposedData.filter(([sid, info]) => {
+                const m = info.measures || '';
+                return m.includes('5分') && !m.includes('20分') && !m.includes('45分') && !m.includes('60分') && !m.includes('停止買賣');
+            });
+        } else if (mode === '20') {
+            filtered = allDisposedData.filter(([sid, info]) => {
+                const m = info.measures || '';
+                return m.includes('20分') || m.includes('45分') || m.includes('60分') || m.includes('停止買賣');
+            });
+        }
+
+        document.getElementById('disposed-count').textContent = `${filtered.length} 檔`;
+
+        if (filtered.length === 0) {
+            document.getElementById('disposed-area').innerHTML =
+                `<div class="empty-state"><div class="icon">✅</div><div>目前無符合此條件的處置股票</div>
+                 <div style="margin-top:8px;font-size:0.75rem;color:#475569">資料來源：TWSE、TPEx</div></div>`;
+            return;
+        }
+
+        let html = '<div class="disposed-grid">';
+        for (const [sid, info] of filtered) {
+            const sourceClass = (info.source || 'TWSE').toLowerCase();
+            // 如果是20分以上的，標記特殊紅色樣式
+            const isDanger = (info.measures || '').includes('20分') || (info.measures || '').includes('45分');
+            const condStyle = isDanger ? 'color:#ef4444' : 'color:#fbbf24';
+            
+            html += `
+                <div class="disposed-card" onclick="quickQuery('${sid}')">
+                    <div class="stock-header">
+                        <div>
+                            <span class="stock-id">${sid}</span>
+                            <span class="stock-name">${info.name || ''}</span>
+                        </div>
+                        <span class="source-badge ${sourceClass}">${info.source || ''}</span>
+                    </div>
+                    <div class="period">📅 ${info.period || '—'}</div>
+                    ${info.condition ? `<div class="measures" style="${condStyle}">⚡ ${info.condition}</div>` : ''}
+                    ${info.measures ? `<div class="measures">📋 ${info.measures}</div>` : ''}
+                </div>`;
+        }
+        html += '</div>';
+        document.getElementById('disposed-area').innerHTML = html;
+    }
+
 
     // ============================================================
     // Tab 2: 個股查詢
