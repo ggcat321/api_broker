@@ -11,11 +11,30 @@
 """
 
 import os
+import ssl
 import pandas as pd
 import numpy as np
 import requests
+import urllib3
 import traceback
 from datetime import datetime, date as date_type
+
+# --- 全局忽略 SSL 驗證 (解決 macOS 憑證未更新導致的連線錯誤) ---
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 1. 覆寫 requests (FinLab 與 TWSE/TPEx 使用)
+original_request = requests.Session.request
+def patched_request(self, method, url, **kwargs):
+    kwargs['verify'] = False
+    return original_request(self, method, url, **kwargs)
+requests.Session.request = patched_request
+
+# 2. 覆寫底層 urllib (若其他套件依賴)
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+# -----------------------------------------------------------
 
 # ============================================================
 # FinLab 資料欄位設定（請依實際 API 調整）
@@ -674,15 +693,46 @@ def fetch_disposed_stocks() -> dict:
 # 輔助：取得股票名稱
 # ============================================================
 def _get_stock_name(stock_id, company):
-    if company is None:
-        return stock_id
+    if company is None or company.empty:
+        return str(stock_id)
+        
     try:
-        if stock_id in company.index:
-            name = company.loc[stock_id, '公司簡稱']
-            return str(name) if pd.notna(name) else stock_id
-    except Exception:
+        # 情境 1: stock_id 在 index 裡
+        if str(stock_id) in company.index:
+            name = company.loc[str(stock_id), '公司簡稱']
+            if isinstance(name, pd.Series):
+                name = name.dropna().iloc[-1] if not name.dropna().empty else name.iloc[0]
+            if pd.notna(name):
+                return str(name)
+                
+        # 情境 2: stock_id 是 MultiIndex 的其中一層 (例如 date, stock_id)
+        if 'stock_id' in company.index.names:
+            try:
+                matches = company.xs(str(stock_id), level='stock_id')
+                if not matches.empty and '公司簡稱' in matches.columns:
+                    name = matches.iloc[-1]['公司簡稱']
+                    if pd.notna(name):
+                        return str(name)
+            except KeyError:
+                pass
+                
+        # 情境 3: stock_id 是一個欄位 (column)
+        id_col = next((c for c in ['stock_id', '股票代號', 'symbol', 'code'] if c in company.columns), None)
+        name_col = next((c for c in ['公司簡稱', 'name', 'stock_name', '股票名稱'] if c in company.columns), None)
+        
+        if id_col and name_col:
+            # 確保型別都是字串以進行比對
+            matches = company[company[id_col].astype(str) == str(stock_id)]
+            if not matches.empty:
+                name = matches.iloc[-1][name_col]
+                if pd.notna(name):
+                    return str(name)
+                    
+    except Exception as e:
+        print(f"Name resolve error for {stock_id}: {e}")
         pass
-    return stock_id
+        
+    return str(stock_id)
 
 
 def _calc_ret(close, stock_id, days):
