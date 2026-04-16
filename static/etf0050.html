@@ -128,11 +128,11 @@
         <h1 class="text-3xl font-black tracking-tight g-cyan" id="pageTitle">0050 即時估算淨值</h1>
         <p class="text-slate-500 text-sm mt-0.5" id="pageSubtitle">元大台灣卓越50 · Real-time iNAV via WebSocket</p>
     </div>
-    <div class="flex items-center gap-2 flex-wrap">
-        <a href="/" class="nav-a">📊 Order Book</a>
-        <a href="/options" class="nav-a">📈 選擇權看板</a>
+    <div class="flex items-center gap-2 flex-wrap" id="mainNavBar">
+        <a href="/" target="quant_sub" onclick="window.open('/', 'quant_sub'); return false;" class="nav-a" title="於新視窗開啟，確保本頁持續運算">📊 Order Book ↗</a>
+        <a href="/options" target="quant_sub" onclick="window.open('/options', 'quant_sub'); return false;" class="nav-a" title="於新視窗開啟，確保本頁持續運算">📈 選擇權看板 ↗</a>
         <a href="/etf0050" class="nav-a active">💹 即時 iNAV</a>
-        <a href="/disposal" class="nav-a" style="color:#f59e0b;border-color:rgba(245,158,11,0.3)">⚠️ 處置偵測</a>
+        <a href="/disposal" target="quant_sub" onclick="window.open('/disposal', 'quant_sub'); return false;" class="nav-a" style="color:#f59e0b;border-color:rgba(245,158,11,0.3)" title="於新視窗開啟，確保本頁持續運算">⚠️ 處置偵測 ↗</a>
     </div>
 </div>
 
@@ -489,6 +489,28 @@ let lastTsmcBook = { bids: {}, asks: {} };
 let currentTsmcBook = { bids: {}, asks: {} };
 let recentTsmcTrades = []; // { price, vol, time }
 
+// 嘗試從 sessionStorage 還原狀態，避免 F5 重整遺失進度
+try {
+    const savedOrders = sessionStorage.getItem('tsmc_simOrders');
+    if (savedOrders) simOrders = JSON.parse(savedOrders);
+    
+    const savedCounter = sessionStorage.getItem('tsmc_simId');
+    if (savedCounter) simOrderIdCounter = parseInt(savedCounter, 10);
+    
+    const savedTrades = sessionStorage.getItem('tsmc_recentTrades');
+    if (savedTrades) recentTsmcTrades = JSON.parse(savedTrades);
+} catch (e) {
+    console.warn("還原模擬單失敗:", e);
+}
+
+// 離開前及時儲存
+function persistSimState() {
+    sessionStorage.setItem('tsmc_simOrders', JSON.stringify(simOrders));
+    sessionStorage.setItem('tsmc_simId', simOrderIdCounter.toString());
+    sessionStorage.setItem('tsmc_recentTrades', JSON.stringify(recentTsmcTrades));
+}
+window.addEventListener('beforeunload', persistSimState);
+
 function normalizeSize(v) {
     if (v == null) return 0;
     return typeof v === 'number' ? v : parseInt(v, 10);
@@ -762,6 +784,7 @@ setInterval(() => {
     if (simOrders.some(o => o.status === 'pending')) {
         renderSimOrders();
     }
+    persistSimState(); // Fixed periodic persist
 }, 1000);
 
 // ═══════════════════════════════════════════════════════
