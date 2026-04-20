@@ -818,6 +818,7 @@ let baseunit      = 500000;
 let stockPrices   = {};       // stkcd -> current price
 let stockPrevCloses = {};     // stkcd -> yesterday's close (from REST)
 let stockPrevPx   = {};       // stkcd -> previous tick price (for flash)
+let stockBooks    = {};       // stkcd -> { bids: [], asks: [] }
 let etfPrice      = null;
 let bid2330       = null;
 let ask2330       = null;
@@ -1249,6 +1250,8 @@ function connectGlobalWS() {
                 const bids = msg.data.bids || msg.data.Bids || [];
                 const asks = msg.data.asks || msg.data.Asks || [];
                 
+                stockBooks[sym] = { bids, asks };
+                
                 if (sym === '2330') {
                     if (bids.length > 0) bid2330 = parseFloat(bids[0].price);
                     if (asks.length > 0) ask2330 = parseFloat(asks[0].price);
@@ -1312,6 +1315,13 @@ function renderSpecificETF(ticker, name) {
     // Update book label
     const etfBookLabel = document.getElementById('etfBookLabel');
     if (etfBookLabel) etfBookLabel.textContent = activeTicker;
+
+    if (stockBooks[activeTicker]) {
+        renderBook('etfBookBody', stockBooks[activeTicker].bids, stockBooks[activeTicker].asks);
+    } else {
+        const etfBookBody = document.getElementById('etfBookBody');
+        if (etfBookBody) etfBookBody.innerHTML = '<div class="text-center text-slate-600 py-3 text-[10px]">等待收盤或報價更新...</div>';
+    }
 
     document.getElementById('tableBody').innerHTML = `<div id="skelWrap" class="space-y-1.5 pt-1"><div class="skel h-9 w-full"></div></div>`;
 
