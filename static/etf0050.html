@@ -535,6 +535,25 @@ function normalizeSize(v) {
     return typeof v === 'number' ? v : parseInt(v, 10);
 }
 
+// ── Sigmoid Cancellation Model ──────────────────────────
+// 抽單密度在佇列中不均勻：前方（靠近成交）抽單少，後方（投機跟單）抽單多
+// 用 sigmoid(a*(x-0.5)) 作為抽單權重密度函數，解析積分計算累積比例
+// steepness=0 退化為線性(均勻)模型，值越大前後差異越明顯
+const CANCEL_SIGMOID_STEEPNESS = 4;
+
+function sigmoidCancelRatio(t, a) {
+    // t = k/Q ∈ [0,1]，你在佇列中的相對位置 (0=最前, 1=最後)
+    // 返回：估計有多少比例的抽單發生在 [0, t] 範圍（你前面）
+    // 數學：∫₀ᵗ σ(a(x-0.5))dx  /  ∫₀¹ σ(a(x-0.5))dx
+    //   其中 ∫σ(a(x-c))dx = (1/a)·ln(1+exp(a(x-c)))
+    if (a < 0.01) return t;  // 退化為線性
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    const logNum = Math.log((1 + Math.exp(a * (t - 0.5))) / (1 + Math.exp(-a * 0.5)));
+    const logDen = Math.log((1 + Math.exp(a * 0.5)) / (1 + Math.exp(-a * 0.5)));
+    return logNum / logDen;
+}
+
 function processTsmcBook(bids, asks) {
     const newBids = {};
     const newAsks = {};
@@ -548,9 +567,10 @@ function processTsmcBook(bids, asks) {
         const newVol = bookMap[order.price] || 0;
         
         if (newVol < order.Q) {
-            // Cancellation happened
+            // Cancellation happened — sigmoid model
             const C = order.Q - newVol;
-            const ratio = (order.Q > 0) ? (order.k / order.Q) : 0;
+            const t = (order.Q > 0) ? (order.k / order.Q) : 0;
+            const ratio = sigmoidCancelRatio(t, CANCEL_SIGMOID_STEEPNESS);
             const canceledAhead = C * ratio;
             order.k = Math.max(0, order.k - canceledAhead);
             order.Q = newVol;
