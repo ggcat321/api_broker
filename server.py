@@ -342,7 +342,7 @@ async def get_meta(symbol: str):
         return {"error": str(e)}
 
 @app.get("/api/options-chain/{futures_symbol}")
-async def get_options_chain(futures_symbol: str, strikes: int = 15, interval: int = 100, weekly: bool = True, night: bool = False):
+async def get_options_chain(futures_symbol: str, strikes: int = 17, interval: int = 100, weekly: bool = True, night: bool = False):
     """Fetch options chain centered around the current futures price.
     weekly=True (default): use nearest weekly options (TX1/TX2/TX4/TX5)
     weekly=False: use monthly options (TXO)

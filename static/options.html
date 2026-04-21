@@ -20,7 +20,7 @@
             overflow-y: auto;
         }
 
-        .container { max-width: 1100px; margin: 0 auto; padding: 30px 20px 60px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 30px 20px 60px; }
 
         /* === Header === */
         .page-header {
@@ -128,6 +128,31 @@
         }
         .mode-toggle button:hover:not(.active) { background: rgba(51,65,85,0.8); }
 
+        /* Greeks toggle */
+        .greeks-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid rgba(100,116,139,0.3);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(30, 41, 59, 0.6);
+            color: #94a3b8;
+            font-family: 'Inter', sans-serif;
+            white-space: nowrap;
+            user-select: none;
+        }
+        .greeks-toggle.active {
+            background: linear-gradient(135deg, #0d9488, #14b8a6);
+            color: white;
+            border-color: rgba(20,184,166,0.5);
+        }
+        .greeks-toggle:hover:not(.active) { background: rgba(51,65,85,0.8); }
+
         /* Expiry badge */
         .expiry-badge {
             display: inline-flex;
@@ -195,40 +220,27 @@
         /* === Options Chain Table === */
         .chain-wrapper {
             padding: 0;
-            overflow: hidden;
+            overflow-x: auto;
         }
         .chain-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.85rem;
-            table-layout: fixed;
+            font-size: 0.82rem;
+            table-layout: auto;
+            min-width: 1100px;
         }
-        .chain-table th:nth-child(1), .chain-table td:nth-child(1) { width: 6%; }  /* Call IV */
-        .chain-table th:nth-child(2), .chain-table td:nth-child(2) { width: 6%; }  /* Call Vol */
-        .chain-table th:nth-child(3), .chain-table td:nth-child(3) { width: 6%; }  /* Call Chg */
-        .chain-table th:nth-child(4), .chain-table td:nth-child(4) { width: 7%; }  /* Call Pct */
-        .chain-table th:nth-child(5), .chain-table td:nth-child(5) { width: 7%; }  /* Call Bid */
-        .chain-table th:nth-child(6), .chain-table td:nth-child(6) { width: 8%; }  /* Call Price */
-        .chain-table th:nth-child(7), .chain-table td:nth-child(7) { width: 7%; }  /* Call Ask */
-        .chain-table th:nth-child(8), .chain-table td:nth-child(8) { width: 8%; } /* Strike */
-        .chain-table th:nth-child(9), .chain-table td:nth-child(9) { width: 7%; }  /* Put Bid */
-        .chain-table th:nth-child(10), .chain-table td:nth-child(10) { width: 8%; }  /* Put Price */
-        .chain-table th:nth-child(11), .chain-table td:nth-child(11) { width: 7%; } /* Put Ask */
-        .chain-table th:nth-child(12), .chain-table td:nth-child(12) { width: 6%; } /* Put Chg */
-        .chain-table th:nth-child(13), .chain-table td:nth-child(13) { width: 7%; } /* Put Pct */
-        .chain-table th:nth-child(14), .chain-table td:nth-child(14) { width: 6%; } /* Put Vol */
-        .chain-table th:nth-child(15), .chain-table td:nth-child(15) { width: 6%; } /* Put IV */
         .chain-table thead th {
-            padding: 14px 8px;
+            padding: 12px 6px;
             font-weight: 700;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
             border-bottom: 2px solid rgba(255,255,255,0.06);
             position: sticky;
             top: 0;
             z-index: 10;
             background: rgba(15, 23, 42, 0.95);
+            white-space: nowrap;
         }
         .chain-table thead th.call-header { color: #f87171; }
         .chain-table thead th.strike-header {
@@ -238,7 +250,7 @@
         .chain-table thead th.put-header { color: #4ade80; }
 
         .chain-table tbody td {
-            padding: 10px 8px;
+            padding: 8px 5px;
             text-align: center;
             border-bottom: 1px solid rgba(255,255,255,0.03);
             transition: background 0.15s;
@@ -250,7 +262,7 @@
         /* Call side */
         .chain-table .call-price {
             font-weight: 700;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             color: #fca5a5;
         }
         .chain-table .call-itm {
@@ -261,17 +273,17 @@
         .chain-table .strike-cell {
             background: rgba(30, 41, 59, 0.5);
             font-weight: 700;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             color: #cbd5e1;
             border-left: 1px solid rgba(255,255,255,0.06);
             border-right: 1px solid rgba(255,255,255,0.06);
-            min-width: 90px;
+            min-width: 80px;
         }
 
         /* Put side */
         .chain-table .put-price {
             font-weight: 700;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             color: #86efac;
         }
         .chain-table .put-itm {
@@ -290,12 +302,52 @@
             border-bottom: 1px solid rgba(99,102,241,0.3);
         }
 
+        /* Greeks sub-row */
+        .greeks-row td {
+            padding: 4px 5px 8px !important;
+            border-bottom: 2px solid rgba(255,255,255,0.04) !important;
+            background: rgba(15, 20, 35, 0.6);
+        }
+        .greeks-row:hover td { background: rgba(15, 20, 35, 0.6) !important; }
+        .greeks-strip {
+            display: flex;
+            gap: 3px;
+            justify-content: center;
+            flex-wrap: nowrap;
+        }
+        .greek-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(100,116,139,0.15);
+            white-space: nowrap;
+        }
+        .greek-chip .label {
+            color: #64748b;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .greek-chip .value {
+            font-variant-numeric: tabular-nums;
+        }
+        .greek-chip.delta .value { color: #38bdf8; }
+        .greek-chip.gamma .value { color: #a78bfa; }
+        .greek-chip.vega .value { color: #34d399; }
+        .greek-chip.theta .value { color: #fb923c; }
+        .greek-chip.rho .value { color: #f472b6; }
+
         /* Positive / Negative */
         .up { color: #ef4444; }
         .down { color: #22c55e; }
         .neutral { color: #64748b; }
 
-        .volume-cell { color: #64748b; font-size: 0.8rem; }
+        .volume-cell { color: #64748b; font-size: 0.78rem; }
 
         /* === Loading === */
         .loading-overlay {
@@ -355,14 +407,15 @@
         }
 
         /* No data placeholder */
-        .no-data { color: #334155; font-style: italic; font-size: 0.8rem; }
+        .no-data { color: #334155; font-style: italic; font-size: 0.78rem; }
 
         @media (max-width: 768px) {
-            .chain-table { font-size: 0.75rem; }
-            .chain-table thead th { padding: 10px 4px; font-size: 0.65rem; }
-            .chain-table tbody td { padding: 8px 4px; }
+            .chain-table { font-size: 0.72rem; }
+            .chain-table thead th { padding: 8px 3px; font-size: 0.6rem; }
+            .chain-table tbody td { padding: 6px 3px; }
             .futures-ticker { flex-direction: column; text-align: center; gap: 12px; }
             .futures-ticker .right { text-align: center; }
+            .greek-chip { font-size: 0.58rem; padding: 1px 3px; }
         }
     </style>
 </head>
@@ -372,7 +425,7 @@
     <!-- Header -->
     <div class="page-header">
         <h1>Options Chain Live</h1>
-        <p>選擇權報價看板 — 即時 Call / Put 報價一覽</p>
+        <p>選擇權報價看板 — 即時 Call / Put 報價 + Greeks 一覽</p>
         <div style="display:flex; justify-content:center; align-items:center; gap: 12px; margin-top: 8px;">
             <a href="/" class="nav-link" style="margin-top:0;">← 返回五檔掛單</a>
             <a href="/etf0050" class="nav-link" style="margin-top:0;color:#34d399;border-color:rgba(52,211,153,0.3);">💹 0050 iNAV</a>
@@ -392,6 +445,9 @@
         <div class="mode-toggle">
             <button id="dayBtn" onclick="setNightMode(false)">日盤</button>
             <button id="nightBtn" onclick="setNightMode(true)">夜盤</button>
+        </div>
+        <div class="greeks-toggle active" id="greeksToggle" onclick="toggleGreeks()">
+            <span>Σ</span> Greeks
         </div>
         <button id="loadBtn" class="load-btn" onclick="loadChain()">載入</button>
     </div>
@@ -439,11 +495,15 @@
     let symbolMap = {};
     let renderTimer = null;
     let wsRetryCount = 0;
+    let showGreeks = true;
     const WS_MAX_RETRIES = 8;
     const WS_BASE_DELAY = 5000;
     const WS_MAX_DELAY = 60000;
 
-    // --- Black-Scholes IV Calculation ---
+    // ═══════════════════════════════════════════════════════════════
+    //  Black-76 Model: IV + Greeks Calculation
+    // ═══════════════════════════════════════════════════════════════
+
     function normCDF(x) {
         let b1 =  0.319381530, b2 = -0.356563782, b3 =  1.781477937, b4 = -1.821255978, b5 =  1.330274429;
         let p  =  0.2316419, c  =  0.39894228;
@@ -455,6 +515,11 @@
             return ( c * Math.exp( -x * x / 2.0 ) * t * ( t *( t * ( t * ( t * b5 + b4 ) + b3 ) + b2 ) + b1 ));
         }
     }
+
+    function normPDF(x) {
+        return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+    }
+
     function black76Price(isCall, F, K, T, v, r) {
         if (T <= 0 || v <= 0) return Math.max(0, isCall ? F - K : K - F);
         let d1 = (Math.log(F / K) + 0.5 * v * v * T) / (v * Math.sqrt(T));
@@ -462,11 +527,13 @@
         let discount = Math.exp(-r * T);
         return discount * (isCall ? (F * normCDF(d1) - K * normCDF(d2)) : (K * normCDF(-d2) - F * normCDF(-d1)));
     }
+
     function black76Vega(F, K, T, v, r) {
         if (T <= 0 || v <= 0) return 0;
         let d1 = (Math.log(F / K) + 0.5 * v * v * T) / (v * Math.sqrt(T));
         return Math.exp(-r * T) * F * (Math.exp(-0.5 * d1 * d1) / Math.sqrt(2 * Math.PI)) * Math.sqrt(T);
     }
+
     function calculateIV(isCall, targetPrice, F, K, T, r = 0.01) {
         if (T <= 0 || targetPrice == null || !F || !K) return null;
         
@@ -502,7 +569,64 @@
         }
         return v;
     }
-    // ------------------------------------
+
+    /**
+     * Calculate all Greeks using Black-76 model
+     * @param {boolean} isCall - true for call, false for put
+     * @param {number} F - Futures price (underlying forward price)
+     * @param {number} K - Strike price
+     * @param {number} T - Time to expiry in years
+     * @param {number} sigma - Implied volatility (decimal, e.g., 0.20 = 20%)
+     * @param {number} r - Risk-free rate (decimal, e.g., 0.01 = 1%)
+     * @returns {object} { delta, gamma, vega, theta, rho }
+     */
+    function calculateGreeks(isCall, F, K, T, sigma, r = 0.01) {
+        if (T <= 0 || sigma == null || sigma <= 0.0001 || !F || !K) {
+            return { delta: null, gamma: null, vega: null, theta: null, rho: null };
+        }
+
+        const sqrtT = Math.sqrt(T);
+        const d1 = (Math.log(F / K) + 0.5 * sigma * sigma * T) / (sigma * sqrtT);
+        const d2 = d1 - sigma * sqrtT;
+        const discount = Math.exp(-r * T);
+        const nd1 = normPDF(d1);
+
+        // Delta: ∂C/∂F  (Black-76: discount * N(d1) for call, -discount * N(-d1) for put)
+        const delta = isCall
+            ? discount * normCDF(d1)
+            : -discount * normCDF(-d1);
+
+        // Gamma: ∂²C/∂F²  (same for call and put)
+        const gamma = discount * nd1 / (F * sigma * sqrtT);
+
+        // Vega: ∂C/∂σ (per 1% move, divide by 100)
+        // Standard vega is F * discount * nd1 * sqrtT, then /100 for "per 1% vol change"
+        const vega = F * discount * nd1 * sqrtT / 100;
+
+        // Theta: ∂C/∂t (per calendar day, divide by 365)
+        // Theta (annualized) = -F * discount * nd1 * sigma / (2*sqrtT) + r * C (for discounted model)
+        const price = black76Price(isCall, F, K, T, sigma, r);
+        const thetaAnnual = isCall
+            ? (-F * discount * nd1 * sigma / (2 * sqrtT)) + r * price
+            : (-F * discount * nd1 * sigma / (2 * sqrtT)) + r * price;
+        // Theta has a sign issue: we want the rate of decline, so negate the formula
+        // In practice: theta = -(F*e^{-rT}*n(d1)*σ)/(2√T) - r*C (call) or -r*P (put) ... 
+        // Let's use the canonical formulation:
+        const thetaCanonical = isCall
+            ? (-(F * discount * nd1 * sigma) / (2 * sqrtT) + r * (F * discount * normCDF(d1)) - r * (K * discount * normCDF(d2)))
+            : (-(F * discount * nd1 * sigma) / (2 * sqrtT) - r * (F * discount * normCDF(-d1)) + r * (K * discount * normCDF(-d2)));
+        const theta = thetaCanonical / 365; // per calendar day
+
+        // Rho: ∂C/∂r (per 1% rate change, divide by 100)
+        // Black-76: rho = -T * C for call (since all terms are discounted), but more precisely:
+        // rho = -T * price (the whole option value via discounting)
+        // Per 1% rate change:
+        const rho = -T * price / 100;
+
+        return { delta, gamma, vega, theta, rho };
+    }
+
+    // ═══════════════════════════════════════════════════════════════
 
     // Initialize night button state
     document.addEventListener("DOMContentLoaded", () => {
@@ -549,6 +673,14 @@
         }
     }
 
+    function toggleGreeks() {
+        showGreeks = !showGreeks;
+        document.getElementById('greeksToggle').classList.toggle('active', showGreeks);
+        if (optionsData) {
+            renderChain(optionsData, true);
+        }
+    }
+
     async function loadChain() {
         const sym = document.getElementById('futInput').value.trim().toUpperCase();
         if (!sym) return;
@@ -566,7 +698,7 @@
             <div class="loading-overlay">
                 <div class="spinner"></div>
                 <div>正在載入 ${sym} ${modeLabel} (${sessionLabel})報價...</div>
-                <div style="margin-top:8px;font-size:0.75rem;color:#475569">批次查詢大約 60 個合約中，約需 3-5 秒</div>
+                <div style="margin-top:8px;font-size:0.75rem;color:#475569">批次查詢大約 70 個合約中，約需 3-5 秒</div>
             </div>`;
 
         try {
@@ -853,10 +985,15 @@
         const futPrice = data.futuresPrice;
 
         const now = new Date().toLocaleTimeString('zh-TW');
+        const wsStatus = (typeof ws !== 'undefined' && ws && ws.readyState===1);
         const refreshHtml = `<div class="refresh-bar">
-            <div><span class="dot" style="background:${(typeof ws !== 'undefined' && ws && ws.readyState===1)?'#10b981':'#f59e0b'};box-shadow:0 0 6px ${(typeof ws !== 'undefined' && ws && ws.readyState===1)?'#10b981':'#f59e0b'}"></span> WebSocket 即時更新連線中</div>
+            <div><span class="dot" style="background:${wsStatus?'#10b981':'#f59e0b'};box-shadow:0 0 6px ${wsStatus?'#10b981':'#f59e0b'}"></span> WebSocket 即時更新連線中</div>
             <div>伺服器初次抓取擷取: ${now}</div>
         </div>`;
+
+        // Determine number of columns: 15 base + greek columns would be too wide
+        // Instead, we'll show greeks in a sub-row under each price row
+        const totalCols = 15; // IV, Vol, Chg, Pct%, Bid, Price, Ask, Strike, Bid, Price, Ask, Chg, Pct%, Vol, IV
 
         let html = refreshHtml + `<table class="chain-table">
             <thead>
@@ -883,6 +1020,7 @@
         // calculate Time to Expiration in years (assuming roughly hours remaining mapped to days for extreme precision, otherwise just days/365)
         const T = Math.max(data.daysToExpiry / 365.0, 0.001); // fallback to 0.001 years to calculate IV
         const F = data.futuresPrice;
+        const r = 0.01; // 1% risk-free rate
 
         for (const row of chain) {
             const strike = row.strike;
@@ -894,6 +1032,7 @@
             const call = row.call || {};
             const put = row.put || {};
 
+            // --- Price row ---
             html += `<tr class="${rowClass}">`;
 
             const getPriceForIV = (opt) => {
@@ -922,6 +1061,10 @@
             let callIV = callPrice != null ? calculateIV(true, callPrice, F, strike, T) : null;
             let putIV = putPrice != null ? calculateIV(false, putPrice, F, strike, T) : null;
 
+            // Calculate Greeks
+            let callGreeks = calculateGreeks(true, F, strike, T, callIV, r);
+            let putGreeks = calculateGreeks(false, F, strike, T, putIV, r);
+
             // --- CALL side ---
             const callCellClass = callITM ? 'call-cell call-itm' : 'call-cell';
             html += renderCallCells(call, callCellClass, callIV);
@@ -934,11 +1077,38 @@
             html += renderPutCells(put, putCellClass, putIV);
 
             html += `</tr>`;
+
+            // --- Greeks sub-row ---
+            if (showGreeks) {
+                html += `<tr class="greeks-row">`;
+                // Call greeks (span 7 columns)
+                html += `<td colspan="7" class="${callCellClass}" style="text-align:center;">`;
+                html += renderGreeksStrip(callGreeks);
+                html += `</td>`;
+                // Strike spacer
+                html += `<td class="strike-cell" style="font-size:0.6rem;color:#475569;padding:2px;">Greeks</td>`;
+                // Put greeks (span 7 columns)
+                html += `<td colspan="7" class="${putCellClass}" style="text-align:center;">`;
+                html += renderGreeksStrip(putGreeks);
+                html += `</td>`;
+                html += `</tr>`;
+            }
         }
 
         html += `</tbody></table></div>`;
 
         document.getElementById('chainContainer').innerHTML = html;
+    }
+
+    function renderGreeksStrip(greeks) {
+        const fmt = (val) => val != null ? val.toFixed(2) : '—';
+        return `<div class="greeks-strip">
+            <span class="greek-chip delta"><span class="label">Δ</span><span class="value">${fmt(greeks.delta)}</span></span>
+            <span class="greek-chip gamma"><span class="label">Γ</span><span class="value">${fmt(greeks.gamma)}</span></span>
+            <span class="greek-chip vega"><span class="label">V</span><span class="value">${fmt(greeks.vega)}</span></span>
+            <span class="greek-chip theta"><span class="label">Θ</span><span class="value">${fmt(greeks.theta)}</span></span>
+            <span class="greek-chip rho"><span class="label">ρ</span><span class="value">${fmt(greeks.rho)}</span></span>
+        </div>`;
     }
 
     function renderCallCells(opt, cellClass, iv) {
@@ -986,8 +1156,8 @@
         return `
             <td class="${cellClass}">${ivText}</td>
             <td class="${cellClass} volume-cell">${volText}</td>
-            <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.8rem">${chgText}</td>
-            <td class="${cellClass} ${chgClass}" style="font-size:0.75rem;opacity:0.85">${pctText}</td>
+            <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.78rem">${chgText}</td>
+            <td class="${cellClass} ${chgClass}" style="font-size:0.72rem;opacity:0.85">${pctText}</td>
             <td class="${cellClass}" style="color:#94a3b8">${bidText}</td>
             <td class="${cellClass} call-price">${priceText}</td>
             <td class="${cellClass}" style="color:#94a3b8">${askText}</td>`;
@@ -1038,8 +1208,8 @@
             <td class="${cellClass}" style="color:#94a3b8">${bidText}</td>
             <td class="${cellClass} put-price">${priceText}</td>
             <td class="${cellClass}" style="color:#94a3b8">${askText}</td>
-            <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.8rem">${chgText}</td>
-            <td class="${cellClass} ${chgClass}" style="font-size:0.75rem;opacity:0.85">${pctText}</td>
+            <td class="${cellClass} ${chgClass}" style="font-weight:600;font-size:0.78rem">${chgText}</td>
+            <td class="${cellClass} ${chgClass}" style="font-size:0.72rem;opacity:0.85">${pctText}</td>
             <td class="${cellClass} volume-cell">${volText}</td>
             <td class="${cellClass}">${ivText}</td>`;
     }
