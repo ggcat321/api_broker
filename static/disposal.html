@@ -577,6 +577,16 @@
     <!-- Tab 1: 處置中 -->
     <!-- ═══════════════════════════════════════════════ -->
     <div class="tab-content active" id="content-disposed">
+        <!-- 近三交易日新增 -->
+        <div class="recent-section" id="recent-section" style="display:none; margin-top:0; border-top:none; padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div class="recent-title">
+                <span>🆕 近三交易日被納入處置的簡易名單</span>
+                <span class="new-badge">NEW</span>
+                <span class="count-badge" id="recent-count" style="margin-left:auto"></span>
+            </div>
+            <div id="recent-area" class="recent-list"></div>
+        </div>
+
         <div class="section-title" style="justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px; margin-bottom: 16px;">
             <div style="display:flex; align-items:center; gap:12px;">
                 <span>目前處置中的股票</span>
@@ -593,16 +603,6 @@
                 <div class="spinner"></div>
                 <div>正在查詢 TWSE / TPEx 處置清單...</div>
             </div>
-        </div>
-
-        <!-- 近三交易日新增 -->
-        <div class="recent-section" id="recent-section" style="display:none">
-            <div class="recent-title">
-                <span>🆕 近三交易日被納入處置的簡易名單</span>
-                <span class="new-badge">NEW</span>
-                <span class="count-badge" id="recent-count" style="margin-left:auto"></span>
-            </div>
-            <div id="recent-area" class="recent-list"></div>
         </div>
     </div>
 
