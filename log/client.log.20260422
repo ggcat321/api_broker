@@ -1,0 +1,6 @@
+[2026-04-22 09:46:17.538061 +08:00 INFO] [login] personal_id="F129483123"
+[2026-04-22 09:46:17.585831 +08:00 INFO] this account require 2fa
+[2026-04-22 09:46:17.722726 +08:00 INFO] [future_option_mapping]: 100.157542ms
+[2026-04-22 09:46:17.777972 +08:00 INFO] [future_option_mapping]: 49.909708ms
+[2026-04-22 09:46:17.975773 +08:00 INFO] [future_option_mapping]: 197.237375ms
+[2026-04-22 09:46:18.049864 +08:00 INFO] [future_option_mapping]: 38.637333ms

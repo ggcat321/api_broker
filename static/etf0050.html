@@ -144,10 +144,9 @@
         </div>
     </div>
     <div class="flex items-center gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-hide" id="mainNavBar" style="-ms-overflow-style:none;scrollbar-width:none;">
-        <a href="/" class="nav-a whitespace-nowrap" title="於新視窗開啟，確保本頁持續運算">📊 Order Book ↗</a>
+        <a href="/" class="nav-a whitespace-nowrap" title="於新視窗開啟，確保本頁持續運算">📊 Order Book (含排隊) ↗</a>
         <a href="/options" class="nav-a whitespace-nowrap" title="於新視窗開啟，確保本頁持續運算">📈 選擇權看板 ↗</a>
         <a href="/etf0050" class="nav-a active whitespace-nowrap">💹 即時 iNAV</a>
-        <a href="/queue" class="nav-a whitespace-nowrap">⏱️ 多檔洗價排隊 ↗</a>
         <a href="/disposal" class="nav-a whitespace-nowrap" style="color:#f59e0b;border-color:rgba(245,158,11,0.3)" title="於新視窗開啟，確保本頁持續運算">⚠️ 處置偵測 ↗</a>
     </div>
 </div>
@@ -487,8 +486,11 @@ function renderBook(containerId, bids, asks) {
         let bidVol = bid ? (bid.volume != null ? bid.volume : (bid.size != null ? bid.size : '--')) : '--';
         let askVol = ask ? (ask.volume != null ? ask.volume : (ask.size != null ? ask.size : '--')) : '--';
         
-        const bidPx = bid && bid.price != null ? fmt(bid.price, 2) : '--';
-        const askPx = ask && ask.price != null ? fmt(ask.price, 2) : '--';
+        let bidPx = bid && bid.price != null ? fmt(bid.price, 2) : '--';
+        if (bidPx === "0.00" && String(bidVol) !== '--' && Number(bidVol) > 0) bidPx = "市價";
+        
+        let askPx = ask && ask.price != null ? fmt(ask.price, 2) : '--';
+        if (askPx === "0.00" && String(askVol) !== '--' && Number(askVol) > 0) askPx = "市價";
         
         html += `
         <div class="grid grid-cols-2 text-center py-1 hover:bg-white/5 rounded">

@@ -362,17 +362,16 @@
         <h1>Options Chain Live</h1>
         <p>選擇權報價看板 — 即時 Call / Put 報價 + Greeks 一覽</p>
         <div style="display:flex; justify-content:center; align-items:center; gap: 12px; margin-top: 8px;">
-            <a href="/" class="nav-link" style="margin-top:0;">← 返回五檔掛單</a>
-            <a href="/etf0050" class="nav-link" style="margin-top:0;color:#34d399;border-color:rgba(52,211,153,0.3);">💹 0050 iNAV</a>
-            <a href="/queue" class="nav-a">⏱️ 多檔洗價排隊 ↗</a>
-        <a href="/disposal" class="nav-link" style="margin-top:0;color:#f59e0b;border-color:rgba(245,158,11,0.3);">⚠️ 處置偵測</a>
+            <a href="/" class="nav-link" style="margin-top:0;">📊 Order Book (含排隊) ↗</a>
+            <a href="/etf0050" class="nav-link" style="margin-top:0;color:#34d399;border-color:rgba(52,211,153,0.3);">💹 ETF iNAV</a>
+            <a href="/disposal" class="nav-link" style="margin-top:0;color:#f59e0b;border-color:rgba(245,158,11,0.3);">⚠️ 處置偵測</a>
             <div id="vixWidget" style="display:none; align-items:center; background:rgba(30,41,59,0.8); border:1px solid rgba(100,116,139,0.5); border-radius:20px; padding:4px 14px; font-size:0.85rem;"></div>
         </div>
     </div>
 
     <!-- Search -->
     <div class="glass search-bar">
-        <input id="futInput" type="text" placeholder="輸入期貨代號 (例如 TXFD6)" value="TXFD6">
+        <input id="futInput" type="text" placeholder="輸入期貨代號 (例如 TXFD6)">
         <div class="mode-toggle">
             <button id="weeklyBtn" class="active" onclick="setMode(true)">周選</button>
             <button id="monthlyBtn" onclick="setMode(false)">月選</button>
@@ -536,6 +535,29 @@
     document.addEventListener("DOMContentLoaded", () => {
         document.getElementById('nightBtn').classList.toggle('active', isNight);
         document.getElementById('dayBtn').classList.toggle('active', !isNight);
+
+        // Auto-calculate nearest TXF default symbol
+        function getNearestTXF() {
+            const now = new Date();
+            let year = now.getFullYear();
+            let month = now.getMonth();
+            let date = now.getDate();
+
+            // Calculate 3rd Wednesday of the current month
+            let firstDay = new Date(year, month, 1).getDay(); // 0 (Sun) - 6 (Sat)
+            let firstWedOffset = (3 - firstDay + 7) % 7;
+            let thirdWed = 1 + firstWedOffset + 14;
+
+            // If today is past the 3rd Wednesday, use next month
+            if (date > thirdWed) {
+                month++;
+                if (month > 11) { month = 0; year++; }
+            }
+            
+            const monthCodes = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+            return 'TXF' + monthCodes[month] + (year % 10).toString();
+        }
+        document.getElementById('futInput').value = getNearestTXF();
     });
 
     document.getElementById('futInput').addEventListener('keydown', (e) => {
@@ -1018,8 +1040,8 @@
         let chgText = '—';
         let pctText = '—';
         if (cleanChg != null) {
-            const sign = cleanChg > 0 ? '+' : '';
-            chgText = `<span>${sign}${cleanChg}</span>`;
+            const sign = cleanChg > 0 ? '+' : (cleanChg < 0 ? '-' : '');
+            chgText = `<span>${sign}${Math.abs(cleanChg)}</span>`;
             if (pct != null && cleanChg !== 0) {
                 pctText = `<span>${sign}${Math.abs(pct).toFixed(2)}%</span>`;
             } else if (cleanChg === 0) {
@@ -1067,8 +1089,8 @@
         let chgText = '—';
         let pctText = '—';
         if (cleanChg != null) {
-            const sign = cleanChg > 0 ? '+' : '';
-            chgText = `<span>${sign}${cleanChg}</span>`;
+            const sign = cleanChg > 0 ? '+' : (cleanChg < 0 ? '-' : '');
+            chgText = `<span>${sign}${Math.abs(cleanChg)}</span>`;
             if (pct != null && cleanChg !== 0) {
                 pctText = `<span>${sign}${Math.abs(pct).toFixed(2)}%</span>`;
             } else if (cleanChg === 0) {

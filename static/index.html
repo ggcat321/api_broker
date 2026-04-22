@@ -4,577 +4,1218 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>⚡ 流動性核心報價 | Live Order Book</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            background-color: #0f172a; 
-            background-image: 
-                radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.25) 0%, transparent 60%),
-                radial-gradient(ellipse at 80% 100%, rgba(236, 72, 153, 0.25) 0%, transparent 60%);
+            background-color: #0a0e1a;
+            background-image:
+                radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.2) 0%, transparent 55%),
+                radial-gradient(ellipse at 80% 100%, rgba(236, 72, 153, 0.18) 0%, transparent 55%);
             color: #f8fafc;
             min-height: 100vh;
             font-family: 'Inter', sans-serif;
             overflow-x: hidden;
-            overflow-y: auto;
+        }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 30px 20px 60px; }
+
+        /* === Header === */
+        .page-header { text-align: center; margin-bottom: 28px; }
+        .page-header h1 {
+            font-size: 2.6rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, #67e8f9, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+            margin-bottom: 4px;
+        }
+        .page-header p { color: #64748b; font-size: 0.9rem; }
+        .nav-links {
             display: flex;
-            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+        .nav-link {
+            color: #818cf8;
+            text-decoration: none;
+            font-size: 0.82rem;
+            border: 1px solid rgba(129,140,248,0.3);
+            padding: 4px 14px;
+            border-radius: 20px;
+            transition: all 0.2s;
+        }
+        .nav-link:hover { background: rgba(129,140,248,0.15); border-color: rgba(129,140,248,0.6); }
+        .nav-link.green { color: #34d399; border-color: rgba(52,211,153,0.3); }
+        .nav-link.green:hover { background: rgba(52,211,153,0.15); border-color: rgba(52,211,153,0.6); }
+        .nav-link.amber { color: #f59e0b; border-color: rgba(245,158,11,0.3); }
+        .nav-link.amber:hover { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.6); }
+
+        /* === VIX Widget === */
+        #vixWidget {
+            display: none;
+            align-items: center;
+            padding: 4px 16px;
+            border-radius: 20px;
+            border: 1px solid rgba(100,116,139,0.3);
+            background: rgba(30,41,59,0.5);
+            font-size: 0.85rem;
+            backdrop-filter: blur(8px);
+        }
+        #vixWidget.visible { display: inline-flex; }
+
+        /* === Glass Card === */
+        .glass {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+
+        /* === Search Bar === */
+        .search-bar {
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 12px;
             align-items: center;
         }
-
-        .glass-card {
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 24px 48px -12px rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 1.5rem;
-        }
-
-        .input-glow:focus {
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
-            border-color: rgba(56, 189, 248, 0.8);
+        .search-input {
+            flex: 1;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(100,116,139,0.3);
+            color: #f1f5f9;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
             outline: none;
+            transition: all 0.2s;
         }
-
-        .row-animation {
-            transition: all 0.3s ease;
+        .search-input:focus {
+            border-color: rgba(129,140,248,0.6);
+            box-shadow: 0 0 12px rgba(129,140,248,0.2);
         }
-        
-        .row-animation:hover {
-            background: rgba(255, 255, 255, 0.05);
+        .search-input::placeholder { color: #475569; }
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: 'Inter', sans-serif;
         }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.35); }
 
-        @keyframes flashUp {
-            0% { background-color: rgba(239, 68, 68, 0.8); } /* 紅色(漲) */
-            100% { background-color: transparent; }
+        /* === Connection Status === */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            font-size: 0.85rem;
+            color: #94a3b8;
         }
-
-        @keyframes flashDown {
-            0% { background-color: rgba(34, 197, 94, 0.8); } /* 綠色(跌) */
-            100% { background-color: transparent; }
-        }
-
-        .flash-up {
-            animation: flashUp 0.8s ease-out;
-        }
-
-        .flash-down {
-            animation: flashDown 0.8s ease-out;
-        }
-
-        .text-red-ta { color: #ef4444; }   /* 台股常以上漲為紅 */
-        .text-green-ta { color: #22c55e; } /* 台股常以下跌為綠 */
-
-        /* 微動畫 */
         .live-dot {
-            width: 10px;
-            height: 10px;
-            background-color: #10b981;
+            width: 10px; height: 10px;
             border-radius: 50%;
+            background-color: #64748b;
+            box-shadow: 0 0 8px #64748b;
             display: inline-block;
-            box-shadow: 0 0 8px #10b981;
+        }
+        .live-dot.connected {
+            background-color: #10b981;
+            box-shadow: 0 0 12px #10b981;
             animation: pulse 1.5s infinite;
         }
-
         @keyframes pulse {
             0% { transform: scale(0.9); opacity: 0.7; }
             50% { transform: scale(1.2); opacity: 1; }
             100% { transform: scale(0.9); opacity: 0.7; }
         }
 
-        .progress-bar-bg {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 9999px;
+        /* === Subscribed Tags === */
+        .tags-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .sym-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            background: rgba(99,102,241,0.15);
+            border: 1px solid rgba(99,102,241,0.3);
+            color: #a5b4fc;
+            cursor: default;
+            transition: all 0.2s;
+        }
+        .sym-tag .remove-btn {
+            cursor: pointer;
+            opacity: 0.5;
+            font-size: 0.7rem;
+            transition: opacity 0.15s;
+        }
+        .sym-tag .remove-btn:hover { opacity: 1; }
+
+        /* === Stock Panel === */
+        .stock-panels-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(780px, 1fr));
+            gap: 16px;
+        }
+        .stock-panel {
+            border-radius: 16px;
             overflow: hidden;
-            width: 100%;
-            height: 6px;
-            margin-top: 4px;
+            border: 1px solid rgba(255,255,255,0.06);
+            background: rgba(15, 23, 42, 0.5);
+        }
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 18px;
+            background: rgba(15, 23, 42, 0.8);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .panel-header .sym-info {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+        .panel-header .sym-id {
+            font-size: 1.3rem;
+            font-weight: 900;
+            color: #f8fafc;
+        }
+        .panel-header .sym-name {
+            font-size: 0.85rem;
+            color: #64748b;
+            font-weight: 500;
+        }
+        .panel-header .price-info {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+        .panel-header .last-price {
+            font-size: 1.6rem;
+            font-weight: 900;
+            font-variant-numeric: tabular-nums;
+        }
+        .panel-header .price-change {
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+        .panel-header .price-pct {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
         }
 
-        .progress-bar-fill-bid { background: linear-gradient(90deg, #ef4444, #f87171); transition: width 0.3s ease; }
-        .progress-bar-fill-ask { background: linear-gradient(90deg, #22c55e, #4ade80); transition: width 0.3s ease; }
+        /* === Order Book + Trade History + Queue Layout === */
+        .panel-body {
+            display: grid;
+            grid-template-columns: 0.9fr 0.9fr minmax(130px, 140px) minmax(320px, 1.5fr);
+            gap: 0;
+        }
 
+        /* === Bid / Ask columns === */
+        .book-col {
+            padding: 10px 12px;
+        }
+        .book-col.bid { border-right: 1px solid rgba(255,255,255,0.04); }
+        .book-col.ask { border-right: 1px solid rgba(255,255,255,0.04); }
+        .book-col-title {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding-bottom: 6px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            justify-content: space-between;
+        }
+        .book-col-title.bid-title { color: #ef4444; }
+        .book-col-title.ask-title { color: #22c55e; }
+
+        .book-row {
+            display: flex;
+            align-items: center;
+            padding: 3px 0;
+            font-variant-numeric: tabular-nums;
+            transition: background 0.15s;
+            border-radius: 4px;
+            position: relative;
+        }
+        .book-row:hover { background: rgba(255,255,255,0.04); }
+        .book-row .price {
+            font-size: 0.95rem;
+            font-weight: 700;
+            width: 50%;
+        }
+        .book-row .vol {
+            font-size: 0.9rem;
+            font-weight: 600;
+            width: 30%;
+            color: #e2e8f0;
+        }
+        .book-row .bar-cell {
+            width: 20%;
+            display: flex;
+            align-items: center;
+        }
+        .vol-bar {
+            height: 4px;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+        .vol-bar.bid { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .vol-bar.ask { background: linear-gradient(90deg, #22c55e, #4ade80); }
+
+        /* Bid row: vol | price | bar  (右對齊價格) */
+        .book-row.bid-row .vol { text-align: left; }
+        .book-row.bid-row .price { text-align: right; color: #ef4444; }
+        .book-row.bid-row .bar-cell { justify-content: flex-end; }
+
+        /* Ask row: price | vol | bar */
+        .book-row.ask-row .price { text-align: left; color: #22c55e; }
+        .book-row.ask-row .vol { text-align: right; }
+        .book-row.ask-row .bar-cell { justify-content: flex-end; }
+
+        .book-total {
+            display: flex;
+            justify-content: space-between;
+            padding-top: 6px;
+            margin-top: 4px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        /* === Trade History column === */
+        .trade-col {
+            padding: 10px 10px;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0,0,0,0.15);
+        }
+        .trade-col-title {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            padding-bottom: 6px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            text-align: center;
+        }
+        .trade-list {
+            flex: 1;
+            max-height: 180px;
+            overflow-y: auto;
+            font-variant-numeric: tabular-nums;
+        }
+        .trade-list::-webkit-scrollbar { width: 3px; }
+        .trade-list::-webkit-scrollbar-track { background: transparent; }
+        .trade-list::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.3); border-radius: 2px; }
+
+        .trade-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2.5px 4px;
+            font-size: 0.78rem;
+            border-radius: 3px;
+            animation: tradeSlide 0.3s ease;
+        }
+        @keyframes tradeSlide {
+            from { opacity: 0; transform: translateY(-6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .trade-item .t-price { font-weight: 700; width: 46%; }
+        .trade-item .t-vol { font-weight: 600; color: #cbd5e1; width: 27%; text-align: right; }
+        .trade-item .t-side {
+            font-weight: 800;
+            font-size: 0.65rem;
+            width: 27%;
+            text-align: right;
+        }
+        .trade-item.buy .t-price { color: #ef4444; }
+        .trade-item.buy .t-side { color: #ef4444; }
+        .trade-item.sell .t-price { color: #22c55e; }
+        .trade-item.sell .t-side { color: #22c55e; }
+        .trade-item.neutral .t-price { color: #94a3b8; }
+        .trade-item.neutral .t-side { color: #94a3b8; }
+
+        /* Large block trade highlighting */
+        .trade-item.large-trade {
+            background: rgba(234, 179, 8, 0.12); /* Soft amber */
+            border-left: 2px solid #f59e0b;
+            padding-left: 6px;
+            font-weight: 800;
+        }
+        .trade-item.large-trade .t-vol {
+            color: #fde047; /* Bright yellow */
+            text-shadow: 0 0 8px rgba(253, 224, 71, 0.5);
+        }
+
+        /* Flash animations */
+        @keyframes flashUp {
+            0% { background-color: rgba(239, 68, 68, 0.5); }
+            100% { background-color: transparent; }
+        }
+        @keyframes flashDown {
+            0% { background-color: rgba(34, 197, 94, 0.5); }
+            100% { background-color: transparent; }
+        }
+        .flash-up { animation: flashUp 0.6s ease-out; }
+        .flash-down { animation: flashDown 0.6s ease-out; }
+
+        /* === Queue Column === */
+        .queue-col {
+            padding: 8px 12px;
+            background: rgba(15, 23, 42, 0.4);
+            border-left: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            flex-direction: column;
+        }
+        .queue-col-title {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            padding-bottom: 6px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .queue-list {
+            flex: 1;
+            max-height: 180px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .queue-list::-webkit-scrollbar { width: 3px; }
+        .queue-list::-webkit-scrollbar-track { background: transparent; }
+        .queue-list::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.3); border-radius: 2px; }
+        
+        .q-item {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 0.7rem;
+            position: relative;
+        }
+        .q-item .q-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .q-item .q-details { display: flex; justify-content: space-between; color: #94a3b8; font-size: 0.65rem; }
+        .q-item .q-bar-bg { background: rgba(255,255,255,0.05); height: 4px; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+        .q-item .q-bar-fill { background: linear-gradient(90deg, #3b82f6, #10b981); height: 100%; transition: width 0.3s; }
+        
+        .q-btn { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; cursor: pointer; border: none; background: rgba(255,255,255,0.1); color: #cbd5e1; transition: 0.2s; }
+        .q-btn:hover { background: rgba(239,68,68,0.2); color: #f87171; }
+        
+        .sim-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); }
+        .sim-btn { font-size: 0.75rem; font-weight: 700; padding: 5px; border-radius: 6px; cursor: pointer; border: none; transition: 0.2s; }
+        .sim-btn.buy { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+        .sim-btn.buy:hover { background: rgba(239,68,68,0.3); }
+        .sim-btn.sell { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+        .sim-btn.sell:hover { background: rgba(34,197,94,0.3); }
+
+        /* === Raw Log === */
+        .raw-log {
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            color: #64748b;
+            max-height: 120px;
+            overflow-y: auto;
+            margin-top: 16px;
+        }
+        .raw-log::-webkit-scrollbar { width: 4px; }
+        .raw-log::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.3); border-radius: 2px; }
+
+        /* === Close panel button === */
+        .close-panel-btn {
+            background: none;
+            border: none;
+            color: #475569;
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+        .close-panel-btn:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+
+        /* === Responsive === */
+        @media (max-width: 768px) {
+            .page-header h1 { font-size: 1.8rem; }
+            .stock-panels-grid { grid-template-columns: 1fr; }
+            .panel-body { grid-template-columns: 1fr 1fr 120px; }
+        }
+        @media (max-width: 480px) {
+            .panel-body { grid-template-columns: 1fr 1fr; }
+            .trade-col { display: none; }
+        }
     </style>
 </head>
-<body class="pt-10 px-4 w-full h-full">
+<body>
+<div class="container">
 
-    <div class="text-center mb-8 w-full max-w-4xl mx-auto">
-        <h1 class="text-5xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-indigo-400 mb-2 drop-shadow-md">
-            Order Book Live
-        </h1>
-        <p class="text-slate-400 text-lg">Ultra-Low Latency | 買賣五檔觀測</p>
-        <div class="mt-4 flex flex-wrap justify-center items-center gap-4">
-            <a href="/options" style="color:#818cf8;text-decoration:none;font-size:0.85rem;border:1px solid rgba(129,140,248,0.3);padding:4px 14px;border-radius:20px;display:inline-block;transition:all 0.2s;">📊 選擇權看板 →</a>
-            <a href="/etf0050" style="color:#34d399;text-decoration:none;font-size:0.85rem;border:1px solid rgba(52,211,153,0.3);padding:4px 14px;border-radius:20px;display:inline-block;transition:all 0.2s;">💹 0050 iNAV →</a>
-            <a href="/queue" class="nav-a">⏱️ 多檔洗價排隊 ↗</a>
-        <a href="/disposal" style="color:#f59e0b;text-decoration:none;font-size:0.85rem;border:1px solid rgba(245,158,11,0.3);padding:4px 14px;border-radius:20px;display:inline-block;transition:all 0.2s;">⚠️ 處置偵測 →</a>
-            <div id="vixWidget" class="hidden items-center px-4 py-1.5 rounded-full border border-slate-700/50 bg-slate-800/40 text-sm font-medium backdrop-blur-sm transition-all shadow-lg text-indigo-100 placeholder-pulse">
-                <!-- VIX Data Populated by JS -->
+    <!-- Header -->
+    <div class="page-header">
+        <h1>⚡ Order Book Live</h1>
+        <p>Ultra-Low Latency | 買賣五檔觀測 + 成交明細 + 洗價排隊整合監控</p>
+        <div class="nav-links">
+            <a href="/options" class="nav-link">📊 選擇權看板</a>
+            <a href="/etf0050" class="nav-link green">💹 ETF iNAV</a>
+            <a href="/disposal" class="nav-link amber">⚠️ 處置偵測</a>
+            <div id="vixWidget">
+                <span style="color:#94a3b8;margin-right:8px">🇹🇼 VIX:</span>
+                <span id="vixPrice" style="font-weight:800;color:white"></span>
+                <span id="vixDiff" style="margin-left:6px"></span>
             </div>
         </div>
     </div>
 
     <!-- Search Bar -->
-    <div class="glass-card p-4 max-w-xl mx-auto mb-8 flex justify-between items-center w-full z-10 relative">
-        <input id="symbolInput" type="text" placeholder="輸入商品代號 (例如 2330)" class="w-full bg-slate-800/50 text-white rounded-xl px-5 py-3 text-lg border border-slate-700 placeholder-slate-500 input-glow transition">
-        <button id="connectBtn" class="ml-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition duration-200 shadow-indigo-500/30 whitespace-nowrap">
-            訂閱
-        </button>
+    <div class="glass search-bar">
+        <input id="symbolInput" type="text" class="search-input"
+               placeholder="輸入商品代號 (可逗號分隔，例如 2330,2317,2454)">
+        <button id="connectBtn" class="btn-primary">➕ 訂閱</button>
     </div>
 
     <!-- Connection Status -->
-    <div class="text-center mb-6 max-w-4xl w-full mx-auto" id="statusContainer" style="display: none;">
-        <div class="inline-flex items-center glass-card px-4 py-2 text-sm text-slate-300">
-            <span class="live-dot mr-3" id="liveIndicator" style="background-color: #64748b; box-shadow: 0 0 8px #64748b; animation: none;"></span>
-            State: <span id="statusText" class="ml-2 font-bold text-slate-400">Disconnected</span>
-            <span id="speedMetric" class="ml-4 text-xs text-indigo-300 font-mono hidden">Latency: ~1ms</span>
-        </div>
+    <div class="status-bar" id="statusBar" style="display:none">
+        <span class="live-dot" id="liveIndicator"></span>
+        <span>State: <strong id="statusText" style="color:#64748b">Disconnected</strong></span>
     </div>
 
-    <!-- Main Ticker Header -->
-    <div id="tickerHeader" class="max-w-4xl w-full mx-auto mb-6 glass-card p-6 flex flex-col md:flex-row justify-between items-center hidden relative border border-indigo-500/30">
-        <div class="z-10 text-center md:text-left">
-            <h2 id="symbolTitle" class="text-4xl font-extrabold text-white tracking-wider mb-1">---</h2>
-            <p id="symbolName" class="text-slate-400 font-medium">Loading...</p>
-        </div>
-        <div class="z-10 text-center md:text-right mt-4 md:mt-0">
-            <div class="flex items-baseline justify-center md:justify-end gap-3">
-                <span id="lastPrice" class="text-5xl font-black text-white">---</span>
-                <span id="priceChange" class="text-xl font-bold">---</span>
-            </div>
-            <p id="priceChangePct" class="text-lg font-bold mt-1">---</p>
-        </div>
-    </div>
+    <!-- Subscribed Tags -->
+    <div class="tags-row" id="tagsRow"></div>
 
-    <!-- Order Book Viewer -->
-    <div class="max-w-4xl w-full mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 pb-20 opacity-0 transition-opacity duration-1000" id="bookContainer">
-        
-        <!-- Bids Column -->
-        <div class="glass-card p-6 border-t-4 border-t-red-500/80">
-            <h2 class="text-2xl font-bold mb-6 text-red-100 flex items-center justify-between border-b border-slate-700/50 pb-3">
-                <span class="text-red-400">最佳買進 (Bid)</span>
-                <span class="text-sm font-medium text-slate-400 bg-slate-800/50 px-3 py-1 rounded-full">委買</span>
-            </h2>
-            <div class="grid grid-cols-3 text-sm text-slate-400 mb-2 px-2 uppercase font-semibold">
-                <div>委買量 (Size)</div>
-                <div class="text-right">價格 (Price)</div>
-                <div class="text-right">總比率</div>
-            </div>
-            <div id="bidsList" class="space-y-1">
-                <!-- Data populated by JS -->
-            </div>
-            <div class="mt-4 pt-4 border-t border-slate-700/50 flex justify-between text-lg font-bold">
-                <span class="text-slate-400">總委買</span>
-                <span id="totalBidSize" class="text-red-ta">0</span>
-            </div>
-        </div>
+    <!-- Stock Panels Container -->
+    <div class="stock-panels-grid" id="panelsContainer"></div>
 
-        <!-- Asks Column -->
-        <div class="glass-card p-6 border-t-4 border-t-green-500/80">
-            <h2 class="text-2xl font-bold mb-6 text-green-100 flex items-center justify-between border-b border-slate-700/50 pb-3">
-                <span class="text-sm font-medium text-slate-400 bg-slate-800/50 px-3 py-1 rounded-full">委賣</span>
-                <span class="text-green-400">最佳賣出 (Ask)</span>
-            </h2>
-             <div class="grid grid-cols-3 text-sm text-slate-400 mb-2 px-2 uppercase font-semibold">
-                <div>價格 (Price)</div>
-                <div class="text-right">委賣量 (Size)</div>
-                <div class="text-right">總比率</div>
-            </div>
-            <div id="asksList" class="space-y-1">
-                <!-- Data populated by JS -->
-            </div>
-            <div class="mt-4 pt-4 border-t border-slate-700/50 flex justify-between text-lg font-bold">
-                <span id="totalAskSize" class="text-green-ta">0</span>
-                <span class="text-slate-400">總委賣</span>
-            </div>
-        </div>
+    <!-- Raw Log -->
+    <div class="glass raw-log" id="rawLog">[SYSTEM] Waiting for connection...</div>
 
-        <div class="col-span-full pt-4">
-            <div class="glass-card p-4 rounded-xl text-xs text-slate-500 overflow-y-auto max-h-32 font-mono" id="rawLog">
-                [SYSTEM] Waiting for connection...
-            </div>
-        </div>
-    </div>
+</div>
 
+<script>
+    // ============================================================
+    // State
+    // ============================================================
+    let ws = null;
+    let subscribedSymbols = new Set();
+    let wsRetryCount = 0;
+    const WS_MAX_RETRIES = 8;
+    const WS_BASE_DELAY = 5000;
+    const WS_MAX_DELAY = 60000;
 
-    <script>
-        let ws = null;
-        let currentSymbol = null;
-        let wsRetryCount = 0;
-        const WS_MAX_RETRIES = 8;
-        const WS_BASE_DELAY = 5000;  // 5 seconds
-        const WS_MAX_DELAY = 60000;  // 60 seconds cap
-        
-        const connectBtn = document.getElementById('connectBtn');
-        const symbolInput = document.getElementById('symbolInput');
-        const statusContainer = document.getElementById('statusContainer');
-        const statusText = document.getElementById('statusText');
-        const liveIndicator = document.getElementById('liveIndicator');
-        const bookContainer = document.getElementById('bookContainer');
-        const bidsList = document.getElementById('bidsList');
-        const asksList = document.getElementById('asksList');
-        const totalBidSizeEl = document.getElementById('totalBidSize');
-        const totalAskSizeEl = document.getElementById('totalAskSize');
-        const rawLog = document.getElementById('rawLog');
+    // Per-symbol state
+    const stockState = {};  // { symbol: { refPrice, name, prevBids, prevAsks, trades[], lastTradePrice } }
+    const MAX_TRADES = 30;
 
-        let referencePrice = null;
-        let symbolName = "";
-        let previousBids = [];
-        let previousAsks = [];
+    const connectBtn = document.getElementById('connectBtn');
+    const symbolInput = document.getElementById('symbolInput');
+    const statusBar = document.getElementById('statusBar');
+    const statusText = document.getElementById('statusText');
+    const liveIndicator = document.getElementById('liveIndicator');
+    const tagsRow = document.getElementById('tagsRow');
+    const panelsContainer = document.getElementById('panelsContainer');
+    const rawLog = document.getElementById('rawLog');
 
-        function logRaw(msg) {
-            const el = document.createElement("div");
-            el.innerHTML = `<span class="text-indigo-400">[${new Date().toISOString().substring(11,23)}]</span> ` + msg;
-            rawLog.prepend(el);
-            if (rawLog.children.length > 50) {
-                rawLog.removeChild(rawLog.lastChild);
-            }
+    // ============================================================
+    // Logging
+    // ============================================================
+    function logRaw(msg) {
+        const el = document.createElement("div");
+        el.innerHTML = `<span style="color:#818cf8">[${new Date().toISOString().substring(11,23)}]</span> ${msg}`;
+        rawLog.prepend(el);
+        if (rawLog.children.length > 80) rawLog.removeChild(rawLog.lastChild);
+    }
+
+    // ============================================================
+    // Subscribe
+    // ============================================================
+    connectBtn.addEventListener('click', () => {
+        const raw = symbolInput.value.trim();
+        if (!raw) return;
+        const newSyms = raw.split(/[,，\s]+/).map(s => s.trim().toUpperCase()).filter(s => s);
+        if (newSyms.length === 0) return;
+
+        // Add to set
+        for (const s of newSyms) subscribedSymbols.add(s);
+        symbolInput.value = '';
+
+        // Reconnect with full symbol list
+        reconnectWS();
+    });
+
+    symbolInput.addEventListener('keydown', e => { if (e.key === 'Enter') connectBtn.click(); });
+
+    function removeSymbol(sym) {
+        subscribedSymbols.delete(sym);
+        // Remove panel
+        const panel = document.getElementById(`panel-${sym}`);
+        if (panel) panel.remove();
+        delete stockState[sym];
+        renderTags();
+        // Reconnect with remaining
+        if (subscribedSymbols.size > 0) {
+            reconnectWS();
+        } else {
+            if (ws) { ws.close(); ws = null; }
+            statusBar.style.display = 'none';
         }
+    }
 
-        function extractDataArray(dataObj, possibilities) {
-            for (let p of possibilities) {
-                if (dataObj && dataObj[p] && Array.isArray(dataObj[p])) return dataObj[p];
-            }
-            return null;
+    function renderTags() {
+        let html = '';
+        for (const sym of subscribedSymbols) {
+            const st = stockState[sym] || {};
+            const name = st.name || '';
+            html += `<div class="sym-tag">
+                <span>${sym}</span>
+                ${name ? `<span style="font-weight:400;color:#64748b;font-size:0.7rem">${name}</span>` : ''}
+                <span class="remove-btn" onclick="removeSymbol('${sym}')">✕</span>
+            </div>`;
         }
+        tagsRow.innerHTML = html;
+    }
 
-        connectBtn.addEventListener('click', () => {
-            const sym = symbolInput.value.trim();
-            if (!sym) return;
+    // ============================================================
+    // WebSocket Connection
+    // ============================================================
+    function reconnectWS() {
+        if (ws) { ws.close(); ws = null; }
 
-            if (ws) {
-                ws.close();
-                ws = null;
+        const symList = [...subscribedSymbols];
+        if (symList.length === 0) return;
+
+        statusBar.style.display = 'flex';
+        statusText.innerText = 'Connecting...';
+        statusText.style.color = '#fbbf24';
+        liveIndicator.className = 'live-dot';
+
+        // Ensure panels exist
+        for (const sym of symList) {
+            if (!stockState[sym]) {
+                stockState[sym] = { 
+                    refPrice: null, name: '', 
+                    prevBids: [], prevAsks: [], trades: [], lastTradePrice: null,
+                    simOrders: [], simOrderIdCounter: 0, currentBook: {bids:{}, asks:{}}, recentSimTrades: []
+                };
             }
+            createPanel(sym);
+            fetchMeta(sym);
+        }
+        renderTags();
 
-            statusContainer.style.display = "block";
-            statusText.innerText = "Connecting...";
-            statusText.className = "ml-2 font-bold text-yellow-400";
-            liveIndicator.style.animation = "none";
-            liveIndicator.style.backgroundColor = "#fbbf24";
-            liveIndicator.style.boxShadow = "0 0 8px #fbbf24";
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${proto}//${window.location.host}/ws/${symList.join(',')}`;
+        logRaw(`Connecting: ${wsUrl}`);
+        ws = new WebSocket(wsUrl);
 
-            // connect WS to backend
-            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${proto}//${window.location.host}/ws/${sym}`;
-            
-            logRaw(`Attempting to connect: ${wsUrl}`);
-            ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+            wsRetryCount = 0;
+            statusText.innerText = 'Live';
+            statusText.style.color = '#4ade80';
+            liveIndicator.className = 'live-dot connected';
+            logRaw(`✅ Connected (${symList.length} symbols)`);
 
-            ws.onopen = () => {
-                logRaw(`Connected to backend for symbol ${sym}`);
-                wsRetryCount = 0;  // Reset on successful connection
-                statusText.innerText = "Live";
-                statusText.className = "ml-2 font-bold text-green-400";
-                liveIndicator.style.animation = "pulse 1.5s infinite";
-                liveIndicator.style.backgroundColor = "#10b981";
-                liveIndicator.style.boxShadow = "0 0 12px #10b981";
-                
-                bookContainer.style.opacity = "1";
-                currentSymbol = sym;
-                connectBtn.innerText = "已訂閱";
-                
-                bidsList.innerHTML = `<div class="text-center text-slate-500 py-6">Waiting for data...</div>`;
-                asksList.innerHTML = `<div class="text-center text-slate-500 py-6">Waiting for data...</div>`;
+            window.subscriptionTimeout = setTimeout(() => {
+                logRaw(`⚠️ Waiting for subscription confirmations...`);
+            }, 5000);
+        };
 
-                // If no confirmation from Fubon API within 3000ms, assume Invalid Symbol
-                window.subscriptionTimeout = setTimeout(() => {
-                    logRaw(`❌ 查無此商品代號 (${sym}) 或不支援訂閱！`);
-                    statusText.innerText = "Symbol Not Found";
-                    statusText.className = "ml-2 font-bold text-red-500";
-                    connectBtn.innerText = "重新訂閱";
-                    if(ws) ws.close();
-                }, 3000);
-                
-                // Fetch daily reference price
-                fetch(`/api/meta/${sym}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data && !data.error) {
-                            symbolName = data.name || sym;
-                            document.getElementById('symbolTitle').innerText = sym;
-                            document.getElementById('symbolName').innerText = symbolName;
-                            document.getElementById('tickerHeader').classList.remove('hidden');
-                            // 關鍵修正：期貨夜盤與日盤的「平盤參考價」邏輯完全不同！
-                            // 日盤：可以用 (最新價 - 漲跌點) 反推
-                            // 夜盤：期交所規定以「今日日盤結算價(通常為最後收盤價)」作為基準！
-                            let isFut = /^[A-Za-z]/.test(sym);
-                            const h = new Date().getHours();
-                            let isNightSession = (h >= 14 || h < 8);
-                            
-                            let apiPrice = data.lastPrice !== undefined ? data.lastPrice : data.closePrice;
-                            let apiChange = data.change !== undefined ? data.change : 0;
-                            
-                            if (isFut && isNightSession) {
-                                // 夜盤基準價：鎖死在日盤的收盤價（closePrice）
-                                referencePrice = data.closePrice !== undefined ? data.closePrice : data.lastPrice;
-                            } else if (apiPrice !== undefined && data.change !== undefined) {
-                                // 日盤或證券：用富邦給的當前漲跌點反推
-                                referencePrice = apiPrice - apiChange;
-                            } else {
-                                referencePrice = data.referencePrice || data.previousClose;
-                            }
-                            
-                            logRaw(`取得靜態資訊: ${symbolName}, 基準價算法已被重置為: ${referencePrice}`);
-                            
-                            // 避免一開始夜盤顯示日盤的「漲跌點與幅度」，直接輸入原始基準價讓他歸零，等待 WebSocket 新一筆覆寫
-                            if (isFut && isNightSession) {
-                                renderTrade({ price: referencePrice }); 
-                            } else if (apiPrice !== undefined && apiPrice !== null) {
-                                renderTrade({ price: apiPrice });
-                            }
-                        } else {
-                            logRaw(`API 回應: 無法取得商品靜態資訊`);
-                            document.getElementById('symbolTitle').innerText = sym;
-                            document.getElementById('symbolName').innerText = "Unknown";
-                            document.getElementById('tickerHeader').classList.remove('hidden');
-                        }
-                    })
-                    .catch(e => console.error("Meta fetch error:", e));
-            };
+        ws.onclose = () => {
+            statusText.innerText = 'Disconnected';
+            statusText.style.color = '#64748b';
+            liveIndicator.className = 'live-dot';
+            if (window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
 
-            ws.onclose = () => {
-                logRaw(`Disconnected`);
-                statusText.innerText = "Disconnected";
-                statusText.className = "ml-2 font-bold text-slate-400";
-                liveIndicator.style.animation = "none";
-                liveIndicator.style.backgroundColor = "#64748b";
-                liveIndicator.style.boxShadow = "0 0 8px #64748b";
-                if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
-                
-                // Auto-reconnect with exponential backoff
-                if (currentSymbol && wsRetryCount < WS_MAX_RETRIES) {
-                    wsRetryCount++;
-                    const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
-                    connectBtn.innerText = "重連中...";
-                    logRaw(`將在 ${delay/1000} 秒後自動重連 (第 ${wsRetryCount}/${WS_MAX_RETRIES} 次)...`);
-                    setTimeout(() => {
-                        if (currentSymbol) {
-                            logRaw(`自動重連: ${currentSymbol}`);
-                            symbolInput.value = currentSymbol;
-                            connectBtn.click();
-                        }
-                    }, delay);
-                } else if (wsRetryCount >= WS_MAX_RETRIES) {
-                    logRaw(`❌ 已達最大重連次數 (${WS_MAX_RETRIES})，請手動重新訂閱`);
-                    connectBtn.innerText = "重新訂閱";
-                    wsRetryCount = 0;
-                } else {
-                    connectBtn.innerText = "重新訂閱";
+            if (subscribedSymbols.size > 0 && wsRetryCount < WS_MAX_RETRIES) {
+                wsRetryCount++;
+                const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
+                logRaw(`Reconnecting in ${delay/1000}s (attempt ${wsRetryCount}/${WS_MAX_RETRIES})...`);
+                setTimeout(() => { if (subscribedSymbols.size > 0) reconnectWS(); }, delay);
+            } else if (wsRetryCount >= WS_MAX_RETRIES) {
+                logRaw(`❌ Max retries reached. Please re-subscribe manually.`);
+                wsRetryCount = 0;
+            }
+        };
+
+        ws.onerror = () => logRaw(`WebSocket error`);
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.event === 'ping') return;
+
+                if (msg.event === 'subscribed' && msg.data) {
+                    if (window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
+                    logRaw(`✅ Subscribed [${msg.data.symbol}]`);
+                    return;
                 }
-            };
-
-            ws.onerror = (e) => {
-                logRaw(`WebSocket Error`);
-            };
-
-            ws.onmessage = (event) => {
-                try {
-                    let fullMsg = JSON.parse(event.data);
-                    
-                    if(fullMsg.event === "subscribed" && fullMsg.data) {
-                        if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
-                        logRaw(`✅ 富邦 API 已確認訂閱 [${fullMsg.data.symbol}]`);
-                        const hour = new Date().getHours();
-                        if (hour >= 14 || hour < 8) {
-                            logRaw(`⚠️ 提醒：目前台股已收盤，可能不會有新的報價更新跳動，請於開盤時間測試。`);
-                        }
-                    }
-                    else if(fullMsg.event === "error") {
-                        if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
-                        let errMsg = fullMsg.message || "發生錯誤";
-                        logRaw(`❌ 伺服器回報：${errMsg}`);
-                        statusText.innerText = "Subscription Error";
-                        statusText.className = "ml-2 font-bold text-red-500";
-                        if(ws) ws.close();
-                    }
-                    else if(fullMsg.event === "vix_update" && fullMsg.data) {
-                        const v = fullMsg.data;
-                        const w = document.getElementById("vixWidget");
-                        if(w && v.CLastPrice) {
-                            const price = parseFloat(v.CLastPrice).toFixed(2);
-                            const diff = parseFloat(v.CDiff);
-                            const diffStr = diff > 0 ? `▲${Math.abs(diff)}` : (diff < 0 ? `▼${Math.abs(diff)}` : `0.0`);
-                            const colorClass = diff > 0 ? "text-red-400" : (diff < 0 ? "text-green-400" : "text-slate-400");
-                            w.innerHTML = `<span class="text-slate-400 mr-2 flex items-center">🇹🇼 TAIWAN VIX:</span><span class="font-bold text-white text-base mr-2 tracking-wide">${price}</span><span class="${colorClass}">${diffStr}</span>`;
-                            w.classList.remove("hidden");
-                            w.classList.add("flex");
-                        }
-                    }
-                    else if(fullMsg.event === "data" && fullMsg.data) {
-                        if(window.subscriptionTimeout) clearTimeout(window.subscriptionTimeout);
-                        
-                        const channel = fullMsg.channel;
-                        const d = fullMsg.data;
-
-                        // Primary: use channel field to distinguish trades vs books
-                        if (channel === "trades") {
-                            // Futures trades nest price in data.trades array
-                            let tradePrice = d.price;
-                            if (tradePrice === undefined && Array.isArray(d.trades) && d.trades.length > 0) {
-                                tradePrice = d.trades[d.trades.length - 1].price;
-                            }
-                            if (tradePrice === undefined && d.lastPrice !== undefined) tradePrice = d.lastPrice;
-                            if (tradePrice === undefined && d.close !== undefined) tradePrice = d.close;
-                            // Some SDKs wrap entire data as an array
-                            if (tradePrice === undefined && Array.isArray(d) && d.length > 0) tradePrice = d[0].price;
-                            
-                            if (tradePrice !== undefined) {
-                                renderTrade({ price: tradePrice });
-                            } else {
-                                logRaw(`⚠️ trades channel 但無法解析 price: ${JSON.stringify(d).substring(0, 150)}`);
-                            }
-                        }
-                        else if (channel === "books") {
-                            renderBook(d);
-                        }
-                        // Fallback: no channel field (legacy / unexpected format)
-                        else if (d.price !== undefined) {
-                            renderTrade(d);
-                        }
-                        else if (Array.isArray(d) && d.length > 0 && d[0].price !== undefined) {
-                            renderTrade(d[0]);
-                        }
-                        else if (d.bids !== undefined || d.asks !== undefined || d.Bids !== undefined || d.Asks !== undefined) {
-                            renderBook(d);
-                        }
-                        else {
-                            logRaw(`❓ 未知資料格式 (ch=${channel}): ${JSON.stringify(d).substring(0, 100)}...`);
-                        }
-                    }
-                } catch(e) {
-                    console.error("Parse error", e);
+                if (msg.event === 'error') {
+                    logRaw(`❌ Error: ${msg.message || JSON.stringify(msg)}`);
+                    return;
                 }
-            };
-        });
+                if (msg.event === 'vix_update' && msg.data) {
+                    renderVIX(msg.data);
+                    return;
+                }
+                if (msg.event === 'data' && msg.data) {
+                    const channel = msg.channel;
+                    const d = msg.data;
+                    const sym = d.symbol;
+                    if (!sym || !subscribedSymbols.has(sym)) return;
 
-        symbolInput.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") connectBtn.click();
-        });
+                    if (channel === 'trades') {
+                        handleTrade(sym, d);
+                    } else if (channel === 'books') {
+                        handleBook(sym, d);
+                    }
+                }
+            } catch (e) {
+                console.error('Parse error', e);
+            }
+        };
+    }
 
-        function renderTrade(data) {
-            if (data.price === undefined || referencePrice === null) return;
-            const price = parseFloat(data.price);
-            const ref = parseFloat(referencePrice);
-            const change = price - ref;
-            const changePct = (change / ref) * 100;
-            
-            const lastPriceEl = document.getElementById('lastPrice');
-            const changeEl = document.getElementById('priceChange');
-            const pctEl = document.getElementById('priceChangePct');
-            
-            lastPriceEl.innerText = price.toFixed(2);
-            
-            if (change > 0) {
-                lastPriceEl.className = "text-5xl font-black text-red-ta drop-shadow-md";
-                changeEl.className = "text-xl font-bold text-red-ta";
-                pctEl.className = "text-lg font-bold text-red-ta bg-red-500/10 px-2 py-1 rounded inline-block";
-                changeEl.innerText = `▲ ${Math.abs(change).toFixed(2)}`;
-                pctEl.innerText = `+${changePct.toFixed(2)}%`;
-            } else if (change < 0) {
-                lastPriceEl.className = "text-5xl font-black text-green-ta drop-shadow-md";
-                changeEl.className = "text-xl font-bold text-green-ta";
-                pctEl.className = "text-lg font-bold text-green-ta bg-green-500/10 px-2 py-1 rounded inline-block";
-                changeEl.innerText = `▼ ${Math.abs(change).toFixed(2)}`;
-                pctEl.innerText = `${changePct.toFixed(2)}%`;
+    // ============================================================
+    // Fetch meta info for price reference
+    // ============================================================
+    async function fetchMeta(sym) {
+        try {
+            const res = await fetch(`/api/meta/${sym}`);
+            const data = await res.json();
+            if (!data || data.error) return;
+
+            const st = stockState[sym];
+            st.name = data.name || sym;
+
+            const isFut = /^[A-Za-z]/.test(sym);
+            const h = new Date().getHours();
+            const isNight = (h >= 14 || h < 8);
+
+            if (isFut && isNight) {
+                st.refPrice = data.closePrice ?? data.lastPrice;
+            } else if (data.lastPrice !== undefined && data.change !== undefined) {
+                st.refPrice = data.lastPrice - data.change;
             } else {
-                lastPriceEl.className = "text-5xl font-black text-white drop-shadow-md";
-                changeEl.className = "text-xl font-bold text-slate-400";
-                pctEl.className = "text-lg font-bold text-slate-400 bg-slate-500/10 px-2 py-1 rounded inline-block";
-                changeEl.innerText = `0.00`;
-                pctEl.innerText = `0.00%`;
+                st.refPrice = data.referencePrice || data.previousClose;
             }
+
+            // Initial price display
+            const initPrice = isFut && isNight ? st.refPrice : (data.lastPrice ?? data.closePrice);
+            if (initPrice != null) updatePanelPrice(sym, initPrice);
+
+            renderTags();
+            updatePanelHeader(sym);
+        } catch (e) {
+            console.error('Meta fetch error:', e);
         }
+    }
 
-        // Normalizes [{price: 1, size: 2}] or flat arrays into standard objects
-        function normalizeLevels(arr) {
-            let res = [];
-            for (let i = 0; i < arr.length && i < 5; i++) {
-                let item = arr[i];
-                let p = item.price !== undefined ? item.price : (item.p !== undefined ? item.p : 0);
-                let v = item.size !== undefined ? item.size : (item.volume !== undefined ? item.volume : (item.v !== undefined ? item.v : 0));
-                res.push({ price: p, volume: v, id: `L${i}` });
-            }
-            return res;
+    // ============================================================
+    // Create Panel DOM
+    // ============================================================
+    function createPanel(sym) {
+        if (document.getElementById(`panel-${sym}`)) return;
+
+        const panel = document.createElement('div');
+        panel.className = 'stock-panel';
+        panel.id = `panel-${sym}`;
+        panel.innerHTML = `
+            <div class="panel-header">
+                <div class="sym-info">
+                    <span class="sym-id">${sym}</span>
+                    <span class="sym-name" id="name-${sym}">Loading...</span>
+                </div>
+                <div class="price-info">
+                    <span class="last-price" id="lprice-${sym}" style="color:#94a3b8">---</span>
+                    <span class="price-change" id="pchange-${sym}"></span>
+                    <span class="price-pct" id="ppct-${sym}"></span>
+                    <button class="close-panel-btn" onclick="removeSymbol('${sym}')" title="移除">✕</button>
+                </div>
+            </div>
+            <div class="panel-body">
+                <!-- Bid Column -->
+                <div class="book-col bid">
+                    <div class="book-col-title bid-title">
+                        <span>委買量</span>
+                        <span>買進價</span>
+                    </div>
+                    <div id="bids-${sym}" style="min-height:140px">
+                        <div style="text-align:center;color:#475569;padding:40px 0;font-size:0.8rem">等待資料...</div>
+                    </div>
+                    <div class="book-total">
+                        <span style="color:#64748b">委買合計</span>
+                        <span style="color:#ef4444" id="tbid-${sym}">0</span>
+                    </div>
+                </div>
+                <!-- Ask Column -->
+                <div class="book-col ask">
+                    <div class="book-col-title ask-title">
+                        <span>賣出價</span>
+                        <span>委賣量</span>
+                    </div>
+                    <div id="asks-${sym}" style="min-height:140px">
+                        <div style="text-align:center;color:#475569;padding:40px 0;font-size:0.8rem">等待資料...</div>
+                    </div>
+                    <div class="book-total">
+                        <span style="color:#22c55e" id="task-${sym}">0</span>
+                        <span style="color:#64748b">委賣合計</span>
+                    </div>
+                </div>
+                <!-- Trade History Column -->
+                <div class="trade-col">
+                    <div class="trade-col-title">成交明細</div>
+                    <div class="trade-list" id="trades-${sym}">
+                        <div style="text-align:center;color:#475569;padding:20px 0;font-size:0.7rem">等待成交...</div>
+                    </div>
+                </div>
+                <!-- Queue Column -->
+                <div class="queue-col">
+                    <div class="queue-col-title">
+                        <span>委託洗價佇列</span>
+                        <span id="qcount-${sym}" style="color:#64748b;font-weight:400"></span>
+                    </div>
+                    <div class="queue-list" id="orders-${sym}">
+                        <div style="text-align:center;color:#475569;padding:20px 0;font-size:0.7rem">目前無模擬委託單</div>
+                    </div>
+                    <div class="sim-btns">
+                        <button class="sim-btn buy" onclick="placeSimOrder('${sym}', 'bid')">模擬買進 (洗價)</button>
+                        <button class="sim-btn sell" onclick="placeSimOrder('${sym}', 'ask')">模擬賣出 (洗價)</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        panelsContainer.appendChild(panel);
+    }
+
+    // ============================================================
+    // Update Panel Header
+    // ============================================================
+    function updatePanelHeader(sym) {
+        const st = stockState[sym];
+        const nameEl = document.getElementById(`name-${sym}`);
+        if (nameEl && st.name) nameEl.textContent = st.name;
+    }
+
+    function updatePanelPrice(sym, price) {
+        const st = stockState[sym];
+        if (!st || st.refPrice == null) return;
+
+        const p = parseFloat(price);
+        const ref = parseFloat(st.refPrice);
+        const change = p - ref;
+        const pct = (change / ref) * 100;
+
+        const lp = document.getElementById(`lprice-${sym}`);
+        const pc = document.getElementById(`pchange-${sym}`);
+        const pp = document.getElementById(`ppct-${sym}`);
+        if (!lp) return;
+
+        lp.textContent = p.toFixed(2);
+
+        if (change > 0) {
+            lp.style.color = '#ef4444';
+            pc.style.color = '#ef4444';
+            pc.textContent = `▲${Math.abs(change).toFixed(2)}`;
+            pp.style.color = '#ef4444';
+            pp.style.background = 'rgba(239,68,68,0.1)';
+            pp.textContent = `+${pct.toFixed(2)}%`;
+        } else if (change < 0) {
+            lp.style.color = '#22c55e';
+            pc.style.color = '#22c55e';
+            pc.textContent = `▼${Math.abs(change).toFixed(2)}`;
+            pp.style.color = '#22c55e';
+            pp.style.background = 'rgba(34,197,94,0.1)';
+            pp.textContent = `${pct.toFixed(2)}%`;
+        } else {
+            lp.style.color = '#f8fafc';
+            pc.style.color = '#94a3b8';
+            pc.textContent = '0.00';
+            pp.style.color = '#94a3b8';
+            pp.style.background = 'rgba(100,116,139,0.1)';
+            pp.textContent = '0.00%';
         }
+    }
 
-        function createRowHTML(isBid, item, totalVol, prevItem) {
-            const isChange = prevItem && (prevItem.price !== item.price || prevItem.volume !== item.volume);
-            let animStyle = "";
-            if (isChange) {
-                // If it's a bid and volume went up -> flash
-                animStyle = `style="animation: flashUp 0.8s ease-out;"`;
-            }
+    // ============================================================
+    // Handle Trade
+    // ============================================================
+    function handleTrade(sym, d) {
+        const st = stockState[sym];
+        if (!st) return;
 
-            const ratio = totalVol > 0 ? (item.volume / totalVol) * 100 : 0;
-            const pText = parseFloat(item.price).toFixed(2);
+        // Extract price and volume
+        let tradePrice = d.price;
+        let tradeVol = d.size ?? d.volume ?? 0;
+        if (tradePrice === undefined && Array.isArray(d.trades) && d.trades.length > 0) {
+            const last = d.trades[d.trades.length - 1];
+            tradePrice = last.price;
+            tradeVol = last.size ?? last.volume ?? 0;
+        }
+        if (tradePrice === undefined) tradePrice = d.lastPrice ?? d.close;
+        if (tradePrice === undefined) return;
+
+        tradePrice = parseFloat(tradePrice);
+
+        // Determine buy/sell based on order book (Inner vs Outer matching)
+        let side = 'neutral';
+        const bids = st.currentBook && st.currentBook.bids ? Object.keys(st.currentBook.bids).map(Number) : [];
+        const asks = st.currentBook && st.currentBook.asks ? Object.keys(st.currentBook.asks).map(Number) : [];
+        const bestBid = bids.length > 0 ? Math.max(...bids) : null;
+        const bestAsk = asks.length > 0 ? Math.min(...asks) : null;
+
+        if (bestAsk !== null && tradePrice >= bestAsk) {
+            side = 'buy';  // Hit the ask side (taker buys)
+        } else if (bestBid !== null && tradePrice <= bestBid) {
+            side = 'sell'; // Hit the bid side (taker sells)
+        }
+        st.lastTradePrice = tradePrice;
+
+        // Convert volume: shares → 張 (÷1000), but futures stay as-is (contracts)
+        const isFut = /^[A-Za-z]/.test(sym);
+        let displayVol;
+        if (isFut) {
+            displayVol = tradeVol; // futures: 口
+        } else {
+            displayVol = tradeVol >= 1000 ? (tradeVol / 1000) : tradeVol; // stocks: 張
+        }
+        // If displayVol is 0 and we got a trade event, show at least 1
+        if (displayVol === 0) displayVol = '';
+
+        // Add to trades list
+        st.trades.unshift({ price: tradePrice, vol: displayVol, side, time: new Date() });
+        if (st.trades.length > MAX_TRADES) st.trades.pop();
+
+        // Update price display
+        updatePanelPrice(sym, tradePrice);
+
+        // Render trade list
+        renderTradeList(sym);
+
+        // Update simulation orders
+        if (st.recentSimTrades) {
+            st.recentSimTrades.push({ price: tradePrice, vol: tradeVol, time: Date.now() });
+        }
+        if (st.simOrders) {
+            st.simOrders.forEach(order => {
+                if (order.status !== 'pending' || order.price !== tradePrice) return;
+                order.Q = Math.max(0, order.Q - tradeVol);
+                order.k = Math.max(0, order.k - tradeVol);
+                if (order.k <= 0) { order.status = 'filled'; order.filledAt = Date.now(); order.k = 0; }
+            });
+            renderSimOrders(sym);
+        }
+    }
+
+    function renderTradeList(sym) {
+        const st = stockState[sym];
+        const el = document.getElementById(`trades-${sym}`);
+        if (!el || !st) return;
+
+        let html = '';
+        for (const t of st.trades) {
+            const sideLabel = t.side === 'buy' ? '買' : (t.side === 'sell' ? '賣' : '—');
+            const volStr = t.vol !== '' ? t.vol : '';
             
-            if (isBid) {
-                return `
-                    <div class="row-animation rounded-lg px-2 py-1.5" ${animStyle}>
-                        <div class="grid grid-cols-3 items-center">
-                            <div class="text-lg font-bold text-white">${item.volume}</div>
-                            <div class="text-right text-red-ta text-xl font-bold">${pText}</div>
-                            <div class="text-right text-slate-500 text-xs w-full pl-4 w-full h-full flex flex-col justify-center">
-                                <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
-                                     <div class="h-full bg-red-500" style="width: ${ratio}%"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                return `
-                    <div class="row-animation rounded-lg px-2 py-1.5" ${animStyle}>
-                        <div class="grid grid-cols-3 items-center">
-                            <div class="text-left text-green-ta text-xl font-bold">${pText}</div>
-                            <div class="text-right text-lg font-bold text-white">${item.volume}</div>
-                            <div class="text-right text-slate-500 text-xs pl-4 w-full h-full flex flex-col justify-center">
-                                <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
-                                     <div class="h-full bg-green-500" style="width: ${ratio}%"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
+            const isLarge = t.vol !== '' && Number(t.vol) >= 50;
+            const extraClass = isLarge ? ' large-trade' : '';
+
+            html += `<div class="trade-item ${t.side}${extraClass}">
+                <span class="t-price">${t.price.toFixed(2)}</span>
+                <span class="t-vol">${volStr}</span>
+                <span class="t-side">${sideLabel}</span>
+            </div>`;
+        }
+        el.innerHTML = html || '<div style="text-align:center;color:#475569;padding:20px 0;font-size:0.7rem">等待成交...</div>';
+    }
+
+    // ============================================================
+    // Handle Book
+    // ============================================================
+    function extractArr(obj, keys) {
+        for (const k of keys) {
+            if (obj && Array.isArray(obj[k])) return obj[k];
+        }
+        return [];
+    }
+
+    function normLevels(arr, max) {
+        const res = [];
+        for (let i = 0; i < Math.min(arr.length, max || 5); i++) {
+            const item = arr[i];
+            const p = item.price ?? item.p ?? 0;
+            const v = item.size ?? item.volume ?? item.v ?? 0;
+            res.push({ price: p, volume: v });
+        }
+        return res;
+    }
+
+    function handleBook(sym, d) {
+        const st = stockState[sym];
+        if (!st) return;
+
+        const bids = normLevels(extractArr(d, ['bids', 'bid', 'Bids']), 5);
+        const asks = normLevels(extractArr(d, ['asks', 'ask', 'Asks', 'offers']), 5);
+
+        const totalBid = bids.reduce((a, b) => a + b.volume, 0);
+        const totalAsk = asks.reduce((a, b) => a + b.volume, 0);
+
+        // Render bids
+        const bidsEl = document.getElementById(`bids-${sym}`);
+        if (bidsEl) {
+            let html = '';
+            for (let i = 0; i < bids.length; i++) {
+                const b = bids[i];
+                const ratio = totalBid > 0 ? (b.volume / totalBid) * 100 : 0;
+                const flash = st.prevBids[i] && (st.prevBids[i].volume !== b.volume) ? ' flash-up' : '';
+                
+                let pStr = parseFloat(b.price).toFixed(2);
+                if (parseFloat(b.price) === 0 && b.volume > 0) pStr = "市價";
+
+                html += `<div class="book-row bid-row${flash}">
+                    <span class="vol">${b.volume}</span>
+                    <span class="price">${pStr}</span>
+                    <span class="bar-cell"><div class="vol-bar bid" style="width:${ratio}%"></div></span>
+                </div>`;
             }
+            bidsEl.innerHTML = html || '<div style="text-align:center;color:#475569;padding:20px 0;font-size:0.8rem">--</div>';
+        }
+        document.getElementById(`tbid-${sym}`).textContent = totalBid;
+
+        // Render asks
+        const asksEl = document.getElementById(`asks-${sym}`);
+        if (asksEl) {
+            let html = '';
+            for (let i = 0; i < asks.length; i++) {
+                const a = asks[i];
+                const ratio = totalAsk > 0 ? (a.volume / totalAsk) * 100 : 0;
+                const flash = st.prevAsks[i] && (st.prevAsks[i].volume !== a.volume) ? ' flash-down' : '';
+                
+                let pStr = parseFloat(a.price).toFixed(2);
+                if (parseFloat(a.price) === 0 && a.volume > 0) pStr = "市價";
+
+                html += `<div class="book-row ask-row${flash}">
+                    <span class="price">${pStr}</span>
+                    <span class="vol">${a.volume}</span>
+                    <span class="bar-cell"><div class="vol-bar ask" style="width:${ratio}%"></div></span>
+                </div>`;
+            }
+            asksEl.innerHTML = html || '<div style="text-align:center;color:#475569;padding:20px 0;font-size:0.8rem">--</div>';
+        }
+        document.getElementById(`task-${sym}`).textContent = totalAsk;
+
+        st.prevBids = bids;
+        st.prevAsks = asks;
+
+        // Also update lastTradePrice from best bid for trade side determination
+        if (bids.length > 0 && st.lastTradePrice == null) {
+            st.lastTradePrice = bids[0].price;
         }
 
-        function renderBook(payload) {
-            let bidsArr = extractDataArray(payload, ["bids", "bid", "Bids"]);
-            let asksArr = extractDataArray(payload, ["asks", "ask", "Asks", "offers"]);
+        // Update simulation book state
+        const newBids = {}; const newAsks = {};
+        bids.forEach(b => { if(b.price) newBids[b.price] = b.volume; });
+        asks.forEach(a => { if(a.price) newAsks[a.price] = a.volume; });
+        if (st.currentBook) st.currentBook = { bids: newBids, asks: newAsks };
 
-            if (!bidsArr) bidsArr = [];
-            if (!asksArr) asksArr = [];
+        if (st.simOrders) {
+            st.simOrders.forEach(order => {
+                if (order.status !== 'pending') return;
+                const bookMap = order.side === 'bid' ? newBids : newAsks;
+                const newVol = bookMap[order.price] || 0;
+                
+                if (newVol < order.Q) {
+                    const C = order.Q - newVol;
+                    const ratio = (order.Q > 0) ? (order.k / order.Q) : 0;
+                    order.k = Math.max(0, order.k - (C * ratio));
+                }
+                order.Q = newVol;
+                order.outOfBounds = (newVol === 0 && Object.keys(bookMap).length > 0 && !(order.price in bookMap));
+                if (order.k <= 0.5) { order.status = 'filled'; order.filledAt = Date.now(); order.k = 0; }
+            });
+            renderSimOrders(sym);
+        }
+    }
 
-            let currentB = normalizeLevels(bidsArr);
-            let currentA = normalizeLevels(asksArr);
+    // ============================================================
+    // VIX
+    // ============================================================
+    function renderVIX(v) {
+        const w = document.getElementById('vixWidget');
+        if (!v.CLastPrice) return;
+        const price = parseFloat(v.CLastPrice).toFixed(2);
+        const diff = parseFloat(v.CDiff);
+        const diffStr = diff > 0 ? `▲${Math.abs(diff)}` : (diff < 0 ? `▼${Math.abs(diff)}` : '0.0');
+        const color = diff > 0 ? '#ef4444' : (diff < 0 ? '#22c55e' : '#94a3b8');
+        document.getElementById('vixPrice').textContent = price;
+        const vd = document.getElementById('vixDiff');
+        vd.textContent = diffStr;
+        vd.style.color = color;
+        w.classList.add('visible');
+    }
 
-            let tBidSum = currentB.reduce((a,b)=>a+b.volume, 0);
-            let tAskSum = currentA.reduce((a,b)=>a+b.volume, 0);
-
-            // Bids view
-            let bHtml = "";
-            for (let i = 0; i < currentB.length; i++) {
-                bHtml += createRowHTML(true, currentB[i], tBidSum, previousBids[i]);
+    // ============================================================
+    // Simulation Queue Logic
+    // ============================================================
+    setInterval(() => {
+        for (const sym of subscribedSymbols) {
+            const st = stockState[sym];
+            if (st && st.simOrders && st.simOrders.some(o => o.status === 'pending')) {
+                renderSimOrders(sym);
             }
-            bidsList.innerHTML = bHtml || '<div class="text-center text-slate-500 py-2">--</div>';
-            totalBidSizeEl.innerText = tBidSum;
+        }
+    }, 1000);
 
-            // Asks view
-            let aHtml = "";
-            for (let i = 0; i < currentA.length; i++) {
-                aHtml += createRowHTML(false, currentA[i], tAskSum, previousAsks[i]);
-            }
-            asksList.innerHTML = aHtml || '<div class="text-center text-slate-500 py-2">--</div>';
-            totalAskSizeEl.innerText = tAskSum;
+    function getBurnRate(sym, price) {
+        const st = stockState[sym];
+        const now = Date.now();
+        st.recentSimTrades = st.recentSimTrades.filter(tr => now - tr.time <= 60000);
+        const tradesAtPrice = st.recentSimTrades.filter(tr => tr.price === price);
+        
+        if (tradesAtPrice.length === 0) return { rate: 0, rawRate: 0 };
+        const totalVol = tradesAtPrice.reduce((sum, tr) => sum + tr.vol, 0);
+        const elapsed = Math.min(60, (now - tradesAtPrice[0].time) / 1000) || 60;
+        const rawRate = totalVol / elapsed;
+        
+        const vols = tradesAtPrice.map(tr => tr.vol).sort((a,b)=>a-b);
+        const n = vols.length;
+        if (n < 4) return { rate: rawRate, rawRate };
+        const q1 = vols[Math.floor(n*0.25)]; const q3 = vols[Math.floor(n*0.75)];
+        const upperFence = q3 + 1.5 * (q3 - q1);
+        const filtered = vols.filter(v => v <= upperFence);
+        return { rate: filtered.reduce((s,v)=>s+v,0) / elapsed, rawRate };
+    }
 
-            previousBids = currentB;
-            previousAsks = currentA;
+    function placeSimOrder(sym, side) {
+        const st = stockState[sym];
+        const bestPrices = side === 'bid' ? st.currentBook.bids : st.currentBook.asks;
+        const prices = Object.keys(bestPrices).map(p => parseFloat(p));
+        if (prices.length === 0) return alert('目前無五檔報價！');
+        const targetPrice = side === 'bid' ? Math.max(...prices) : Math.min(...prices);
+        const currentVol = bestPrices[targetPrice] || 0;
+        if (currentVol === 0) return alert('找不到目標價位掛單量');
+
+        st.simOrders.unshift({
+            id: ++st.simOrderIdCounter, side, price: targetPrice, initialQ: currentVol, Q: currentVol, k: currentVol, createdAt: Date.now(), status: 'pending', outOfBounds: false
+        });
+        renderSimOrders(sym);
+    }
+
+    function cancelSimOrder(sym, id) {
+        const st = stockState[sym];
+        const o = st.simOrders.find(x => x.id === id);
+        if (o && o.status === 'pending') { o.status = 'canceled'; renderSimOrders(sym); }
+    }
+    
+    function removeSimOrder(sym, id) {
+        const st = stockState[sym];
+        st.simOrders = st.simOrders.filter(o => o.id !== id);
+        renderSimOrders(sym);
+    }
+
+    function renderSimOrders(sym) {
+        const st = stockState[sym];
+        const container = document.getElementById(`orders-${sym}`);
+        if (!container) return;
+        if (!st.simOrders || st.simOrders.length === 0) {
+            container.innerHTML = '<div style="text-align:center;color:#475569;padding:20px 0;font-size:0.7rem">目前無模擬委託單</div>';
+            document.getElementById(`qcount-${sym}`).textContent = '';
+            return;
         }
 
-    </script>
+        let html = '';
+        st.simOrders.forEach(o => {
+            const sideColor = o.side === 'bid' ? '#ef4444' : '#10b981';
+            const sideLabel = o.side === 'bid' ? '買' : '賣';
+            
+            let statusBadge = '';
+            if (o.status === 'filled') statusBadge = '<span style="color:#34d399;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);padding:1px 4px;border-radius:4px">✅ 已成交</span>';
+            else if (o.status === 'canceled') statusBadge = '<span style="color:#94a3b8;background:rgba(148,163,184,0.1);border:1px solid rgba(148,163,184,0.3);padding:1px 4px;border-radius:4px">已取消</span>';
+            else if (o.outOfBounds) statusBadge = '<span style="color:#fbbf24;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);padding:1px 4px;border-radius:4px">⚠️ 跌出範圍</span>';
+            else statusBadge = '<span style="color:#60a5fa;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.3);padding:1px 4px;border-radius:4px;animation:pulse 1.5s infinite">⏳ 洗價中</span>';
+            
+            let pct = o.initialQ > 0 ? ((o.initialQ - o.k) / o.initialQ) * 100 : 100;
+            pct = Math.max(0, Math.min(100, pct));
+            if (o.status === 'filled') pct = 100;
+
+            let rateStr = '--', etaStr = '--';
+            if (o.status === 'pending') {
+                const { rate } = getBurnRate(sym, o.price);
+                if (rate > 0) {
+                    rateStr = rate.toFixed(1);
+                    const s = o.k / rate;
+                    if (s > 3600) etaStr = '> 1h';
+                    else if (s > 60) etaStr = `${Math.floor(s/60)}m ${Math.floor(s%60)}s`;
+                    else etaStr = `${Math.floor(s)}s`;
+                } else etaStr = '不動如山';
+            }
+
+            html += `
+            <div class="q-item">
+                <div class="q-header">
+                    <span style="color:${sideColor};font-weight:800;font-family:monospace">${sideLabel} @ ${parseFloat(o.price).toFixed(2)}</span>
+                    <div style="display:flex;gap:4px">
+                        ${statusBadge}
+                        ${o.status === 'pending' ? `<button class="q-btn" onclick="cancelSimOrder('${sym}', ${o.id})">✕ 刪</button>` : ''}
+                        ${o.status !== 'pending' ? `<button class="q-btn" onclick="removeSimOrder('${sym}', ${o.id})">清</button>` : ''}
+                    </div>
+                </div>
+                <div class="q-details">
+                    <span>前方: <strong style="color:white;font-family:monospace">${Math.floor(o.k)}</strong>/${o.initialQ}</span>
+                    <span>速率: <strong style="color:#93c5fd">${rateStr}</strong></span>
+                    <span>ETA: <strong style="color:#34d399">${etaStr}</strong></span>
+                </div>
+                <div class="q-bar-bg">
+                    <div class="q-bar-fill" style="width:${pct}%"></div>
+                </div>
+            </div>`;
+        });
+        container.innerHTML = html;
+
+        const pCount = st.simOrders.filter(o => o.status === 'pending').length;
+        document.getElementById(`qcount-${sym}`).textContent = pCount > 0 ? `(${pCount})` : '';
+    }
+
+</script>
 
 <!-- SPA Engine Interceptor -->
 <script>
@@ -587,5 +1228,4 @@
     });
 </script>
 </body>
-
 </html>
