@@ -158,6 +158,83 @@
         .disposed-card .period { color: #94a3b8; font-size: 0.8rem; margin-top: 6px; }
         .disposed-card .measures { color: #64748b; font-size: 0.75rem; margin-top: 4px; line-height: 1.4; }
 
+        /* === Recently Added Section === */
+        .recent-section {
+            margin-top: 28px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .recent-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .recent-title .new-badge {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            animation: pulse-badge 2s ease-in-out infinite;
+        }
+        @keyframes pulse-badge {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .recent-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .recent-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+        }
+        .recent-chip:hover {
+            background: rgba(245, 158, 11, 0.18);
+            border-color: rgba(245, 158, 11, 0.5);
+            transform: translateY(-1px);
+        }
+        .recent-chip .chip-id {
+            font-weight: 800;
+            color: #fbbf24;
+        }
+        .recent-chip .chip-name {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+        .recent-chip .chip-date {
+            color: #64748b;
+            font-size: 0.7rem;
+            margin-left: 2px;
+        }
+        .recent-chip.danger {
+            background: rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+        .recent-chip.danger:hover {
+            background: rgba(239, 68, 68, 0.18);
+            border-color: rgba(239, 68, 68, 0.5);
+        }
+        .recent-chip.danger .chip-id {
+            color: #f87171;
+        }
+
         /* === Search Bar === */
         .search-section {
             padding: 20px;
@@ -517,6 +594,16 @@
                 <div>正在查詢 TWSE / TPEx 處置清單...</div>
             </div>
         </div>
+
+        <!-- 近三交易日新增 -->
+        <div class="recent-section" id="recent-section" style="display:none">
+            <div class="recent-title">
+                <span>🆕 近三交易日被納入處置的簡易名單</span>
+                <span class="new-badge">NEW</span>
+                <span class="count-badge" id="recent-count" style="margin-left:auto"></span>
+            </div>
+            <div id="recent-area" class="recent-list"></div>
+        </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ -->
@@ -605,6 +692,76 @@
     // ============================================================
     let allDisposedData = [];
 
+    /**
+     * 從 period 字串解析處置開始日期。
+     * 格式例如 "2026/04/20 ~ 2026/04/30" 或 "2026/04/20~2026/04/30"
+     */
+    function parseStartDate(period) {
+        if (!period) return null;
+        const parts = period.split('~');
+        if (parts.length < 1) return null;
+        const raw = parts[0].trim().replace(/\//g, '-');
+        const d = new Date(raw);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    /**
+     * 取得最近 N 個交易日（排除週末）的日期門檻。
+     * 回傳一個 Date 物件，代表 N 個交易日前的 00:00。
+     */
+    function getTradingDayCutoff(n) {
+        const now = new Date();
+        let count = 0;
+        let d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        while (count < n) {
+            d.setDate(d.getDate() - 1);
+            const dow = d.getDay();
+            if (dow !== 0 && dow !== 6) count++;
+        }
+        return d;
+    }
+
+    function renderRecentlyAdded() {
+        const section = document.getElementById('recent-section');
+        const area = document.getElementById('recent-area');
+        const countEl = document.getElementById('recent-count');
+
+        // 計算近 3 個交易日門檻
+        const cutoff = getTradingDayCutoff(3);
+
+        const recentStocks = allDisposedData.filter(([sid, info]) => {
+            const startDate = parseStartDate(info.period);
+            return startDate && startDate >= cutoff;
+        }).sort((a, b) => {
+            // 依開始日期降序排列（最新的在前面）
+            const da = parseStartDate(a[1].period);
+            const db = parseStartDate(b[1].period);
+            return (db?.getTime() || 0) - (da?.getTime() || 0);
+        });
+
+        if (recentStocks.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        countEl.textContent = `${recentStocks.length} 檔`;
+
+        let html = '';
+        for (const [sid, info] of recentStocks) {
+            const isDanger = (info.measures || '').includes('20分') || (info.measures || '').includes('45分') || (info.measures || '').includes('停止買賣');
+            const chipClass = isDanger ? 'recent-chip danger' : 'recent-chip';
+            const startDate = parseStartDate(info.period);
+            const dateStr = startDate ? `${startDate.getMonth()+1}/${startDate.getDate()}` : '';
+            html += `<div class="${chipClass}" onclick="quickQuery('${sid}')" title="${info.period || ''}">
+                <span class="chip-id">${sid}</span>
+                <span class="chip-name">${info.name || ''}</span>
+                ${dateStr ? `<span class="chip-date">📅${dateStr}起</span>` : ''}
+            </div>`;
+        }
+        area.innerHTML = html;
+    }
+
     async function loadDisposed() {
         try {
             const res = await fetch('/api/disposal/disposed');
@@ -621,6 +778,7 @@
             allDisposedData = Object.entries(disposed).sort((a, b) => a[0].localeCompare(b[0]));
             
             renderDisposed('all');
+            renderRecentlyAdded();
         } catch (e) {
             document.getElementById('disposed-area').innerHTML =
                 `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
