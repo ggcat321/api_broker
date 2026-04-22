@@ -488,6 +488,7 @@
             .trade-col { display: none; }
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 </head>
 <body>
 <div class="container">
@@ -500,6 +501,7 @@
             <a href="/options" class="nav-link">📊 選擇權看板</a>
             <a href="/etf0050" class="nav-link green">💹 ETF iNAV</a>
             <a href="/disposal" class="nav-link amber">⚠️ 處置偵測</a>
+            <a href="/queue" class="nav-link" style="color:#22d3ee;border-color:rgba(34,211,238,0.3)">⏱️ 洗價排隊</a>
             <div id="vixWidget">
                 <span style="color:#94a3b8;margin-right:8px">🇹🇼 VIX:</span>
                 <span id="vixPrice" style="font-weight:800;color:white"></span>
@@ -569,6 +571,60 @@
     // ============================================================
     // Subscribe
     // ============================================================
+    // Load sorted symbols
+    try {
+        const saved = localStorage.getItem('quant_index_symbols');
+        if (saved) {
+            const arr = JSON.parse(saved);
+            arr.forEach(s => subscribedSymbols.add(s));
+            if (subscribedSymbols.size > 0) reconnectWS();
+        }
+    } catch(e){}
+
+    function saveSortState() {
+        const arr = Array.from(document.querySelectorAll('.stock-panel')).map(p => p.id.replace('panel-', ''));
+        if (arr.length > 0 || subscribedSymbols.size > 0) {
+            localStorage.setItem('quant_index_symbols', JSON.stringify(arr.length > 0 ? arr : Array.from(subscribedSymbols)));
+        } else {
+            localStorage.removeItem('quant_index_symbols');
+        }
+    }
+
+    // Initialize Sortable for Panels
+    new Sortable(document.getElementById('panelsContainer'), {
+        animation: 150,
+        handle: '.panel-drag-handle',
+        ghostClass: 'opacity-50',
+        onEnd: function() {
+            saveSortState();
+            // sync subscribedSymbols order
+            const arr = Array.from(document.querySelectorAll('.stock-panel')).map(p => p.id.replace('panel-', ''));
+            const newSet = new Set(arr);
+            subscribedSymbols = newSet;
+            renderTags();
+        }
+    });
+
+    // Initialize Sortable for Tags (小名單)
+    new Sortable(document.getElementById('tagsRow'), {
+        animation: 150,
+        ghostClass: 'opacity-50',
+        onEnd: function() {
+            // sync subscribedSymbols order from tags
+            const arr = Array.from(document.querySelectorAll('.sym-tag')).map(t => t.dataset.sym);
+            const newSet = new Set(arr);
+            subscribedSymbols = newSet;
+            saveSortState();
+            
+            // Re-order the panels in DOM to match the new tags order
+            const container = document.getElementById('panelsContainer');
+            arr.forEach(sym => {
+                const panel = document.getElementById(`panel-${sym}`);
+                if (panel) container.appendChild(panel);
+            });
+        }
+    });
+
     connectBtn.addEventListener('click', () => {
         const raw = symbolInput.value.trim();
         if (!raw) return;
@@ -578,6 +634,8 @@
         // Add to set
         for (const s of newSyms) subscribedSymbols.add(s);
         symbolInput.value = '';
+
+        saveSortState();
 
         // Reconnect with full symbol list
         reconnectWS();
@@ -592,6 +650,7 @@
         if (panel) panel.remove();
         delete stockState[sym];
         renderTags();
+        saveSortState();
         // Reconnect with remaining
         if (subscribedSymbols.size > 0) {
             reconnectWS();
@@ -606,7 +665,8 @@
         for (const sym of subscribedSymbols) {
             const st = stockState[sym] || {};
             const name = st.name || '';
-            html += `<div class="sym-tag">
+            html += `<div class="sym-tag" data-sym="${sym}" style="cursor:move" title="拖曳排序">
+                <span style="color:#64748b;margin-right:2px">☰</span>
                 <span>${sym}</span>
                 ${name ? `<span style="font-weight:400;color:#64748b;font-size:0.7rem">${name}</span>` : ''}
                 <span class="remove-btn" onclick="removeSymbol('${sym}')">✕</span>
@@ -762,6 +822,7 @@
         panel.innerHTML = `
             <div class="panel-header">
                 <div class="sym-info">
+                    <span class="panel-drag-handle" style="cursor:move;color:#64748b;margin-right:8px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,0.05)" title="拖曳排序">☰</span>
                     <span class="sym-id">${sym}</span>
                     <span class="sym-name" id="name-${sym}">Loading...</span>
                 </div>
