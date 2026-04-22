@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>排隊洗價監控器 | QuantJJ</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <style>
         body {
             background-color: #0f172a; /* slate-900 */
@@ -95,6 +96,16 @@
     // Structure: trackers[symbol] = { ws, simOrders, simOrderIdCounter, recentTrades, currentBook, lastBook, symbol }
     const trackers = {};
 
+    // Initialize SortableJS
+    new Sortable(document.getElementById('trackersContainer'), {
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'opacity-50',
+        onEnd: function() {
+            persistState();
+        }
+    });
+
     // 嘗試還原 sessionStorage 快取
     try {
         const saved = sessionStorage.getItem('quant_trackers_state');
@@ -107,8 +118,11 @@
     } catch (e) { console.warn("恢復快取失敗", e); }
 
     function persistState() {
+        const trackerCards = document.querySelectorAll('.tracker-card');
+        const orderedSymbols = Array.from(trackerCards).map(card => card.id.replace('tracker-', ''));
+        
         const state = {
-            symbols: Object.keys(trackers),
+            symbols: orderedSymbols,
             data: {}
         };
         for (const [sym, t] of Object.entries(trackers)) {
@@ -165,6 +179,7 @@
         div.innerHTML = `
             <div class="tracker-header">
                 <div class="flex items-center gap-3">
+                    <span class="drag-handle text-slate-500 cursor-move hover:text-white transition px-2 py-1 bg-white/5 hover:bg-white/10 rounded" title="拖曳排序">☰</span>
                     <span id="wsDot-${sym}" class="dot dot-yellow"></span>
                     <h2 class="text-xl font-black text-white tag-${sym}" style="letter-spacing:1px">${sym}</h2>
                     <span id="lastPrice-${sym}" class="mono font-bold text-lg text-slate-300 ml-4">--</span>
@@ -201,8 +216,12 @@
             </div>
         `;
         
-        // Insert at top
-        container.insertBefore(div, container.firstChild);
+        // Insert at bottom if restored, else top
+        if (savedData) {
+            container.appendChild(div);
+        } else {
+            container.insertBefore(div, container.firstChild);
+        }
         
         renderSimOrders(sym);
         connectWs(sym);
