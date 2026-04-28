@@ -293,8 +293,8 @@
                 <div class="border-r border-white/5 pr-2">
                     <div class="text-slate-400 text-[10px]">設算淨值</div>
                     <div id="pseudoBidNav" class="text-xl font-black mono text-white">--</div>
-                    <div class="text-[9px] text-slate-600 mt-1">
-                        Bid: <span id="val2330Bid" class="text-slate-500 font-bold">--</span>
+                    <div class="text-xs text-slate-500 mt-1 flex items-baseline gap-1">
+                        Bid: <span id="val2330Bid" class="text-slate-300 font-bold text-base mono">--</span>
                     </div>
                 </div>
                 <div class="pl-2">
@@ -316,8 +316,8 @@
                 <div class="border-r border-white/5 pr-2">
                     <div class="text-slate-400 text-[10px]">設算淨值</div>
                     <div id="pseudoAskNav" class="text-xl font-black mono text-white">--</div>
-                    <div class="text-[9px] text-slate-600 mt-1">
-                        Ask: <span id="val2330Ask" class="text-slate-500 font-bold">--</span>
+                    <div class="text-xs text-slate-500 mt-1 flex items-baseline gap-1">
+                        Ask: <span id="val2330Ask" class="text-slate-300 font-bold text-base mono">--</span>
                     </div>
                 </div>
                 <div class="pl-2">
@@ -423,15 +423,15 @@
     <!-- scrollable table wrapper -->
     <div class="overflow-x-auto -mx-1 px-1">
         <!-- column headers -->
-        <div class="grid text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1 px-2" style="grid-template-columns:1.5rem minmax(70px, 1fr) 4.5rem 4rem 3.2rem 3.5rem minmax(60px, 1fr) 3.5rem; min-width: 580px;">
+        <div id="tableHeader" class="grid text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 px-2" style="grid-template-columns:1.5rem minmax(70px, 1fr) 4.5rem 4rem 3.2rem 3.5rem minmax(60px, 1fr) 3.5rem; min-width: 580px;">
             <div>#</div>
-            <div>股票</div>
-            <div class="text-right">PCF 股數</div>
-            <div class="text-right">即時價格</div>
-            <div class="text-right">漲跌</div>
-            <div class="text-right">漲跌幅</div>
-            <div class="text-right pr-2">市值貢獻</div>
-            <div class="text-right">佔比</div>
+            <div class="cursor-pointer hover:text-white transition" onclick="setSort('stkcd')">股票 <span id="sort-stkcd"></span></div>
+            <div class="text-right cursor-pointer hover:text-white transition" onclick="setSort('qty')">PCF 股數 <span id="sort-qty"></span></div>
+            <div class="text-right cursor-pointer hover:text-white transition" onclick="setSort('price')">即時價格 <span id="sort-price"></span></div>
+            <div class="text-right cursor-pointer hover:text-white transition" onclick="setSort('diff')">漲跌 <span id="sort-diff"></span></div>
+            <div class="text-right cursor-pointer hover:text-white transition" onclick="setSort('pct')">漲跌幅 <span id="sort-pct"></span></div>
+            <div class="text-right pr-2 cursor-pointer hover:text-white transition" onclick="setSort('contrib')">市值貢獻 <span id="sort-contrib" class="text-emerald-400">▼</span></div>
+            <div class="text-right cursor-pointer hover:text-white transition" onclick="setSort('weight')">佔比 <span id="sort-weight"></span></div>
         </div>
 
         <!-- body -->
@@ -657,8 +657,8 @@ function getBurnRate(price) {
 
 function placeSimOrder(side) {
     let bestPrices = side === 'bid' ? currentTsmcBook.bids : currentTsmcBook.asks;
-    let prices = Object.keys(bestPrices).map(p => parseFloat(p));
-    if (prices.length === 0) return alert('目前無五檔報價，無法模擬下單');
+    let prices = Object.keys(bestPrices).map(p => parseFloat(p)).filter(p => p > 0);
+    if (prices.length === 0) return alert('目前無有效五檔報價，無法模擬下單');
     
     let targetPrice = side === 'bid' ? Math.max(...prices) : Math.min(...prices);
     let currentVol = bestPrices[targetPrice] || 0;
@@ -1066,6 +1066,25 @@ function updateRowDot(stkcd, hasPrice) {
 // ═══════════════════════════════════════════════════════
 // Full table render (called once after PCF load, and on search filter)
 // ═══════════════════════════════════════════════════════
+let sortCol = 'contrib';
+let sortDesc = true;
+
+function setSort(col) {
+    if (sortCol === col) sortDesc = !sortDesc;
+    else { sortCol = col; sortDesc = true; }
+    
+    ['stkcd', 'qty', 'price', 'diff', 'pct', 'contrib', 'weight'].forEach(c => {
+        const el = document.getElementById(`sort-${c}`);
+        if (el) {
+            el.textContent = c === sortCol ? (sortDesc ? '▼' : '▲') : '';
+            if (c === sortCol) el.className = 'text-emerald-400';
+            else el.className = '';
+        }
+    });
+    
+    renderTable();
+}
+
 function renderTable() {
     if (!composition.length) return;
     // Reset DOM caches
@@ -1077,11 +1096,33 @@ function renderTable() {
         ? composition.filter(s => s.name.toLowerCase().includes(q) || s.stkcd.includes(q))
         : [...composition];
 
-    // Sort by contribution desc (use PCF qty × last known price)
+    // Dynamic sort
     rows.sort((a, b) => {
-        const av = (stockPrices[a.stkcd] ?? 0) * a.qty;
-        const bv = (stockPrices[b.stkcd] ?? 0) * b.qty;
-        return bv - av;
+        const pxA = stockPrices[a.stkcd] || 0;
+        const pxB = stockPrices[b.stkcd] || 0;
+        const ppA = stockPrevCloses[a.stkcd] || pxA;
+        const ppB = stockPrevCloses[b.stkcd] || pxB;
+
+        let valA = 0, valB = 0;
+        
+        if (sortCol === 'stkcd') {
+            valA = a.stkcd; valB = b.stkcd;
+        } else if (sortCol === 'qty') {
+            valA = a.qty; valB = b.qty;
+        } else if (sortCol === 'price') {
+            valA = pxA; valB = pxB;
+        } else if (sortCol === 'diff') {
+            valA = pxA - ppA; valB = pxB - ppB;
+        } else if (sortCol === 'pct') {
+            valA = ppA > 0 ? (pxA - ppA) / ppA : 0;
+            valB = ppB > 0 ? (pxB - ppB) / ppB : 0;
+        } else if (sortCol === 'contrib' || sortCol === 'weight') {
+            valA = pxA * a.qty; valB = pxB * b.qty;
+        }
+
+        if (valA < valB) return sortDesc ? 1 : -1;
+        if (valA > valB) return sortDesc ? -1 : 1;
+        return 0;
     });
 
     // Total for pct column

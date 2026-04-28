@@ -297,8 +297,12 @@
             const b = bids[i]; const a = asks[i];
             const bv = b ? normalizeSize(b.volume || b.size) : '--';
             const av = a ? normalizeSize(a.volume || a.size) : '--';
-            const bp = b && b.price != null ? fmt(b.price, 2) : '--';
-            const ap = a && a.price != null ? fmt(a.price, 2) : '--';
+            let bp = b && b.price != null ? fmt(b.price, 2) : '--';
+            let ap = a && a.price != null ? fmt(a.price, 2) : '--';
+            
+            if (bp === "0.00" && String(bv) !== '--' && Number(bv) > 0) bp = "市價";
+            if (ap === "0.00" && String(av) !== '--' && Number(av) > 0) ap = "市價";
+
             html += `<div class="grid grid-cols-2 text-center py-1 hover:bg-white/5 rounded">
                         <div><span class="text-red-400 font-bold">${bp}</span> <span class="text-slate-500 text-[10px] ml-1">(${bv})</span></div>
                         <div><span class="text-emerald-400 font-bold">${ap}</span> <span class="text-slate-500 text-[10px] ml-1">(${av})</span></div>
@@ -342,8 +346,8 @@
     function placeSimOrder(sym, side) {
         const t = trackers[sym];
         const bestPrices = side === 'bid' ? t.currentBook.bids : t.currentBook.asks;
-        const prices = Object.keys(bestPrices).map(p => parseFloat(p));
-        if (prices.length === 0) return alert('目前無五檔報價！');
+        const prices = Object.keys(bestPrices).map(p => parseFloat(p)).filter(p => p > 0);
+        if (prices.length === 0) return alert('目前無有效五檔報價！');
         const targetPrice = side === 'bid' ? Math.max(...prices) : Math.min(...prices);
         const currentVol = bestPrices[targetPrice] || 0;
         if (currentVol === 0) return alert('找不到目標價位掛單量');
