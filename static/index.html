@@ -1189,8 +1189,8 @@
     function placeSimOrder(sym, side) {
         const st = stockState[sym];
         const bestPrices = side === 'bid' ? st.currentBook.bids : st.currentBook.asks;
-        const prices = Object.keys(bestPrices).map(p => parseFloat(p));
-        if (prices.length === 0) return alert('目前無五檔報價！');
+        const prices = Object.keys(bestPrices).map(p => parseFloat(p)).filter(p => p > 0);
+        if (prices.length === 0) return alert('目前無有效五檔報價！');
         const targetPrice = side === 'bid' ? Math.max(...prices) : Math.min(...prices);
         const currentVol = bestPrices[targetPrice] || 0;
         if (currentVol === 0) return alert('找不到目標價位掛單量');

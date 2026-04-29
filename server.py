@@ -81,9 +81,12 @@ class ConnectionManager:
         self.message_queue = asyncio.Queue()
 
     async def connect(self, websocket: WebSocket, symbol: str):
+        is_first = False
         if symbol not in self.active_connections:
             self.active_connections[symbol] = []
+            is_first = True
         self.active_connections[symbol].append(websocket)
+        return is_first
 
     def disconnect(self, websocket: WebSocket, symbol: str):
         if symbol in self.active_connections:
@@ -106,8 +109,14 @@ manager = ConnectionManager()
 sdk = None
 loop = None
 
+sdk_last_msg_time = time.time()
+sdk_retry_count = 0
+
 def handle_fubon_message(message):
+    global sdk_last_msg_time, sdk_retry_count
     try:
+        sdk_last_msg_time = time.time()
+        sdk_retry_count = 0
         msg = json.loads(message)
         event = msg.get("event")
         data = msg.get("data")
@@ -137,46 +146,31 @@ def handle_fubon_message(message):
 
 # ─── Fubon SDK Watchdog (auto-reconnect with backoff) ──────────────
 async def fubon_sdk_watchdog():
+    global sdk_last_msg_time, sdk_retry_count
     """Periodically check Fubon SDK WS connectivity and reconnect if needed."""
     MAX_RETRIES = 10
     BASE_BACKOFF = 30  # seconds
     MAX_BACKOFF = 300  # 5 minutes cap
     
     print(f"Started Fubon SDK watchdog (max {MAX_RETRIES} consecutive retries)")
-    last_msg_time = time.time()
-    retry_count = 0
-    
-    # Monkey-patch to track last message time
-    original_handler = handle_fubon_message
-    def tracked_handler(message):
-        nonlocal last_msg_time, retry_count
-        last_msg_time = time.time()
-        retry_count = 0  # Reset on any successful message
-        original_handler(message)
-    
-    try:
-        sdk.marketdata.websocket_client.stock.on("message", tracked_handler)
-        sdk.marketdata.websocket_client.futopt.on("message", tracked_handler)
-    except Exception:
-        pass
     
     while True:
         await asyncio.sleep(30)
         try:
-            elapsed = time.time() - last_msg_time
+            elapsed = time.time() - sdk_last_msg_time
             # If no message received in 90 seconds during trading hours, reconnect
             from datetime import datetime
             h = datetime.now().hour
             is_trading = (9 <= h < 14) or (15 <= h < 24) or (h < 5)  # Day + Night sessions
             
             if is_trading and elapsed > 90:
-                if retry_count >= MAX_RETRIES:
+                if sdk_retry_count >= MAX_RETRIES:
                     print(f"🛑 Fubon SDK: reached max retries ({MAX_RETRIES}), stopping watchdog. Manual restart required.")
                     return  # Exit the watchdog entirely
                 
-                retry_count += 1
-                backoff = min(BASE_BACKOFF * (2 ** (retry_count - 1)), MAX_BACKOFF)
-                print(f"⚠️ No Fubon SDK message for {elapsed:.0f}s, reconnect attempt {retry_count}/{MAX_RETRIES} (next backoff: {backoff}s)...")
+                sdk_retry_count += 1
+                backoff = min(BASE_BACKOFF * (2 ** (sdk_retry_count - 1)), MAX_BACKOFF)
+                print(f"⚠️ No Fubon SDK message for {elapsed:.0f}s, reconnect attempt {sdk_retry_count}/{MAX_RETRIES} (next backoff: {backoff}s)...")
                 
                 try:
                     sdk.marketdata.websocket_client.stock.disconnect()
@@ -185,11 +179,9 @@ async def fubon_sdk_watchdog():
                     pass
                 await asyncio.sleep(2)
                 try:
-                    sdk.marketdata.websocket_client.stock.on("message", tracked_handler)
                     sdk.marketdata.websocket_client.stock.connect()
-                    sdk.marketdata.websocket_client.futopt.on("message", tracked_handler)
                     sdk.marketdata.websocket_client.futopt.connect()
-                    last_msg_time = time.time()
+                    sdk_last_msg_time = time.time()
                     print("✅ Fubon SDK reconnected successfully")
                 except Exception as e:
                     print(f"❌ Fubon SDK reconnect failed: {e}")
@@ -253,12 +245,16 @@ async def message_processor():
 async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None, trades_only: bool = False):
     await websocket.accept()
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    
+    symbols_to_subscribe = []
     for symbol in symbol_list:
-        await manager.connect(websocket, symbol)
+        is_first = await manager.connect(websocket, symbol)
+        if is_first:
+            symbols_to_subscribe.append(symbol)
     
     # Subscribe to books and/or trades
     try:
-        if sdk:
+        if sdk and symbols_to_subscribe:
             from datetime import datetime
             if night is not None:
                 after_hours = night
@@ -266,7 +262,7 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                 h = datetime.now().hour
                 after_hours = (h >= 14 or h < 8)
             
-            for symbol in symbol_list:
+            for symbol in symbols_to_subscribe:
                 is_futopt = symbol[0].isalpha() and symbol != "IX0001"
                 target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
                 if is_futopt:
@@ -278,7 +274,7 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                         target_client.subscribe({"channel": "books", "symbol": symbol})
                     target_client.subscribe({"channel": "trades", "symbol": symbol})
             mode = "trades-only" if trades_only else "books+trades"
-            print(f"Subscribed SDK to {len(symbol_list)} symbols [{mode}]")
+            print(f"Subscribed SDK to {len(symbols_to_subscribe)} new symbols [{mode}]")
     except Exception as e:
         print("Subscription error:", e)
         
