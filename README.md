@@ -12,7 +12,7 @@
 |---|---|
 | `Launch_OrderBook.command` | macOS 啟動器（雙擊即可） |
 | `Launch_OrderBook.bat` | Windows 啟動器（雙擊即可） |
-| `server.py` | 後端伺服器 |
+| `main.py` | 後端伺服器 |
 | `static/index.html` | 前端介面 |
 | `API.env.example` | 設定檔範本 |
 | `requirements.txt` | Python 套件依賴 |

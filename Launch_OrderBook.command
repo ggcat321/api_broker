@@ -105,8 +105,8 @@ echo ""
 # 1.5 秒後自動開啟瀏覽器
 (sleep 1.5 && open "http://127.0.0.1:8000") &
 
-# 直接用 python 執行 server.py（前景執行，Ctrl+C 可停）
-$PYTHON server.py
+# 直接用 python 執行 main.py（前景執行，Ctrl+C 可停）
+$PYTHON main.py
 
 # server 結束後
 echo ""
