@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>CORS 測試 — TWSE / TPEx 處置清單</title>
+<style>
+  body { font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+         background:#0f172a; color:#e2e8f0; padding:24px; line-height:1.6; max-width:980px; margin:0 auto;}
+  h1 { font-size:1.4rem; margin-bottom:8px; color:#f8fafc; }
+  .sub { color:#94a3b8; font-size:0.9rem; margin-bottom:24px; }
+  .card { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:16px; margin-bottom:14px; }
+  .card h3 { font-size:1rem; margin-bottom:8px; color:#cbd5e1; }
+  .status { font-weight:700; padding:2px 10px; border-radius:6px; font-size:0.82rem; }
+  .ok { background:rgba(34,197,94,0.15); color:#86efac; }
+  .fail { background:rgba(239,68,68,0.15); color:#fca5a5; }
+  .pending { background:rgba(100,116,139,0.2); color:#94a3b8; }
+  pre { background:#0f172a; padding:10px; border-radius:6px; margin-top:8px;
+        white-space:pre-wrap; word-break:break-all; font-size:0.78rem;
+        max-height:200px; overflow:auto; border:1px solid #1e293b; }
+  .summary { background:#1e293b; border:2px solid #f59e0b; border-radius:10px;
+             padding:16px; margin-bottom:24px; font-size:0.95rem; }
+  .summary h2 { color:#fbbf24; margin-bottom:8px; font-size:1.05rem; }
+  .summary ul { padding-left:24px; }
+</style>
+</head>
+<body>
+  <h1>🔬 CORS 可行性測試</h1>
+  <div class="sub">測試「離線 HTML 直接抓 TWSE/TPEx 處置清單」是否可行。打開後會自動跑 6 個請求。</div>
+
+  <div class="summary" id="summary">
+    <h2>⏳ 測試中...</h2>
+    <div>請等到全部 6 項顯示「成功」或「失敗」,把這份截圖或下方各項結果回報。</div>
+  </div>
+
+  <div class="card" id="card-twse-direct"></div>
+  <div class="card" id="card-twse-corsproxy"></div>
+  <div class="card" id="card-twse-allorigins"></div>
+  <div class="card" id="card-tpex-direct"></div>
+  <div class="card" id="card-tpex-corsproxy"></div>
+  <div class="card" id="card-tpex-allorigins"></div>
+
+<script>
+const TESTS = [
+  { id: 'twse-direct',     name: 'TWSE 直接 fetch (Direct)',
+    url: 'https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json',
+    parser: d => `stat=${d.stat}, rows=${(d.data||[]).length}` },
+  { id: 'twse-corsproxy',  name: 'TWSE via corsproxy.io',
+    url: 'https://corsproxy.io/?url=' + encodeURIComponent('https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json'),
+    parser: d => `stat=${d.stat}, rows=${(d.data||[]).length}` },
+  { id: 'twse-allorigins', name: 'TWSE via allorigins.win',
+    url: 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json'),
+    parser: d => { const inner = JSON.parse(d.contents); return `stat=${inner.stat}, rows=${(inner.data||[]).length}`; } },
+  { id: 'tpex-direct',     name: 'TPEx 直接 fetch (Direct)',
+    url: 'https://www.tpex.org.tw/web/stock/attention/disposal/disposal_result.php?l=zh-tw&o=json',
+    parser: d => `rows=${(d.aaData||d.data||[]).length}` },
+  { id: 'tpex-corsproxy',  name: 'TPEx via corsproxy.io',
+    url: 'https://corsproxy.io/?url=' + encodeURIComponent('https://www.tpex.org.tw/web/stock/attention/disposal/disposal_result.php?l=zh-tw&o=json'),
+    parser: d => `rows=${(d.aaData||d.data||[]).length}` },
+  { id: 'tpex-allorigins', name: 'TPEx via allorigins.win',
+    url: 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://www.tpex.org.tw/web/stock/attention/disposal/disposal_result.php?l=zh-tw&o=json'),
+    parser: d => { const inner = JSON.parse(d.contents); return `rows=${(inner.aaData||inner.data||[]).length}`; } },
+];
+
+const results = {};
+
+function render(t, status, detail, raw) {
+  const el = document.getElementById('card-' + t.id);
+  const cls = status === 'ok' ? 'ok' : (status === 'fail' ? 'fail' : 'pending');
+  const label = status === 'ok' ? '✅ 成功' : (status === 'fail' ? '❌ 失敗' : '⏳ 進行中');
+  el.innerHTML = `
+    <h3>${t.name} <span class="status ${cls}">${label}</span></h3>
+    <div style="font-size:0.8rem;color:#94a3b8">${detail || ''}</div>
+    ${raw ? `<pre>${raw}</pre>` : ''}
+  `;
+}
+
+async function runOne(t) {
+  render(t, 'pending', '請求中...');
+  try {
+    const t0 = Date.now();
+    const res = await fetch(t.url, { method: 'GET', mode: 'cors' });
+    const ms = Date.now() - t0;
+    if (!res.ok) {
+      render(t, 'fail', `HTTP ${res.status} (${ms} ms)`, await res.text().then(x=>x.slice(0,300)).catch(()=>''));
+      results[t.id] = 'fail';
+      return;
+    }
+    const text = await res.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) {
+      render(t, 'fail', `回應非 JSON (${ms} ms): ${e.message}`, text.slice(0, 300));
+      results[t.id] = 'fail';
+      return;
+    }
+    let summary = '';
+    try { summary = t.parser(parsed); } catch (e) { summary = '無法解析欄位: ' + e.message; }
+    render(t, 'ok', `${summary} | 耗時 ${ms} ms`, JSON.stringify(parsed).slice(0, 400) + '...');
+    results[t.id] = 'ok';
+  } catch (e) {
+    // 典型 CORS 錯誤會在這裡:TypeError: Failed to fetch
+    render(t, 'fail', `${e.name}: ${e.message}`);
+    results[t.id] = 'fail';
+  }
+}
+
+(async () => {
+  for (const t of TESTS) { render(t, 'pending', '等待中...'); }
+  // 並行跑(免互相阻塞)
+  await Promise.all(TESTS.map(runOne));
+
+  // 匯總
+  const sum = document.getElementById('summary');
+  const ok = TESTS.filter(t => results[t.id] === 'ok').map(t => t.name);
+  const bad = TESTS.filter(t => results[t.id] === 'fail').map(t => t.name);
+  sum.innerHTML = `
+    <h2>📊 測試完成</h2>
+    <div style="margin-bottom:6px"><b>成功 (${ok.length}/6):</b></div>
+    <ul>${ok.map(n => `<li style="color:#86efac">${n}</li>`).join('') || '<li style="color:#64748b">無</li>'}</ul>
+    <div style="margin-top:10px;margin-bottom:6px"><b>失敗 (${bad.length}/6):</b></div>
+    <ul>${bad.map(n => `<li style="color:#fca5a5">${n}</li>`).join('') || '<li style="color:#64748b">無</li>'}</ul>
+    <div style="margin-top:14px;font-size:0.82rem;color:#94a3b8">
+      把這個摘要(或整個頁面截圖)貼給我,我就能判斷可行性。
+    </div>
+  `;
+})();
+</script>
+</body>
+</html>
