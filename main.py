@@ -852,12 +852,12 @@ async def get_stock_quotes(symbols: str):
 # ─── Disposal / Warning Detection API ──────────────────────────────
 
 @app.get("/api/disposal/disposed")
-async def api_disposal_disposed():
+async def api_disposal_disposed(refresh: bool = False):
     """取得目前處置中的股票清單（TWSE + TPEx）。"""
     try:
         from disposal_checker import fetch_disposed_stocks
         ev_loop = asyncio.get_running_loop()
-        result = await ev_loop.run_in_executor(None, fetch_disposed_stocks)
+        result = await ev_loop.run_in_executor(None, fetch_disposed_stocks, refresh)
         return result
     except Exception as e:
         print(f"Disposal disposed API error: {e}")

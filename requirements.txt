@@ -2,9 +2,10 @@ fastapi
 uvicorn
 websockets
 python-dotenv
+requests
+urllib3
 pandas
 numpy
 fubon-neo
-finlab
 beautifulsoup4
 lxml
