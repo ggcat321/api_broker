@@ -49,7 +49,7 @@ if id_col and end_col:
                     "name": name_val,
                     "period": f"{start} ~ {end}",
                     "measures": measures,
-                    "source": "Public"
+                    "source": "FinLab"
                 }
 
 import json

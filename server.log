@@ -1,0 +1,23 @@
+/Users/jeffrey/Desktop/Github/order_book/api_broker/server.py:94: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/Users/jeffrey/Desktop/Github/order_book/api_broker/server.py:137: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Will watch for changes in these directories: ['/Users/jeffrey/Desktop/Github/order_book/api_broker']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [6790] using WatchFiles
+偵測到憑證檔: F129483123.pfx
+Starting Web Server at http://127.0.0.1:8000
+INFO:     Started server process [6848]
+INFO:     Waiting for application startup.
+您的富邦電子平台登入密碼已經超過90天未變更密碼，建議您可定期更變更密碼，以保障您的交易安全
+INFO:     Application startup complete.
