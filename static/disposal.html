@@ -826,12 +826,14 @@
         if (curMode === '5') {
             filtered = allDisposedData.filter(([sid, info]) => {
                 const m = info.measures || '';
-                return m.includes('5分') && !m.includes('20分') && !m.includes('45分') && !m.includes('60分') && !m.includes('停止買賣');
+                const is5min = m.includes('5分') || m.includes('五分');
+                const isHigher = m.includes('20分') || m.includes('二十分') || m.includes('45分') || m.includes('四十五分') || m.includes('60分') || m.includes('六十分') || m.includes('停止買賣');
+                return is5min && !isHigher;
             });
         } else if (curMode === '20') {
             filtered = allDisposedData.filter(([sid, info]) => {
                 const m = info.measures || '';
-                return m.includes('20分') || m.includes('45分') || m.includes('60分') || m.includes('停止買賣');
+                return m.includes('20分') || m.includes('二十分') || m.includes('45分') || m.includes('四十五分') || m.includes('60分') || m.includes('六十分') || m.includes('停止買賣');
             });
         }
 

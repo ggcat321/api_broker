@@ -479,9 +479,15 @@ def _roc_to_ad(d: str) -> str:
     return d.strip()
 
 
+def _split_period(period_str: str) -> list:
+    """用半形 ~ 或全形 ～ 切割期間字串。"""
+    import re
+    return re.split(r'[~～]', period_str)
+
+
 def _convert_period(period_str: str) -> str:
     """將處置期間字串從民國年轉為西元年。"""
-    parts = period_str.split('~')
+    parts = _split_period(period_str)
     converted = []
     for p in parts:
         converted.append(_roc_to_ad(p.strip()))
@@ -491,7 +497,7 @@ def _convert_period(period_str: str) -> str:
 def _is_period_active(period_ad: str) -> bool:
     """檢查處置期間是否包含今日。"""
     try:
-        parts = period_ad.split('~')
+        parts = _split_period(period_ad)
         if len(parts) != 2:
             return True
         end_str = parts[1].strip()
@@ -518,7 +524,7 @@ def fetch_disposed_stocks() -> dict:
 
     # ── 1. 上市 TWSE JSON API ────────────────────────────────
     try:
-        url = "https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json"
+        url = "https://www.twse.com.tw/rwd/zh/announcement/punish?response=json"
         resp = requests.get(url, headers=hdrs, timeout=10, verify=False)
         data = resp.json()
 
@@ -554,6 +560,10 @@ def fetch_disposed_stocks() -> dict:
             and "失敗" not in data.get("stat", "") and data.get("data")
         )
 
+        # 處置內容欄位索引（用於提取撮合間隔）
+        idx_content = _fi("處置內容") if fields else None
+        if idx_content is None: idx_content = 8
+
         if stat_ok and data.get("data"):
             for row in data["data"]:
                 try:
@@ -564,6 +574,17 @@ def fetch_disposed_stocks() -> dict:
                     cond_txt = str(row[idx_cond]).strip() if len(row) > idx_cond else ""
                     period   = str(row[idx_per]).strip()  if len(row) > idx_per  else ""
                     measures = str(row[idx_msr]).strip()  if len(row) > idx_msr  else ""
+
+                    # TWSE 的 measures (field 7) 只有 "第一次處置" 等簡略文字，
+                    # 實際撮合間隔在 content (field 8) 中，需要提取出來
+                    if len(row) > idx_content:
+                        content = str(row[idx_content])
+                        import re
+                        # 匹配 「每X分鐘撮合一次」（含國字數字與阿拉伯數字）
+                        m = re.search(r'每([五二十四六零一三七八九\d]+)分鐘撮合', content)
+                        if m:
+                            interval = m.group(1)
+                            measures = f"{measures}（每{interval}分鐘撮合一次）"
 
                     # 股票代號應為 4~6 位數字，做基本驗證
                     if not stock_id or not stock_id[:4].isdigit():
