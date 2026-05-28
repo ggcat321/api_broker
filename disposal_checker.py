@@ -518,7 +518,7 @@ def fetch_disposed_stocks() -> dict:
 
     # ── 1. 上市 TWSE JSON API ────────────────────────────────
     try:
-        url = "https://www.twse.com.tw/rwd/zh/announcement/punish?response=json"
+        url = "https://www.twse.com.tw/rwd/zh/announcement/disposal?response=json"
         resp = requests.get(url, headers=hdrs, timeout=10, verify=False)
         data = resp.json()
 
