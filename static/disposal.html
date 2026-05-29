@@ -540,15 +540,225 @@
         .table-wrapper::-webkit-scrollbar-track { background: rgba(15,23,42,0.3); }
         .table-wrapper::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.4); border-radius: 3px; }
 
+        /* === Attention Stock Styles === */
+        .attention-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 12px;
+        }
+        .attention-card {
+            padding: 16px 20px;
+            border-radius: 12px;
+            border-left: 4px solid #f59e0b;
+            background: rgba(30, 41, 59, 0.5);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .attention-card:hover { background: rgba(30, 41, 59, 0.85); transform: translateX(4px); }
+        .attention-card.risk-red    { border-left-color: #ef4444; background: rgba(239,68,68,0.06); }
+        .attention-card.risk-orange { border-left-color: #f97316; background: rgba(249,115,22,0.05); }
+        .attention-card.risk-yellow { border-left-color: #f59e0b; }
+        .attention-card.risk-green  { border-left-color: #22c55e; background: rgba(34,197,94,0.04); }
+
+        .risk-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        .risk-badge.red    { background: rgba(239,68,68,0.2);  color: #fca5a5; }
+        .risk-badge.orange { background: rgba(249,115,22,0.2); color: #fdba74; }
+        .risk-badge.yellow { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .risk-badge.green  { background: rgba(34,197,94,0.15); color: #86efac; }
+
+        .disposal-count-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 800;
+            margin-left: 6px;
+        }
+        .disposal-count-badge.first  { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .disposal-count-badge.second { background: rgba(239,68,68,0.25); color: #fca5a5; }
+
+        /* 明日觸發預警 UI 樣式 */
+        .reach-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+        .reach-badge.triggered { background: rgba(239,68,68,0.25); color: #fca5a5; }
+        .reach-badge.warning { background: rgba(249,115,22,0.25); color: #fdba74; }
+        .reach-badge.active { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .reach-badge.unreachable { background: rgba(148,163,184,0.15); color: #cbd5e1; }
+
+        .trigger-progress-container {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            width: 100%;
+            position: relative;
+        }
+        .progress-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.68rem;
+            color: #64748b;
+            position: relative;
+            height: 14px;
+        }
+        .limit-label.down { text-align: left; }
+        .limit-label.up { text-align: right; }
+        .current-price-label {
+            position: absolute;
+            color: #38bdf8;
+            font-weight: 700;
+            font-size: 0.7rem;
+            white-space: nowrap;
+        }
+
+        .progress-bar-bg {
+            height: 6px;
+            background: #1e293b;
+            border-radius: 3px;
+            position: relative;
+            overflow: visible;
+        }
+        .danger-zone-bg {
+            position: absolute;
+            height: 100%;
+            background: rgba(239,68,68,0.3);
+            border-radius: 0 3px 3px 0;
+        }
+        .current-price-pin {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #38bdf8;
+            border: 2px solid #0f172a;
+            top: -2px;
+            transform: translateX(-5px);
+            z-index: 10;
+        }
+        .trigger-pin {
+            position: absolute;
+            width: 4px;
+            height: 12px;
+            background: #ef4444;
+            top: -3px;
+            transform: translateX(-2px);
+            z-index: 9;
+            border-radius: 1px;
+            box-shadow: 0 0 6px rgba(239,68,68,0.8);
+        }
+
+        .progress-bottom-labels {
+            position: relative;
+            height: 14px;
+            font-size: 0.65rem;
+            color: #ef4444;
+            font-weight: 600;
+        }
+        .trigger-label {
+            position: absolute;
+            white-space: nowrap;
+        }
+        .trigger-label.unreachable {
+            color: #64748b;
+            left: 0;
+        }
+
+        .attention-filters {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+        .attn-filter-btn {
+            padding: 5px 14px;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            border: 1px solid rgba(100,116,139,0.3);
+            background: rgba(30, 41, 59, 0.5);
+            color: #94a3b8;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Inter', sans-serif;
+        }
+        .attn-filter-btn:hover { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
+        .attn-filter-btn.active.red    { background: rgba(239,68,68,0.2);  border-color: #ef4444;  color: #fca5a5; }
+        .attn-filter-btn.active.orange { background: rgba(249,115,22,0.2); border-color: #f97316; color: #fdba74; }
+        .attn-filter-btn.active.yellow { background: rgba(245,158,11,0.2); border-color: #f59e0b; color: #fcd34d; }
+        .attn-filter-btn.active.all    { background: rgba(99,102,241,0.2); border-color: #6366f1;  color: #a5b4fc; }
+
+        .attn-info-text {
+            color: #64748b;
+            font-size: 0.72rem;
+            margin-top: 6px;
+            line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .countdown-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            margin-top: 6px;
+        }
+        .countdown-pill.urgent { background: rgba(239,68,68,0.15); color: #f87171; }
+        .countdown-pill.warn   { background: rgba(249,115,22,0.15); color: #fb923c; }
+        .countdown-pill.ok     { background: rgba(245,158,11,0.12); color: #fbbf24; }
+
+        .attention-summary-bar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .attn-stat {
+            flex: 1;
+            min-width: 90px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255,255,255,0.06);
+            text-align: center;
+        }
+        .attn-stat .val { font-size: 1.8rem; font-weight: 900; }
+        .attn-stat .lbl { font-size: 0.68rem; color: #64748b; font-weight: 600; margin-top: 2px; }
+        .attn-stat.red    .val { color: #f87171; }
+        .attn-stat.orange .val { color: #fb923c; }
+        .attn-stat.yellow .val { color: #fbbf24; }
+        .attn-stat.total  .val { color: #a5b4fc; }
+
         /* === Responsive === */
         @media (max-width: 768px) {
             .page-header h1 { font-size: 1.8rem; }
-            .tab-btn { font-size: 0.8rem; padding: 10px 8px; }
-            .disposed-grid { grid-template-columns: 1fr; }
+            .tab-btn { font-size: 0.78rem; padding: 10px 6px; }
+            .disposed-grid, .attention-grid { grid-template-columns: 1fr; }
             .cond-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
             .report-header { flex-direction: column; gap: 16px; }
             .report-header .right { text-align: left; }
             .scan-header { flex-direction: column; align-items: stretch; }
+            .attention-summary-bar { gap: 8px; }
         }
     </style>
 </head>
@@ -569,6 +779,7 @@
     <!-- Tab Bar -->
     <div class="glass tab-bar">
         <button class="tab-btn active" onclick="switchTab('disposed')" id="tab-disposed">🔒 處置中</button>
+        <button class="tab-btn" onclick="switchTab('attention')" id="tab-attention">🚨 注意股預警</button>
         <button class="tab-btn" onclick="switchTab('query')" id="tab-query">🔍 個股查詢</button>
         <button class="tab-btn" onclick="switchTab('scan')" id="tab-scan">⚠️ 高風險一覽</button>
     </div>
@@ -611,7 +822,56 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════ -->
-    <!-- Tab 2: 個股查詢 -->
+    <!-- Tab 2: 注意股預警 -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div class="tab-content" id="content-attention">
+        <div class="glass" style="padding:20px; margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+                <div>
+                    <div class="section-title" style="margin-bottom:4px">官方注意股清單 + 處置預警</div>
+                    <div style="color:#64748b; font-size:0.8rem">資料來源：TWSE notice API + TPEx warning API，每日盤後17:30更新</div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <input type="text" id="attn-search" class="search-input"
+                           placeholder="🔍 搜尋代號或名稱"
+                           oninput="renderAttention()"
+                           style="flex:0 0 200px; padding:8px 14px; font-size:0.85rem; border-radius:8px;">
+                    <button class="btn-primary" id="attnRefreshBtn" onclick="loadAttention(true)" style="padding:10px 18px; font-size:0.82rem;">🔄 重新載入</button>
+                </div>
+            </div>
+
+            <!-- Summary Stats -->
+            <div class="attention-summary-bar" id="attn-summary">
+                <div class="attn-stat red"   ><div class="val" id="attn-cnt-red"   >—</div><div class="lbl">🚨 即將處置</div></div>
+                <div class="attn-stat orange" ><div class="val" id="attn-cnt-orange">—</div><div class="lbl">⚠️ 高度警戒</div></div>
+                <div class="attn-stat yellow" ><div class="val" id="attn-cnt-yellow">—</div><div class="lbl">🟡 注意追蹤</div></div>
+                <div class="attn-stat total"  ><div class="val" id="attn-cnt-total" >—</div><div class="lbl">📊 今日注意</div></div>
+            </div>
+
+            <!-- Risk Filters -->
+            <div class="attention-filters">
+                <button class="attn-filter-btn active all" id="attnf-all"    onclick="setAttnFilter('all')">全部</button>
+                <button class="attn-filter-btn red"        id="attnf-red"    onclick="setAttnFilter('red')">🚨 即將處置</button>
+                <button class="attn-filter-btn orange"     id="attnf-orange" onclick="setAttnFilter('orange')">⚠️ 高度警戒</button>
+                <button class="attn-filter-btn yellow"     id="attnf-yellow" onclick="setAttnFilter('yellow')">🟡 注意中</button>
+                <span style="margin-left:auto; color:#475569; font-size:0.75rem;" id="attn-update-time"></span>
+                <span id="attn-ws-status" style="margin-left:12px; display:inline-flex; align-items:center; gap:6px; color:#64748b; font-size:0.75rem; font-weight:600;">
+                    <span id="attn-ws-dot" style="width:7px; height:7px; border-radius:50%; background:#475569; display:inline-block; transition:all 0.3s;"></span>
+                    <span id="attn-ws-text">即時價格未連線</span>
+                </span>
+            </div>
+        </div>
+
+        <div id="attention-area">
+            <div class="loading-area">
+                <div class="spinner"></div>
+                <div>正在查詢 TWSE / TPEx 注意股清單...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- Tab 3: 個股查詢 -->
     <!-- ═══════════════════════════════════════════════ -->
     <div class="tab-content" id="content-query">
         <div class="glass search-section">
@@ -863,23 +1123,32 @@
         let html = '<div class="disposed-grid">';
         for (const [sid, info] of filtered) {
             const sourceClass = (info.source || 'TWSE').toLowerCase();
-            // 如果是20分以上的，標記特殊紅色樣式
-            const isDanger = (info.measures || '').includes('20分') || (info.measures || '').includes('45分') || (info.measures || '').includes('停止買賣');
-            const condStyle = isDanger ? 'color:#ef4444' : 'color:#fbbf24';
+            const dc = info.disposal_count || 1;
+            // 處置等級樣式
+            const isSecond = dc >= 2;
+            const isDanger = isSecond ||
+                (info.measures || '').includes('20分') || (info.measures || '').includes('二十分') ||
+                (info.measures || '').includes('45分') || (info.measures || '').includes('停止買賣');
+            const condStyle   = isDanger ? 'color:#ef4444' : 'color:#fbbf24';
             const borderStyle = isDanger ? 'border-left-color:#ef4444' : 'border-left-color:#f59e0b';
-            
+            const dcBadgeClass = isSecond ? 'second' : 'first';
+            const dcLabel = dc <= 1 ? '第一次' : `第${dc}次`;
+            const triggerHtml = info.trigger_reason
+                ? `<div class="measures" style="color:#94a3b8">🎯 ${info.trigger_reason}</div>` : '';
+
             html += `
                 <div class="disposed-card" style="${borderStyle}" onclick="quickQuery('${sid}')">
                     <div class="stock-header">
                         <div>
                             <span class="stock-id">${sid}</span>
                             <span class="stock-name">${info.name || ''}</span>
+                            <span class="disposal-count-badge ${dcBadgeClass}">${dcLabel}處置</span>
                         </div>
                         <span class="source-badge ${sourceClass}">${displaySource(info.source)}</span>
                     </div>
                     <div class="period">📅 ${info.period || '—'}</div>
-                    ${info.condition ? `<div class="measures" style="${condStyle}">⚡ ${info.condition}</div>` : ''}
-                    ${info.measures ? `<div class="measures">📋 ${info.measures}</div>` : ''}
+                    ${triggerHtml}
+                    ${info.measures ? `<div class="measures" style="${condStyle}">📋 ${info.measures}</div>` : ''}
                 </div>`;
         }
         html += '</div>';
@@ -1202,6 +1471,362 @@
             sortAsc = (col === 'stock_id' || col === 'name');
         }
         if (scanData) renderScanResults(scanData);
+    }
+
+    // ============================================================
+    // Tab 2: 注意股預警
+    // ============================================================
+    let allAttentionData = [];  // [ [stock_id, info], ... ]
+    let attnFilter = 'all';
+    let attnLoaded = false;
+
+    let attentionWs = null;
+    let attentionWsRetryTimer = null;
+
+    function updateAttnWsStatus(status) {
+        const dot = document.getElementById('attn-ws-dot');
+        const text = document.getElementById('attn-ws-text');
+        if (!dot || !text) return;
+
+        if (status === 'connected') {
+            dot.style.background = '#10b981';
+            dot.style.boxShadow = '0 0 8px #10b981';
+            text.textContent = '即時價格已連線';
+            text.style.color = '#a3e635';
+        } else if (status === 'connecting') {
+            dot.style.background = '#f59e0b';
+            dot.style.boxShadow = '0 0 8px #f59e0b';
+            text.textContent = '即時價格連線中';
+            text.style.color = '#fbbf24';
+        } else {
+            dot.style.background = '#475569';
+            dot.style.boxShadow = 'none';
+            text.textContent = '即時價格未連線';
+            text.style.color = '#64748b';
+        }
+    }
+
+    function setupAttentionWebSocket() {
+        if (attentionWs) {
+            try { attentionWs.close(); } catch(e) {}
+            attentionWs = null;
+        }
+        if (attentionWsRetryTimer) {
+            clearTimeout(attentionWsRetryTimer);
+            attentionWsRetryTimer = null;
+        }
+
+        const symbols = allAttentionData.map(([sid]) => sid).filter(sid => sid);
+        if (symbols.length === 0) {
+            updateAttnWsStatus('disconnected');
+            return;
+        }
+
+        updateAttnWsStatus('connecting');
+
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${proto}//${window.location.host}/ws/${symbols.join(',')}?trades_only=true`;
+        console.log("[Attention WS] Connecting to:", wsUrl);
+
+        attentionWs = new WebSocket(wsUrl);
+
+        attentionWs.onopen = () => {
+            console.log("[Attention WS] Connected!");
+            updateAttnWsStatus('connected');
+        };
+
+        attentionWs.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.event === 'data' && msg.channel === 'trades' && msg.data) {
+                    const d = msg.data;
+                    const sym = d.symbol;
+                    let price = d.price;
+                    if (price === undefined && Array.isArray(d.trades) && d.trades.length > 0) {
+                        price = d.trades[d.trades.length - 1].price;
+                    }
+                    if (price === undefined) return;
+                    price = parseFloat(price);
+
+                    // 尋找對應的股票並更新現價與可達性
+                    const idx = allAttentionData.findIndex(([sid]) => sid === sym);
+                    if (idx !== -1) {
+                        const info = allAttentionData[idx][1];
+                        info.close = price.toFixed(2);
+                        if (info.trigger_calc) {
+                            const tc = info.trigger_calc;
+                            tc.p_today = price;
+                            // 重新計算百分比距離
+                            tc.up_pct = Math.round(((tc.trigger_up / price) - 1) * 10000) / 100;
+                            tc.down_pct = tc.trigger_down ? (Math.round(((tc.trigger_down / price) - 1) * 10000) / 100) : null;
+                            tc.is_up_reachable = tc.trigger_up <= tc.up_limit;
+                            tc.is_down_reachable = tc.trigger_down ? (tc.trigger_down >= tc.down_limit) : false;
+                        }
+                        
+                        // 重新渲染以更新進度條與可達性標籤
+                        renderAttention();
+                    }
+                }
+            } catch(e) {
+                console.error("[Attention WS] Message parsing error:", e);
+            }
+        };
+
+        attentionWs.onclose = () => {
+            console.log("[Attention WS] Disconnected. Reconnecting in 5s...");
+            updateAttnWsStatus('disconnected');
+            attentionWsRetryTimer = setTimeout(() => setupAttentionWebSocket(), 5000);
+        };
+
+        attentionWs.onerror = (e) => {
+            console.error("[Attention WS] Error:", e);
+            updateAttnWsStatus('disconnected');
+        };
+    }
+
+    function setAttnFilter(f) {
+        attnFilter = f;
+        ['all','red','orange','yellow'].forEach(k => {
+            const btn = document.getElementById('attnf-' + k);
+            if (!btn) return;
+            btn.classList.remove('active');
+        });
+        const activeBtn = document.getElementById('attnf-' + f);
+        if (activeBtn) activeBtn.classList.add('active');
+        renderAttention();
+    }
+
+    async function loadAttention(force = false) {
+        if (attnLoaded && !force) return;
+        const area = document.getElementById('attention-area');
+        const btn  = document.getElementById('attnRefreshBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '載入中...'; }
+        area.innerHTML = `<div class="loading-area"><div class="spinner"></div><div>正在查詢 TWSE / TPEx 注意股清單...</div></div>`;
+
+        try {
+            const res  = await fetch('/api/disposal/attention');
+            const data = await res.json();
+            if (data.error) {
+                area.innerHTML = `<div class="error-msg">❌ ${data.error}</div>`;
+                return;
+            }
+            const attention = data.attention || {};
+            allAttentionData = Object.entries(attention).sort((a, b) => {
+                // 排序：紅色 > 橙色 > 黃色 > 綠色
+                const order = {red:0, orange:1, yellow:2, green:3};
+                const ra = order[(a[1].risk||{}).level] ?? 9;
+                const rb = order[(b[1].risk||{}).level] ?? 9;
+                return ra !== rb ? ra - rb : a[0].localeCompare(b[0]);
+            });
+
+            // 更新 Summary Stats
+            const cnts = {red:0, orange:0, yellow:0, green:0};
+            for (const [, info] of allAttentionData) {
+                const lv = (info.risk || {}).level || 'green';
+                cnts[lv] = (cnts[lv] || 0) + 1;
+            }
+            document.getElementById('attn-cnt-red').textContent    = cnts.red;
+            document.getElementById('attn-cnt-orange').textContent  = cnts.orange;
+            document.getElementById('attn-cnt-yellow').textContent  = cnts.yellow;
+            document.getElementById('attn-cnt-total').textContent   = allAttentionData.length;
+
+            // 更新時間
+            const timeEl = document.getElementById('attn-update-time');
+            if (timeEl && data.fetch_time) {
+                const ft = new Date(data.fetch_time);
+                timeEl.textContent = `更新：${ft.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'})}`;
+            }
+
+            attnLoaded = true;
+            renderAttention();
+            setupAttentionWebSocket();
+        } catch(e) {
+            area.innerHTML = `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🔄 重新載入'; }
+        }
+    }
+
+    function renderAttention() {
+        const area    = document.getElementById('attention-area');
+        const keyword = (document.getElementById('attn-search')?.value || '').trim().toLowerCase();
+
+        let filtered = allAttentionData;
+
+        // 依風險等級篩選
+        if (attnFilter !== 'all') {
+            filtered = filtered.filter(([, info]) => (info.risk || {}).level === attnFilter);
+        }
+        // 依關鍵字篩選
+        if (keyword) {
+            filtered = filtered.filter(([sid, info]) =>
+                (sid || '').toLowerCase().includes(keyword) ||
+                (info.name || '').toLowerCase().includes(keyword)
+            );
+        }
+
+        if (filtered.length === 0) {
+            area.innerHTML = `<div class="empty-state"><div class="icon">✅</div>
+                <div>${attnLoaded ? (keyword ? `查無「${keyword}」的注意股票` : '今日無此風險等級的注意股票') : '請稍後，資料載入中...'}</div>
+                <div style="margin-top:8px;font-size:0.75rem;color:#475569">注意股資料在每個交易日盤後 17:30 更新，假日或休市日無資料</div>
+            </div>`;
+            return;
+        }
+
+        const levelConfig = {
+            red:    { icon: '🚨', cls: 'risk-red',    badge: 'red',    label: '即將處置' },
+            orange: { icon: '⚠️', cls: 'risk-orange',  badge: 'orange', label: '高度警戒' },
+            yellow: { icon: '🟡', cls: 'risk-yellow',  badge: 'yellow', label: '注意中' },
+            green:  { icon: '✅', cls: 'risk-green',   badge: 'green',  label: '觀察' },
+        };
+
+        let html = '<div class="attention-grid">';
+        for (const [sid, info] of filtered) {
+            const risk    = info.risk || {};
+            const lv      = risk.level || 'yellow';
+            const cfg     = levelConfig[lv] || levelConfig.yellow;
+            const src     = (info.source || 'TWSE').toLowerCase();
+            const srcDisp = info.source || 'TWSE';
+
+            // 倒數提示
+            let countdownHtml = '';
+            const dl = risk.days_left;
+            if (dl !== undefined && dl < 99) {
+                if (dl <= 0) {
+                    countdownHtml = `<span class="countdown-pill urgent">⏱️ 明日即處置</span>`;
+                } else if (dl === 1) {
+                    countdownHtml = `<span class="countdown-pill warn">⏱️ 再 ${dl} 次即處置</span>`;
+                } else {
+                    countdownHtml = `<span class="countdown-pill ok">⏱️ 再 ${dl} 次達門檻</span>`;
+                }
+            }
+
+            // 注意資訊截短顯示
+            const infoText = (info.info || '').replace(/<[^>]+>/g, '').trim();
+            const infoHtml = infoText
+                ? `<div class="attn-info-text" title="${infoText.replace(/"/g,'&quot;')}">${infoText}</div>` : '';
+
+            // 預估明日處置觸發價 UI
+            let triggerHtml = '';
+            if (info.trigger_calc) {
+                const tc = info.trigger_calc;
+                const pToday = tc.p_today;
+                const upLimit = tc.up_limit;
+                const downLimit = tc.down_limit;
+                const trigUp = tc.trigger_up;
+                const trigDown = tc.trigger_down;
+                const isUpReachable = tc.is_up_reachable;
+                const isDownReachable = tc.is_down_reachable;
+                const upPct = tc.up_pct;
+                const downPct = tc.down_pct;
+
+                // 可達性 Badge & 提示
+                let reachBadge = '';
+                if (isUpReachable) {
+                    if (upPct <= 0) {
+                        reachBadge = `<span class="reach-badge triggered">🔥 已在觸發區 (臨界 ${trigUp})</span>`;
+                    } else if (upPct <= 5.0) {
+                        reachBadge = `<span class="reach-badge warning">⚡ 高機率觸發 (+${upPct}%)</span>`;
+                    } else {
+                        reachBadge = `<span class="reach-badge active">🎯 可達觸發 (+${upPct}%)</span>`;
+                    }
+                } else if (isDownReachable) {
+                    reachBadge = `<span class="reach-badge active">📉 下跌觸發 (${downPct}%)</span>`;
+                } else {
+                    reachBadge = `<span class="reach-badge unreachable">❄️ 明日安全 (漲停不觸發)</span>`;
+                }
+
+                // 計算進度條比例位置
+                const totalRange = upLimit - downLimit;
+                let todayPct = totalRange > 0 ? ((pToday - downLimit) / totalRange) * 100 : 50;
+                todayPct = Math.max(0, Math.min(100, todayPct)); // limit to [0, 100]
+
+                let trigPct = totalRange > 0 ? ((trigUp - downLimit) / totalRange) * 100 : 50;
+                trigPct = Math.max(0, Math.min(100, trigPct));
+
+                let trigDownPct = (trigDown && totalRange > 0) ? ((trigDown - downLimit) / totalRange) * 100 : 0;
+                trigDownPct = Math.max(0, Math.min(100, trigDownPct));
+
+                // 繪製橫向進度條
+                let progressBarHtml = `
+                    <div class="trigger-progress-container" style="margin-top: 10px;">
+                        <div class="progress-labels">
+                            <span class="limit-label down">跌停 ${downLimit}</span>
+                            <span class="current-price-label" style="left: calc(${todayPct}% - 15px)">現 ${pToday}</span>
+                            <span class="limit-label up">漲停 ${upLimit}</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <!-- 觸發危險區高亮背景 (從上漲觸發價到漲停) -->
+                            ${isUpReachable ? `<div class="danger-zone-bg" style="left: ${trigPct}%; width: ${100 - trigPct}%;"></div>` : ''}
+                            <!-- 下跌觸發危險區高亮背景 (從跌停到下跌觸發價) -->
+                            ${isDownReachable && trigDown ? `<div class="danger-zone-bg" style="left: 0%; width: ${trigDownPct}%; background: rgba(239,68,68,0.25);"></div>` : ''}
+                            <!-- 今日收盤價指示點 -->
+                            <div class="current-price-pin" style="left: ${todayPct}%"></div>
+                            <!-- 上漲觸發價刻度線 -->
+                            ${isUpReachable ? `<div class="trigger-pin" style="left: ${trigPct}%" title="上漲觸發價：${trigUp}"></div>` : ''}
+                            <!-- 下跌觸發價刻度線 -->
+                            ${isDownReachable && trigDown ? `<div class="trigger-pin" style="left: ${trigDownPct}%; background: #ef4444;" title="下跌觸發價：${trigDown}"></div>` : ''}
+                        </div>
+                        <div class="progress-bottom-labels" style="margin-top: 2px;">
+                            ${isUpReachable 
+                                ? `<span class="trigger-label" style="left: calc(${trigPct}% - 25px)">⚠️ 觸發價 ${trigUp}</span>` 
+                                : (isDownReachable && trigDown 
+                                    ? `<span class="trigger-label" style="left: calc(${trigDownPct}% - 25px); color: #f43f5e;">⚠️ 下跌觸發價 ${trigDown}</span>`
+                                    : `<span class="trigger-label unreachable">漲停亦不觸發 (臨界價 ${trigUp})</span>`
+                                )
+                            }
+                        </div>
+                    </div>
+                `;
+
+                triggerHtml = `
+                    <div class="trigger-info-section" style="margin-top:10px; padding-top:8px; border-top:1px dashed #334155;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:0.75rem; color:#94a3b8; font-weight:500;">明日注意預估臨界：</span>
+                            ${reachBadge}
+                        </div>
+                        ${progressBarHtml}
+                    </div>
+                `;
+            }
+
+            html += `
+                <div class="attention-card ${cfg.cls}" onclick="quickQuery('${sid}')">
+                    <div class="stock-header">
+                        <div>
+                            <span class="stock-id">${sid}</span>
+                            <span class="stock-name">${info.name || ''}</span>
+                        </div>
+                        <span class="source-badge ${src}">${srcDisp}</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;">
+                        <span class="risk-badge ${cfg.badge}">${cfg.icon} ${risk.label || cfg.label}</span>
+                        ${info.acc_text ? `<span style="color:#64748b; font-size:0.72rem;">${info.acc_text}</span>` : ''}
+                    </div>
+                    ${countdownHtml}
+                    ${info.date ? `<div class="period" style="margin-top:6px;">📅 注意日期：${info.date}</div>` : ''}
+                    ${info.close ? `<div style="margin-top:4px; font-size:0.8rem; color:#94a3b8;">收盤：<span style="color:#f1f5f9; font-weight:700;">${info.close}</span>${info.pe && info.pe!='N/A' ? ` &nbsp;本益比：${info.pe}` : ''}</div>` : ''}
+                    ${triggerHtml}
+                    ${infoHtml}
+                </div>`;
+        }
+        html += '</div>';
+        area.innerHTML = html;
+    }
+
+    // ============================================================
+    // Tab Switching (override to lazy-load attention)
+    // ============================================================
+    const _origSwitchTab = switchTab;
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        document.getElementById('content-' + tab).classList.add('active');
+        // 切到注意股預警 Tab 時自動載入
+        if (tab === 'attention' && !attnLoaded) {
+            loadAttention();
+        }
     }
 
     // ============================================================

@@ -864,6 +864,19 @@ async def api_disposal_disposed():
         return {"error": str(e), "disposed": {}}
 
 
+@app.get("/api/disposal/attention")
+async def api_disposal_attention():
+    """取得今日注意股清單（TWSE + TPEx），含累計次數與處置預警等級。"""
+    try:
+        from disposal_checker import fetch_attention_stocks
+        ev_loop = asyncio.get_running_loop()
+        result = await ev_loop.run_in_executor(None, fetch_attention_stocks)
+        return result
+    except Exception as e:
+        print(f"Disposal attention API error: {e}")
+        return {"error": str(e), "attention": {}}
+
+
 @app.get("/api/disposal/debug_raw")
 async def api_disposal_debug_raw():
     """【Debug 用】直接回傳 TWSE/TPEx 的原始 JSON，方便排查欄位結構。"""

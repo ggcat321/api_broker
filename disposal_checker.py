@@ -508,6 +508,427 @@ def _is_period_active(period_ad: str) -> bool:
 
 
 # ============================================================
+# 輔助：判斷是否為權證（排除非一般股票）
+# ============================================================
+def _is_warrant(stock_id: str, name: str = '') -> bool:
+    """
+    判斷是否為認購/認售權證，回傳 True 表示應過濾掉。
+    保留：一般股票（4碼）、ETF（00xxx）、特別股（4碼+字母）、創新板（5碼但非權證）
+    排除：名稱含「購」或「售」的認購/認售權證
+    """
+    # 名稱含「購」或「售」→ 認購/認售權證，無論代號幾碼
+    if '購' in name or '售' in name:
+        return True
+    return False
+
+
+# ============================================================
+# 注意股：解析累計次數文字
+# ============================================================
+def _parse_accumulation(text: str) -> dict:
+
+    """
+    解析累計次數文字，回傳結構化資訊。
+    例如:
+      '連續三次'                      → {type:'consecutive', count:3}
+      '115年05月27日至115年05月28日連續二次'  → {type:'consecutive', count:2}
+      '最近十個營業日已有六次'           → {type:'10in6', window:10, count:6}
+      '最近三十個營業日已有十二次'        → {type:'30in12', window:30, count:12}
+    """
+    import re
+    num_map = {
+        '一':1,'二':2,'三':3,'四':4,'五':5,
+        '六':6,'七':7,'八':8,'九':9,'十':10,
+        '十一':11,'十二':12,'十三':13,'十四':14,'十五':15,
+    }
+    def to_int(s):
+        s = s.strip()
+        if s.isdigit():
+            return int(s)
+        return num_map.get(s, 0)
+
+    result = {'raw': text, 'type': 'unknown', 'count': 0}
+
+    # 連續 N 次
+    m = re.search(r'連續(\d+|[一二三四五六七八九十]+)次', text)
+    if m:
+        result['type'] = 'consecutive'
+        result['count'] = to_int(m.group(1))
+        return result
+
+    # 最近 W 個營業日有 N 次
+    m = re.search(r'最近(\d+|[一二三四五六七八九十]+)個營業日.*?(\d+|[一二三四五六七八九十]+)次', text)
+    if m:
+        window = to_int(m.group(1))
+        count  = to_int(m.group(2))
+        result['count']  = count
+        result['window'] = window
+        if window == 10:
+            result['type'] = '10in6'
+        elif window == 30:
+            result['type'] = '30in12'
+        else:
+            result['type'] = f'{window}in{count}'
+        return result
+
+    # 純數字
+    m = re.search(r'(\d+)次', text)
+    if m:
+        result['type'] = 'count_only'
+        result['count'] = int(m.group(1))
+    return result
+
+
+def _calc_disposal_risk(acc: dict) -> dict:
+    """
+    根據累計情況計算距離處置門檻的風險等級。
+    回傳:
+      level: 'green' / 'yellow' / 'orange' / 'red'
+      label: 顯示文字
+      days_left: 還差幾次即被處置（負數代表已超過）
+    """
+    t    = acc.get('type', 'unknown')
+    cnt  = acc.get('count', 0)
+    risk = {'level': 'green', 'label': f'累計{cnt}次', 'days_left': 99}
+
+    if t == 'consecutive':
+        # 連續 3 次 → 處置
+        left = 3 - cnt
+        risk['days_left'] = left
+        if left <= 0:
+            risk['level'] = 'red';    risk['label'] = f'連續{cnt}次 🚨即將處置'
+        elif left == 1:
+            risk['level'] = 'orange'; risk['label'] = f'連續{cnt}次 ⚠️再1次即處置'
+        else:
+            risk['level'] = 'yellow'; risk['label'] = f'連續{cnt}次'
+
+    elif t == '10in6':
+        # 近10日6次 → 處置
+        left = 6 - cnt
+        risk['days_left'] = left
+        if left <= 0:
+            risk['level'] = 'red';    risk['label'] = f'近10日{cnt}次 🚨即將處置'
+        elif left <= 1:
+            risk['level'] = 'orange'; risk['label'] = f'近10日{cnt}次 ⚠️再1次即處置'
+        else:
+            risk['level'] = 'yellow'; risk['label'] = f'近10日{cnt}次'
+
+    elif t == '30in12':
+        # 近30日12次 → 處置
+        left = 12 - cnt
+        risk['days_left'] = left
+        if left <= 0:
+            risk['level'] = 'red';    risk['label'] = f'近30日{cnt}次 🚨即將處置'
+        elif left <= 2:
+            risk['level'] = 'orange'; risk['label'] = f'近30日{cnt}次 ⚠️差{left}次即處置'
+        else:
+            risk['level'] = 'yellow'; risk['label'] = f'近30日{cnt}次'
+    return risk
+
+
+# ============================================================
+# 輔助：計算明日處置/注意股觸發價
+# ============================================================
+def _calc_tomorrow_trigger_info(stock_id: str, close: pd.DataFrame, company: pd.DataFrame) -> dict | None:
+    """
+    計算個股明日的漲跌停價，以及觸發「注意股條款 1 (6日)」與「條款 2 (30日)」的明日收盤臨界價。
+    """
+    try:
+        if close is None or stock_id not in close.columns:
+            return None
+        
+        # 取得歷史收盤價序列
+        series = close[stock_id].dropna()
+        if len(series) < 90:
+            return None
+        
+        p_today = float(series.iloc[-1])
+        if p_today <= 0 or np.isnan(p_today):
+            return None
+            
+        # 台灣股市 Tick size 計算
+        def get_ts(p):
+            if p < 10: return 0.01
+            elif p < 50: return 0.05
+            elif p < 100: return 0.10
+            elif p < 500: return 0.50
+            elif p < 1000: return 1.00
+            else: return 5.00
+            
+        def round_tick(p, direction='round'):
+            if p <= 0: return 0.0
+            ts = get_ts(p)
+            import math
+            if direction == 'up':
+                return round(math.ceil(p / ts - 1e-9) * ts, 2)
+            elif direction == 'down':
+                return round(math.floor(p / ts + 1e-9) * ts, 2)
+            else:
+                return round(round(p / ts) * ts, 2)
+                
+        # 計算明日漲跌停 (±10%)
+        down_limit = round_tick(p_today * 0.90, 'up')
+        up_limit = round_tick(p_today * 1.10, 'down')
+        
+        # ────────────────────────────────────────────────────────
+        # 1. 條款 1 (6日累積漲跌幅)
+        # ────────────────────────────────────────────────────────
+        # 明日為第 6 日， return 起點為今日往回第 4 天（即 iloc[-5]）
+        p_start_6 = float(series.iloc[-5])
+        
+        # 1A: |R| > 30%
+        c1a_up = p_start_6 * 1.30
+        c1a_down = p_start_6 * 0.70
+        
+        # 1B: |R| >= 23% 且價格差額 >= 40 元
+        c1b_up = max(p_start_6 * 1.23, p_start_6 + 40)
+        c1b_down = min(p_start_6 * 0.77, p_start_6 - 40)
+        
+        # 只要觸發 1A 或 1B 即可
+        trigger_6_up = min(c1a_up, c1b_up)
+        trigger_6_down = max(c1a_down, c1b_down) if c1b_down > 0 else c1a_down
+        
+        # 轉換為符合 tick size 的價格
+        trigger_6_up_rounded = round_tick(trigger_6_up, 'up')
+        trigger_6_down_rounded = round_tick(trigger_6_down, 'down') if trigger_6_down > 0 else None
+        
+        # ────────────────────────────────────────────────────────
+        # 2. 條款 2 (30日累積漲跌幅)
+        # ────────────────────────────────────────────────────────
+        # 明日為第 30 日， return 起點為今日往回第 28 天（即 iloc[-29]）
+        p_start_30 = float(series.iloc[-29])
+        # 30日: |R| > 100%
+        trigger_30_up = p_start_30 * 2.0
+        trigger_30_up_rounded = round_tick(trigger_30_up, 'up')
+        
+        # ────────────────────────────────────────────────────────
+        # 3. 整合與可達性判斷
+        # ────────────────────────────────────────────────────────
+        # 上漲觸發價（取 6日與 30日 較低/先觸發者）
+        trigger_up = trigger_6_up_rounded
+        if trigger_30_up_rounded < trigger_up:
+            trigger_up = trigger_30_up_rounded
+            
+        trigger_down = trigger_6_down_rounded
+        
+        # 計算相差百分比（距離今日收盤的幅度）
+        up_pct = round(((trigger_up / p_today) - 1) * 100, 2)
+        down_pct = round(((trigger_down / p_today) - 1) * 100, 2) if trigger_down else None
+        
+        # 可達性
+        is_up_reachable = trigger_up <= up_limit
+        is_down_reachable = trigger_down >= down_limit if trigger_down else False
+        
+        return {
+            "p_today": p_today,
+            "up_limit": up_limit,
+            "down_limit": down_limit,
+            "p_start_6": p_start_6,
+            "p_start_30": p_start_30,
+            "trigger_up": trigger_up,
+            "trigger_down": trigger_down,
+            "up_pct": up_pct,
+            "down_pct": down_pct,
+            "is_up_reachable": is_up_reachable,
+            "is_down_reachable": is_down_reachable
+        }
+    except Exception as e:
+        print(f"[_calc_tomorrow_trigger_info] 觸發價計算失敗 ({stock_id}): {e}")
+        return None
+
+
+# ============================================================
+# 取得注意股清單（官方 TWSE + TPEx）
+# ============================================================
+def fetch_attention_stocks() -> dict:
+    """
+    從官方 TWSE notice API 與 TPEx warning API 取得今日注意股清單，
+    包含累計次數與距離處置的預警等級。
+    回傳 {"attention": {stock_id: {...}}, "fetch_time": "..."}
+    """
+    attention = {}
+    hdrs = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.twse.com.tw/zh/announcement/notetrans.html',
+        'Accept': 'application/json, text/plain, */*',
+    }
+
+    # ── 1. TWSE 注意股（含累計次數）────────────────────────────
+    try:
+        url  = "https://www.twse.com.tw/rwd/zh/announcement/notice?response=json"
+        resp = requests.get(url, headers=hdrs, timeout=10, verify=False)
+        data = resp.json()
+        fields = data.get('fields') or []
+
+        def _fi(name):
+            for i, f in enumerate(fields):
+                if name in f:
+                    return i
+            return None
+
+        idx_id   = _fi('代號') if fields else 1
+        idx_name = _fi('名稱') if fields else 2
+        idx_acc  = _fi('累計') if fields else 3
+        idx_info = _fi('注意') if fields else 4
+        idx_date = _fi('日期') if fields else 5
+        idx_close= _fi('收盤') if fields else 6
+        idx_pe   = _fi('本益') if fields else 7
+
+        if idx_id   is None: idx_id   = 1
+        if idx_name is None: idx_name = 2
+        if idx_acc  is None: idx_acc  = 3
+        if idx_info is None: idx_info = 4
+        if idx_date is None: idx_date = 5
+        if idx_close is None: idx_close= 6
+        if idx_pe   is None: idx_pe   = 7
+
+        stat_ok = data.get('stat') in ('OK', '查詢成功') or bool(data.get('data'))
+        if stat_ok and data.get('data'):
+            for row in data['data']:
+                try:
+                    if len(row) <= idx_id:
+                        continue
+                    stock_id = str(row[idx_id]).strip()
+                    if not stock_id or not stock_id[:4].isdigit():
+                        continue
+                    name      = str(row[idx_name]).strip()  if len(row) > idx_name  else ''
+                    acc_text  = str(row[idx_acc]).strip()   if len(row) > idx_acc   else ''
+                    info_text = str(row[idx_info]).strip()  if len(row) > idx_info  else ''
+                    date_str  = str(row[idx_date]).strip()  if len(row) > idx_date  else ''
+                    close_str = str(row[idx_close]).strip() if len(row) > idx_close else ''
+                    pe_str    = str(row[idx_pe]).strip()    if len(row) > idx_pe    else ''
+
+                    date_ad = _roc_to_ad(date_str) if date_str else ''
+                    acc = _parse_accumulation(acc_text)
+                    risk = _calc_disposal_risk(acc)
+
+                    if _is_warrant(stock_id, name):
+                        continue  # 過濾權證
+                    attention[stock_id] = {
+                        'name':       name,
+                        'date':       date_ad,
+                        'acc_text':   acc_text,
+                        'acc':        acc,
+                        'risk':       risk,
+                        'info':       info_text[:200] if info_text else '',
+                        'close':      close_str,
+                        'pe':         pe_str,
+                        'source':     'TWSE',
+                    }
+                except Exception as row_e:
+                    print(f'[TWSE notice] row 解析失敗: {row_e}')
+                    continue
+        print(f'✅ TWSE 注意股: {len([k for k,v in attention.items() if v.get("source")=="TWSE"])} 檔')
+    except Exception as e:
+        print(f'⚠️  TWSE notice 取得失敗: {e}')
+
+    # ── 2. TPEx 注意股（tpex_trading_warning_information）────────
+    try:
+        tpex_hdrs = {**hdrs, 'Referer': 'https://www.tpex.org.tw/zh-tw/announce/market/disposal.html'}
+        url  = "https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_information"
+        resp = requests.get(url, headers=tpex_hdrs, timeout=10, verify=False)
+        rows = resp.json()
+        if isinstance(rows, list):
+            for item in rows:
+                try:
+                    stock_id = str(item.get('SecuritiesCompanyCode', '')).strip()
+                    if not stock_id or not stock_id[:4].isdigit():
+                        continue
+                    if stock_id in attention:
+                        continue  # 已有 TWSE 資料，不覆蓋
+                    name     = str(item.get('CompanyName', '')).strip()
+                    info_text= str(item.get('TradingInformation', '')).strip()
+                    close_str= str(item.get('ClosePrice', '')).strip()
+                    pe_str   = str(item.get('PriceEarningRatio', '')).strip()
+                    date_str = str(item.get('Date', '')).strip()
+                    # Date 格式為 '1150528'，轉為西元
+                    date_ad = ''
+                    if len(date_str) >= 7:
+                        try:
+                            roc_y = int(date_str[:3])
+                            date_ad = f"{roc_y + 1911}/{date_str[3:5]}/{date_str[5:7]}"
+                        except Exception:
+                            date_ad = date_str
+
+                    if _is_warrant(stock_id, name):
+                        continue  # 過濾權證
+                    attention[stock_id] = {
+                        'name':     name,
+                        'date':     date_ad,
+                        'acc_text': '',
+                        'acc':      {'type': 'unknown', 'count': 0},
+                        'risk':     {'level': 'yellow', 'label': '今日注意', 'days_left': 99},
+                        'info':     info_text[:200] if info_text else '',
+                        'close':    close_str,
+                        'pe':       pe_str,
+                        'source':   'TPEx',
+                    }
+                except Exception as row_e:
+                    print(f'[TPEx warning] row 解析失敗: {row_e}')
+                    continue
+        print(f'✅ TPEx 注意股: {len([k for k,v in attention.items() if v.get("source")=="TPEx"])} 檔')
+    except Exception as e:
+        print(f'⚠️  TPEx warning 取得失敗: {e}')
+
+    # ── 3. TPEx 累計次數（tpex_trading_warning_note）─────────────
+    # 這個 API 提供「目前已連續N次」的彙整資訊，可以補充 TPEx 注意股的累計資訊
+    try:
+        url  = "https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_note"
+        resp = requests.get(url, headers=tpex_hdrs, timeout=10, verify=False)
+        rows = resp.json()
+        if isinstance(rows, list):
+            for item in rows:
+                try:
+                    stock_id = str(item.get('SecuritiesCompanyCode', '')).strip()
+                    acc_text = str(item.get('AccumulationSituation', '')).strip()
+                    if not stock_id or not acc_text:
+                        continue
+                    # 更新或新增該股票的累計資訊
+                    acc  = _parse_accumulation(acc_text)
+                    risk = _calc_disposal_risk(acc)
+                    if stock_id in attention:
+                        attention[stock_id]['acc_text'] = acc_text
+                        attention[stock_id]['acc']  = acc
+                        attention[stock_id]['risk'] = risk
+                    else:
+                        # 可能不在今日注意股清單，但有連續累計記錄
+                        name = str(item.get('CompanyName', '')).strip()
+                        attention[stock_id] = {
+                            'name':     name,
+                            'date':     '',
+                            'acc_text': acc_text,
+                            'acc':      acc,
+                            'risk':     risk,
+                            'info':     '',
+                            'close':    '',
+                            'pe':       '',
+                            'source':   'TPEx',
+                        }
+                except Exception as row_e:
+                    print(f'[TPEx note] row 解析失敗: {row_e}')
+                    continue
+        print(f'✅ TPEx 累計次數補充完畢')
+    except Exception as e:
+        print(f'⚠️  TPEx note 取得失敗: {e}')
+
+    # ── 4. 預估明日處置觸發價（使用 FinLab 價格資料）─────────────────
+    try:
+        init_finlab()
+        close = load(F_CLOSE)
+        company = load(F_COMPANY)
+        if close is not None and company is not None:
+            for stock_id, info in attention.items():
+                trigger_calc = _calc_tomorrow_trigger_info(stock_id, close, company)
+                if trigger_calc:
+                    info['trigger_calc'] = trigger_calc
+            print(f'✅ 明日處置/注意股觸發價計算完畢')
+    except Exception as e:
+        print(f'⚠️  預估觸發價計算失敗: {e}')
+
+    return {"attention": attention, "fetch_time": datetime.now().isoformat()}
+
+
+# ============================================================
 # 取得處置中股票
 # ============================================================
 def fetch_disposed_stocks() -> dict:
@@ -574,12 +995,33 @@ def fetch_disposed_stocks() -> dict:
                     cond_txt = str(row[idx_cond]).strip() if len(row) > idx_cond else ""
                     period   = str(row[idx_per]).strip()  if len(row) > idx_per  else ""
                     measures = str(row[idx_msr]).strip()  if len(row) > idx_msr  else ""
+                    condition_reason = str(row[idx_cond]).strip() if len(row) > idx_cond else ""
+
+                    # 解析第幾次處置
+                    import re
+                    disposal_count = 1
+                    dm = re.search(r'第([一二三四五六七八九十\d]+)次處置', measures)
+                    if dm:
+                        num_map_local = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10}
+                        raw_num = dm.group(1)
+                        disposal_count = num_map_local.get(raw_num, int(raw_num) if raw_num.isdigit() else 1)
+
+                    # 解析觸發原因（連續N次 / 近10日N次 / 近30日N次）
+                    trigger_reason = condition_reason
+                    for pat, label in [
+                        (r'連續(\d+|[一二三四五六七八九十]+)次', lambda m: f'連續{m.group(1)}次注意'),
+                        (r'最近十個.*?六次',                    lambda m: '近10日6次注意'),
+                        (r'最近三十個.*?十二次',               lambda m: '近30日12次注意'),
+                    ]:
+                        tm = re.search(pat, condition_reason)
+                        if tm:
+                            trigger_reason = label(tm)
+                            break
 
                     # TWSE 的 measures (field 7) 只有 "第一次處置" 等簡略文字，
                     # 實際撮合間隔在 content (field 8) 中，需要提取出來
                     if len(row) > idx_content:
                         content = str(row[idx_content])
-                        import re
                         # 匹配 「每X分鐘撮合一次」（含國字數字與阿拉伯數字）
                         m = re.search(r'每([五二十四六零一三七八九\d]+)分鐘撮合', content)
                         if m:
@@ -593,12 +1035,16 @@ def fetch_disposed_stocks() -> dict:
                     period_ad = _convert_period(period) if period else ""
 
                     if _is_period_active(period_ad):
+                        if _is_warrant(stock_id, name):
+                            continue  # 過濾掉認購/認售權證
                         disposed[stock_id] = {
-                            "name": name,
-                            "period": period_ad,
-                            "condition": cond_txt,
-                            "measures": measures[:120] if measures else "",
-                            "source": "TWSE"
+                            "name":           name,
+                            "period":         period_ad,
+                            "condition":      cond_txt,
+                            "measures":       measures[:120] if measures else "",
+                            "disposal_count": disposal_count,
+                            "trigger_reason": trigger_reason,
+                            "source":         "TWSE"
                         }
                 except Exception as row_e:
                     print(f"[TWSE] row 解析失敗: {row_e}  row={row}")
@@ -647,6 +1093,8 @@ def fetch_disposed_stocks() -> dict:
                 period_ad = _convert_period(period_raw) if period_raw else ""
 
                 if _is_period_active(period_ad) or not period_ad:
+                    if _is_warrant(stock_id, name):
+                        continue  # 過濾握賭/認售權證
                     disposed[stock_id] = {
                         "name": name,
                         "period": period_ad,
