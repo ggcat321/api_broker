@@ -75,6 +75,17 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
+from fastapi.middleware.cors import CORSMiddleware
+
+# Enable CORS for local standalone dashboard requests (including file:// null origin)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections = {}
@@ -537,6 +548,52 @@ async def get_options_chain(futures_symbol: str, strikes: int = 17, interval: in
         import traceback
         traceback.print_exc()
         return {"error": str(e)}
+
+@app.get("/tdcc")
+async def get_tdcc_dashboard():
+    with open(os.path.join(BASE_DIR, "static", "tdcc_dashboard.html"), "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+from pydantic import BaseModel
+
+class TaiexRequest(BaseModel):
+    token: str
+    start_date: str = None
+    end_date: str = None
+
+@app.post("/api/taiex")
+def get_taiex_benchmark(req: TaiexRequest):
+    try:
+        import finlab
+        from finlab import data
+        import pandas as pd
+        
+        # Login
+        finlab.login(api_token=req.token)
+        
+        # Fetch the benchmark total return index
+        df = data.get('benchmark_return:發行量加權股價報酬指數')
+        
+        # Reset index to get the date column
+        df = df.reset_index()
+        df.columns = ['date', 'value']
+        
+        # Format date column
+        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+        
+        # Filter by start_date / end_date
+        if req.start_date:
+            df = df[df['date'] >= req.start_date]
+        if req.end_date:
+            df = df[df['date'] <= req.end_date]
+            
+        # Convert to list of dicts
+        records = df.to_dict(orient='records')
+        return {"success": True, "data": records}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
 
 @app.get("/")
 @app.get("/options")
