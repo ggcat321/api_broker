@@ -1,0 +1,1881 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚠️ 處置偵測 | Disposal Monitor</title>
+    <meta name="description" content="台股注意有價證券全條款異常偵測系統 - 第1~13款即時掃描">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: #0a0e1a;
+            background-image:
+                radial-gradient(ellipse at 15% 0%, rgba(245, 158, 11, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 85% 100%, rgba(239, 68, 68, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(99, 102, 241, 0.06) 0%, transparent 70%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 30px 20px 60px; }
+
+        /* === Header === */
+        .page-header { text-align: center; margin-bottom: 28px; }
+        .page-header h1 {
+            font-size: 2.4rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, #fbbf24, #f59e0b, #ef4444, #dc2626);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+        }
+        .page-header p { color: #64748b; font-size: 0.9rem; }
+        .nav-links {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+        .nav-link {
+            color: #818cf8;
+            text-decoration: none;
+            font-size: 0.82rem;
+            border: 1px solid rgba(129,140,248,0.3);
+            padding: 4px 14px;
+            border-radius: 20px;
+            transition: all 0.2s;
+        }
+        .nav-link:hover {
+            background: rgba(129,140,248,0.15);
+            border-color: rgba(129,140,248,0.6);
+        }
+        .nav-link.green { color: #34d399; border-color: rgba(52,211,153,0.3); }
+        .nav-link.green:hover { background: rgba(52,211,153,0.15); border-color: rgba(52,211,153,0.6); }
+
+        /* === Glass Card === */
+        .glass {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+
+        /* === Tab Bar === */
+        .tab-bar {
+            display: flex;
+            gap: 4px;
+            padding: 6px;
+            margin-bottom: 24px;
+            border-radius: 14px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 12px 16px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.25s ease;
+            background: transparent;
+            color: #64748b;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.3px;
+        }
+        .tab-btn:hover:not(.active) { background: rgba(255,255,255,0.05); color: #94a3b8; }
+        .tab-btn.active {
+            background: linear-gradient(135deg, rgba(245,158,11,0.25), rgba(239,68,68,0.2));
+            color: #fbbf24;
+            box-shadow: 0 2px 12px rgba(245,158,11,0.15);
+        }
+
+        /* === Tab Content === */
+        .tab-content { display: none; animation: fadeIn 0.3s ease; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* === Section Titles === */
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-title .count-badge {
+            background: rgba(245,158,11,0.2);
+            color: #fbbf24;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        /* === Disposed Cards === */
+        .disposed-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 12px;
+        }
+        .disposed-card {
+            padding: 16px 20px;
+            border-radius: 12px;
+            border-left: 4px solid #ef4444;
+            background: rgba(30, 41, 59, 0.5);
+            transition: all 0.2s;
+        }
+        .disposed-card:hover { background: rgba(30, 41, 59, 0.8); transform: translateX(4px); }
+        .disposed-card .stock-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .disposed-card .stock-id { font-size: 1.2rem; font-weight: 800; color: #f8fafc; }
+        .disposed-card .stock-name { color: #94a3b8; font-size: 0.85rem; font-weight: 500; }
+        .disposed-card .source-badge {
+            font-size: 0.65rem;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .disposed-card .source-badge.twse { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+        .disposed-card .source-badge.tpex { background: rgba(52,211,153,0.2); color: #6ee7b7; }
+        .disposed-card .source-badge.finlab { background: rgba(245,158,11,0.2); color: #fbbf24; }
+        .disposed-card .period { color: #94a3b8; font-size: 0.8rem; margin-top: 6px; }
+        .disposed-card .measures { color: #64748b; font-size: 0.75rem; margin-top: 4px; line-height: 1.4; }
+
+        /* === Recently Added Section === */
+        .recent-section {
+            margin-top: 28px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .recent-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .recent-title .new-badge {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            animation: pulse-badge 2s ease-in-out infinite;
+        }
+        @keyframes pulse-badge {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .recent-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .recent-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+        }
+        .recent-chip:hover {
+            background: rgba(245, 158, 11, 0.18);
+            border-color: rgba(245, 158, 11, 0.5);
+            transform: translateY(-1px);
+        }
+        .recent-chip .chip-id {
+            font-weight: 800;
+            color: #fbbf24;
+        }
+        .recent-chip .chip-name {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+        .recent-chip .chip-date {
+            color: #64748b;
+            font-size: 0.7rem;
+            margin-left: 2px;
+        }
+        .recent-chip.danger {
+            background: rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+        .recent-chip.danger:hover {
+            background: rgba(239, 68, 68, 0.18);
+            border-color: rgba(239, 68, 68, 0.5);
+        }
+        .recent-chip.danger .chip-id {
+            color: #f87171;
+        }
+
+        /* === Search Bar === */
+        .search-section {
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .search-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .search-input {
+            flex: 1;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(100,116,139,0.3);
+            color: #f1f5f9;
+            padding: 14px 20px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: all 0.2s;
+        }
+        .search-input:focus {
+            border-color: rgba(245,158,11,0.6);
+            box-shadow: 0 0 12px rgba(245,158,11,0.2);
+        }
+        .search-input::placeholder { color: #475569; }
+        .btn-primary {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: 'Inter', sans-serif;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(245,158,11,0.35); }
+        .btn-primary:disabled { opacity: 0.5; cursor: wait; transform: none; }
+
+        /* === Stock Report Card === */
+        .report-card { padding: 24px; margin-top: 16px; }
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding-bottom: 20px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .report-header .left .stock-id { font-size: 2rem; font-weight: 900; color: #f8fafc; }
+        .report-header .left .stock-name { color: #94a3b8; font-size: 1rem; margin-top: 2px; }
+        .report-header .right { text-align: right; }
+        .report-header .price { font-size: 1.8rem; font-weight: 800; }
+        .report-header .returns { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; justify-content: flex-end; }
+        .ret-badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 8px;
+        }
+        .ret-badge.up { background: rgba(239,68,68,0.15); color: #fca5a5; }
+        .ret-badge.down { background: rgba(34,197,94,0.15); color: #86efac; }
+        .ret-badge.flat { background: rgba(100,116,139,0.15); color: #94a3b8; }
+
+        .summary-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-weight: 700;
+            margin-bottom: 20px;
+        }
+        .summary-bar.safe { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); color: #4ade80; }
+        .summary-bar.warning { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); color: #fbbf24; }
+        .summary-bar.danger { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: #f87171; }
+
+        /* === Condition Grid === */
+        .cond-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 10px;
+        }
+        .cond-card {
+            padding: 14px 16px;
+            border-radius: 10px;
+            border-left: 3px solid;
+            transition: all 0.2s;
+            background: rgba(30, 41, 59, 0.4);
+        }
+        .cond-card:hover { background: rgba(30, 41, 59, 0.7); }
+        .cond-card.safe { border-color: #22c55e; }
+        .cond-card.triggered { border-color: #ef4444; background: rgba(239,68,68,0.06); }
+        .cond-card.skipped { border-color: #334155; opacity: 0.5; }
+        .cond-card .cond-num {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .cond-card.safe .cond-num { color: #4ade80; }
+        .cond-card.triggered .cond-num { color: #f87171; }
+        .cond-card.skipped .cond-num { color: #475569; }
+        .cond-card .cond-name { font-size: 0.82rem; color: #cbd5e1; font-weight: 500; }
+        .cond-card .cond-status {
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-top: 6px;
+        }
+
+        /* === Metrics Bar === */
+        .metrics-row {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .metric-chip {
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255,255,255,0.06);
+            font-size: 0.8rem;
+        }
+        .metric-chip .label { color: #64748b; font-size: 0.7rem; font-weight: 600; }
+        .metric-chip .value { color: #f1f5f9; font-weight: 700; margin-top: 2px; }
+
+        /* === Scan Section === */
+        .scan-section { padding: 24px; }
+        .scan-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .scan-stats {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            padding: 12px 20px;
+            border-radius: 10px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255,255,255,0.06);
+            text-align: center;
+            min-width: 100px;
+        }
+        .stat-card .stat-value { font-size: 1.6rem; font-weight: 900; color: #fbbf24; }
+        .stat-card .stat-label { font-size: 0.7rem; color: #64748b; font-weight: 600; margin-top: 2px; }
+
+        /* === Condition Filters === */
+        .filter-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        .filter-btn {
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid rgba(100,116,139,0.3);
+            background: rgba(30, 41, 59, 0.5);
+            color: #94a3b8;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Inter', sans-serif;
+        }
+        .filter-btn:hover { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.3); }
+        .filter-btn.active { background: rgba(245,158,11,0.25); border-color: #f59e0b; color: #fbbf24; }
+
+        /* === Results Table === */
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .results-table thead th {
+            padding: 12px 10px;
+            font-weight: 700;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            border-bottom: 2px solid rgba(255,255,255,0.06);
+            position: sticky;
+            top: 0;
+            background: rgba(15, 23, 42, 0.95);
+            z-index: 10;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .results-table thead th:hover { color: #fbbf24; }
+        .results-table tbody td {
+            padding: 11px 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            transition: background 0.15s;
+            font-variant-numeric: tabular-nums;
+        }
+        .results-table tbody tr:hover td { background: rgba(255,255,255,0.04); }
+        .results-table tbody tr { cursor: pointer; }
+
+        /* Condition badges */
+        .cond-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+        .cond-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+        .cond-badge.c1  { background: rgba(239,68,68,0.2); color: #fca5a5; }
+        .cond-badge.c2  { background: rgba(249,115,22,0.2); color: #fdba74; }
+        .cond-badge.c3  { background: rgba(245,158,11,0.2); color: #fbbf24; }
+        .cond-badge.c4  { background: rgba(234,179,8,0.2);  color: #fde047; }
+        .cond-badge.c6  { background: rgba(168,85,247,0.2); color: #c4b5fd; }
+        .cond-badge.c7  { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+        .cond-badge.c9  { background: rgba(14,165,233,0.2); color: #7dd3fc; }
+        .cond-badge.c10 { background: rgba(20,184,166,0.2); color: #5eead4; }
+        .cond-badge.c11 { background: rgba(236,72,153,0.2); color: #f9a8d4; }
+        .cond-badge.c12 { background: rgba(139,92,246,0.2); color: #c4b5fd; }
+        .cond-badge.c13 { background: rgba(244,63,94,0.2);  color: #fda4af; }
+
+        .up { color: #ef4444; }
+        .down { color: #22c55e; }
+        .neutral { color: #64748b; }
+
+        /* === Loading / Empty === */
+        .loading-area {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(245,158,11,0.2);
+            border-top-color: #f59e0b;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+            color: #475569;
+        }
+        .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+
+        .error-msg {
+            text-align: center;
+            padding: 16px;
+            color: #f87171;
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 12px;
+            font-size: 0.85rem;
+        }
+
+        /* === Progress === */
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            margin: 16px 0;
+            overflow: hidden;
+        }
+        .progress-bar .fill {
+            height: 100%;
+            background: linear-gradient(90deg, #f59e0b, #ef4444);
+            border-radius: 2px;
+            transition: width 0.3s;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+
+        /* === Scrollable table wrapper === */
+        .table-wrapper {
+            max-height: 600px;
+            overflow-y: auto;
+            border-radius: 12px;
+        }
+        .table-wrapper::-webkit-scrollbar { width: 6px; }
+        .table-wrapper::-webkit-scrollbar-track { background: rgba(15,23,42,0.3); }
+        .table-wrapper::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.4); border-radius: 3px; }
+
+        /* === Attention Stock Styles === */
+        .attention-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 12px;
+        }
+        .attention-card {
+            padding: 16px 20px;
+            border-radius: 12px;
+            border-left: 4px solid #f59e0b;
+            background: rgba(30, 41, 59, 0.5);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .attention-card:hover { background: rgba(30, 41, 59, 0.85); transform: translateX(4px); }
+        .attention-card.risk-red    { border-left-color: #ef4444; background: rgba(239,68,68,0.06); }
+        .attention-card.risk-orange { border-left-color: #f97316; background: rgba(249,115,22,0.05); }
+        .attention-card.risk-yellow { border-left-color: #f59e0b; }
+        .attention-card.risk-green  { border-left-color: #22c55e; background: rgba(34,197,94,0.04); }
+
+        .risk-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        .risk-badge.red    { background: rgba(239,68,68,0.2);  color: #fca5a5; }
+        .risk-badge.orange { background: rgba(249,115,22,0.2); color: #fdba74; }
+        .risk-badge.yellow { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .risk-badge.green  { background: rgba(34,197,94,0.15); color: #86efac; }
+
+        .disposal-count-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 800;
+            margin-left: 6px;
+        }
+        .disposal-count-badge.first  { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .disposal-count-badge.second { background: rgba(239,68,68,0.25); color: #fca5a5; }
+
+        /* 明日觸發預警 UI 樣式 */
+        .reach-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+        .reach-badge.triggered { background: rgba(239,68,68,0.25); color: #fca5a5; }
+        .reach-badge.warning { background: rgba(249,115,22,0.25); color: #fdba74; }
+        .reach-badge.active { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .reach-badge.unreachable { background: rgba(148,163,184,0.15); color: #cbd5e1; }
+
+        .trigger-progress-container {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            width: 100%;
+            position: relative;
+        }
+        .progress-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.68rem;
+            color: #64748b;
+            position: relative;
+            height: 14px;
+        }
+        .limit-label.down { text-align: left; }
+        .limit-label.up { text-align: right; }
+        .current-price-label {
+            position: absolute;
+            color: #38bdf8;
+            font-weight: 700;
+            font-size: 0.7rem;
+            white-space: nowrap;
+        }
+
+        .progress-bar-bg {
+            height: 6px;
+            background: #1e293b;
+            border-radius: 3px;
+            position: relative;
+            overflow: visible;
+        }
+        .danger-zone-bg {
+            position: absolute;
+            height: 100%;
+            background: rgba(239,68,68,0.3);
+            border-radius: 0 3px 3px 0;
+        }
+        .current-price-pin {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #38bdf8;
+            border: 2px solid #0f172a;
+            top: -2px;
+            transform: translateX(-5px);
+            z-index: 10;
+        }
+        .trigger-pin {
+            position: absolute;
+            width: 4px;
+            height: 12px;
+            background: #ef4444;
+            top: -3px;
+            transform: translateX(-2px);
+            z-index: 9;
+            border-radius: 1px;
+            box-shadow: 0 0 6px rgba(239,68,68,0.8);
+        }
+
+        .progress-bottom-labels {
+            position: relative;
+            height: 14px;
+            font-size: 0.65rem;
+            color: #ef4444;
+            font-weight: 600;
+        }
+        .trigger-label {
+            position: absolute;
+            white-space: nowrap;
+        }
+        .trigger-label.unreachable {
+            color: #64748b;
+            left: 0;
+        }
+
+        .attention-filters {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+        .attn-filter-btn {
+            padding: 5px 14px;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            border: 1px solid rgba(100,116,139,0.3);
+            background: rgba(30, 41, 59, 0.5);
+            color: #94a3b8;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Inter', sans-serif;
+        }
+        .attn-filter-btn:hover { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
+        .attn-filter-btn.active.red    { background: rgba(239,68,68,0.2);  border-color: #ef4444;  color: #fca5a5; }
+        .attn-filter-btn.active.orange { background: rgba(249,115,22,0.2); border-color: #f97316; color: #fdba74; }
+        .attn-filter-btn.active.yellow { background: rgba(245,158,11,0.2); border-color: #f59e0b; color: #fcd34d; }
+        .attn-filter-btn.active.all    { background: rgba(99,102,241,0.2); border-color: #6366f1;  color: #a5b4fc; }
+
+        .attn-info-text {
+            color: #64748b;
+            font-size: 0.72rem;
+            margin-top: 6px;
+            line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .countdown-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            margin-top: 6px;
+        }
+        .countdown-pill.urgent { background: rgba(239,68,68,0.15); color: #f87171; }
+        .countdown-pill.warn   { background: rgba(249,115,22,0.15); color: #fb923c; }
+        .countdown-pill.ok     { background: rgba(245,158,11,0.12); color: #fbbf24; }
+
+        .attention-summary-bar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .attn-stat {
+            flex: 1;
+            min-width: 90px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255,255,255,0.06);
+            text-align: center;
+        }
+        .attn-stat .val { font-size: 1.8rem; font-weight: 900; }
+        .attn-stat .lbl { font-size: 0.68rem; color: #64748b; font-weight: 600; margin-top: 2px; }
+        .attn-stat.red    .val { color: #f87171; }
+        .attn-stat.orange .val { color: #fb923c; }
+        .attn-stat.yellow .val { color: #fbbf24; }
+        .attn-stat.total  .val { color: #a5b4fc; }
+
+        /* === Responsive === */
+        @media (max-width: 768px) {
+            .page-header h1 { font-size: 1.8rem; }
+            .tab-btn { font-size: 0.78rem; padding: 10px 6px; }
+            .disposed-grid, .attention-grid { grid-template-columns: 1fr; }
+            .cond-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+            .report-header { flex-direction: column; gap: 16px; }
+            .report-header .right { text-align: left; }
+            .scan-header { flex-direction: column; align-items: stretch; }
+            .attention-summary-bar { gap: 8px; }
+        }
+    </style>
+<script>
+// === 離線分享資料(由 build_share.py 注入) ===
+window.__SHARE_DATA__ = {"generated_at":"2026-06-10 10:27","disposed_payload":{"disposed":{"1409":{"name":"新纖","period":"2026/06/04 ~ 2026/06/17","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"1563":{"name":"巧新","period":"2026/06/03 ~ 2026/06/16","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"1568":{"name":"倉佑","period":"2026/06/01 ~ 2026/06/12","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"1718":{"name":"中纖","period":"2026/06/08 ~ 2026/06/22","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"2302":{"name":"麗正","period":"2026/06/02 ~ 2026/06/15","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"2337":{"name":"旺宏","period":"2026/06/03 ~ 2026/06/16","condition":"最近十個營業日已有六次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"近10日6次注意","source":"TWSE"},"2375":{"name":"凱美","period":"2026/06/01 ~ 2026/06/12","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"2472":{"name":"立隆電","period":"2026/06/01 ~ 2026/06/12","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"2491":{"name":"吉祥全","period":"2026/06/08 ~ 2026/06/22","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"2492":{"name":"華新科","period":"2026/06/01 ~ 2026/06/12","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"2911":{"name":"麗嬰房","period":"2026/05/28 ~ 2026/06/10","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"3021":{"name":"鴻名","period":"2026/06/01 ~ 2026/06/12","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"3026":{"name":"禾伸堂","period":"2026/05/29 ~ 2026/06/11","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"3149":{"name":"正達","period":"2026/06/08 ~ 2026/06/22","condition":"連續五次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續五次注意","source":"TWSE"},"3189":{"name":"景碩","period":"2026/05/28 ~ 2026/06/10","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"3346":{"name":"麗清","period":"2026/06/04 ~ 2026/06/17","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"3481":{"name":"群創","period":"2026/06/04 ~ 2026/06/17","condition":"最近十個營業日已有六次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"近10日6次注意","source":"TWSE"},"3528":{"name":"安馳","period":"2026/06/02 ~ 2026/06/15","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"3532":{"name":"台勝科","period":"2026/05/29 ~ 2026/06/11","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"3535":{"name":"晶彩科","period":"2026/06/05 ~ 2026/06/18","condition":"最近十個營業日已有六次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"近10日6次注意","source":"TWSE"},"4807":{"name":"日成-KY","period":"2026/06/08 ~ 2026/06/22","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"4919":{"name":"新唐","period":"2026/05/28 ~ 2026/06/10","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"4958":{"name":"臻鼎-KY","period":"2026/05/28 ~ 2026/06/10","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"6116":{"name":"彩晶","period":"2026/06/01 ~ 2026/06/12","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"6239":{"name":"力成","period":"2026/05/29 ~ 2026/06/11","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"6271":{"name":"同欣電","period":"2026/05/28 ~ 2026/06/10","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"6405":{"name":"悅城","period":"2026/05/29 ~ 2026/06/11","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"6442":{"name":"光聖","period":"2026/06/08 ~ 2026/06/22","condition":"最近十個營業日已有六次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"近10日6次注意","source":"TWSE"},"6449":{"name":"鈺邦","period":"2026/06/01 ~ 2026/06/12","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"6770":{"name":"力積電","period":"2026/06/02 ~ 2026/06/15","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"6806":{"name":"森崴能源","period":"2026/05/29 ~ 2026/06/11","condition":"連續三次","measures":"人工管制撮合（每六十分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"6834":{"name":"天二科技","period":"2026/05/28 ~ 2026/06/10","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"6890":{"name":"來億-KY","period":"2026/06/09 ~ 2026/06/23","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"6906":{"name":"現觀科","period":"2026/05/28 ~ 2026/06/10","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"7610":{"name":"聯友金屬-創","period":"2026/06/04 ~ 2026/06/17","condition":"連續三次","measures":"第二次處置（每二十分鐘撮合一次）","disposal_count":2,"trigger_reason":"連續三次注意","source":"TWSE"},"8454":{"name":"富邦媒","period":"2026/06/05 ~ 2026/06/18","condition":"連續三次","measures":"第一次處置（每五分鐘撮合一次）","disposal_count":1,"trigger_reason":"連續三次注意","source":"TWSE"},"3114":{"name":"好德","period":"2026/06/09 ~ 2026/06/23","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"5426":{"name":"振發","period":"2026/06/09 ~ 2026/06/23","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"68901":{"name":"來億一KY","period":"2026/06/09 ~ 2026/06/23","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"68902":{"name":"來億二KY","period":"2026/06/09 ~ 2026/06/23","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"76101":{"name":"聯友金屬一創","period":"2026/06/01 ~ 2026/06/12","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"8291":{"name":"尚茂","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每25分鐘撮合一次)","source":"TPEx"},"3147":{"name":"大綜","period":"2026/06/08 ~ 2026/06/22","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"3581":{"name":"博磊","period":"2026/06/08 ~ 2026/06/22","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"5701":{"name":"劍湖山","period":"2026/06/08 ~ 2026/06/22","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每10分鐘撮合一次)","source":"TPEx"},"60152":{"name":"宏遠證二","period":"2026/06/08 ~ 2026/06/22","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"62075":{"name":"雷科五","period":"2026/06/08 ~ 2026/06/22","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"62076":{"name":"雷科六","period":"2026/06/08 ~ 2026/06/22","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"64422":{"name":"光聖二","period":"2026/06/08 ~ 2026/06/22","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"64423":{"name":"光聖三","period":"2026/06/08 ~ 2026/06/22","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"3288":{"name":"點晶","period":"2026/06/05 ~ 2026/06/18","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"3523":{"name":"迎輝","period":"2026/06/02 ~ 2026/06/15","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"4707":{"name":"磐亞","period":"2026/06/05 ~ 2026/06/18","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"8358":{"name":"金居","period":"2026/06/05 ~ 2026/06/18","condition":"連續5個營業日","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"33466":{"name":"麗清六","period":"2026/06/04 ~ 2026/06/17","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"3556":{"name":"禾瑞亞","period":"2026/06/04 ~ 2026/06/17","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"6548":{"name":"長科*","period":"2026/06/04 ~ 2026/06/17","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"7709":{"name":"榮田","period":"2026/06/04 ~ 2026/06/17","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"8277":{"name":"商丞","period":"2026/06/04 ~ 2026/06/17","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每10分鐘撮合一次)","source":"TPEx"},"23372":{"name":"旺宏二","period":"2026/06/03 ~ 2026/06/16","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"4979":{"name":"華星光","period":"2026/06/03 ~ 2026/06/16","condition":"連續5個營業日","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"49793":{"name":"華星光三","period":"2026/06/03 ~ 2026/06/16","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"49794":{"name":"華星光四","period":"2026/06/03 ~ 2026/06/16","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"2061":{"name":"風青","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"3485":{"name":"敘豐","period":"2026/06/02 ~ 2026/06/15","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"4973":{"name":"廣穎","period":"2026/06/02 ~ 2026/06/15","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"5321":{"name":"美而快","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"53211":{"name":"美而快一","period":"2026/05/28 ~ 2026/06/10","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"6182":{"name":"合晶","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"61827":{"name":"合晶七","period":"2026/05/28 ~ 2026/06/10","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"61828":{"name":"合晶八","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"6654":{"name":"天正國際","period":"2026/06/02 ~ 2026/06/15","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"24642":{"name":"盟立二","period":"2026/06/01 ~ 2026/06/12","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"6291":{"name":"沛亨","period":"2026/06/01 ~ 2026/06/12","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"6488":{"name":"環球晶","period":"2026/06/01 ~ 2026/06/12","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"7828":{"name":"創新服務","period":"2026/06/01 ~ 2026/06/12","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"3191":{"name":"雲嘉南","period":"2026/05/29 ~ 2026/06/11","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"68061":{"name":"森崴能源一","period":"2026/05/29 ~ 2026/06/11","condition":"轉換公司債之標的證券經本中心或臺灣證券交易所發布處置","measures":"預收款券、人工管制撮合(每60分鐘撮合一次)","source":"TPEx"},"6821":{"name":"聯寶","period":"2026/05/29 ~ 2026/06/11","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"68211":{"name":"聯寶一","period":"2026/05/29 ~ 2026/06/11","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"3236":{"name":"千如","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"45421":{"name":"科嶠一","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"6173":{"name":"信昌電","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"6570":{"name":"維田","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每5分鐘撮合一次)","source":"TPEx"},"8042":{"name":"金山電","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"},"80426":{"name":"金山電六","period":"2026/05/28 ~ 2026/06/10","condition":"因連續3個營業日達本中心作業要點第四條第一項第一款","measures":"預收款券、人工管制撮合(每20分鐘撮合一次)","source":"TPEx"}},"fetch_time":"2026-06-10T10:26:21.446953"},"scan_payload":{"error":"本份分享檔未包含掃描資料"},"stock_reports":{"1409":{"stock_id":"1409","name":"新纖","price":24.9,"ret_6d":-0.6,"ret_30d":50.91,"ret_60d":57.59,"ret_90d":58.1,"metrics":{"volume":13880682.0,"vol_60avg":13719897.98,"vol_ratio":1.01,"turnover":null,"pe":18.44,"pbr":0.96},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"1563":{"stock_id":"1563","name":"巧新","price":62.0,"ret_6d":-11.3,"ret_30d":51.96,"ret_60d":50.12,"ret_90d":29.17,"metrics":{"volume":1863153.0,"vol_60avg":1361320.95,"vol_ratio":1.37,"turnover":null,"pe":140.91,"pbr":1.64},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"1568":{"stock_id":"1568","name":"倉佑","price":41.6,"ret_6d":-16.47,"ret_30d":49.37,"ret_60d":88.24,"ret_90d":55.22,"metrics":{"volume":766304.0,"vol_60avg":826545.8,"vol_ratio":0.93,"turnover":null,"pe":31.04,"pbr":2.32},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"1718":{"stock_id":"1718","name":"中纖","price":9.41,"ret_6d":29.26,"ret_30d":42.79,"ret_60d":22.37,"ret_90d":28.2,"metrics":{"volume":39528263.0,"vol_60avg":12008392.45,"vol_ratio":3.29,"turnover":null,"pe":39.21,"pbr":0.56},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"2061":{"stock_id":"2061","name":"風青","price":37.6,"ret_6d":-5.76,"ret_30d":102.15,"ret_60d":110.64,"ret_90d":104.9,"metrics":{"volume":532342.0,"vol_60avg":1165599.75,"vol_ratio":0.46,"turnover":null,"pe":null,"pbr":3.4},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"2302":{"stock_id":"2302","name":"麗正","price":33.95,"ret_6d":-11.24,"ret_30d":88.09,"ret_60d":82.53,"ret_90d":65.61,"metrics":{"volume":949306.0,"vol_60avg":3699556.9,"vol_ratio":0.26,"turnover":null,"pe":42.97,"pbr":3.16},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"2337":{"stock_id":"2337","name":"旺宏","price":145.5,"ret_6d":-13.13,"ret_30d":0.34,"ret_60d":46.97,"ret_90d":97.42,"metrics":{"volume":22931253.0,"vol_60avg":138937822.93,"vol_ratio":0.17,"turnover":null,"pe":null,"pbr":5.69},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"2375":{"stock_id":"2375","name":"凱美","price":165.0,"ret_6d":0.61,"ret_30d":105.48,"ret_60d":106.77,"ret_90d":54.21,"metrics":{"volume":5044255.0,"vol_60avg":7784969.43,"vol_ratio":0.65,"turnover":null,"pe":50.15,"pbr":1.79},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"2472":{"stock_id":"2472","name":"立隆電","price":372.5,"ret_6d":-4.97,"ret_30d":120.41,"ret_60d":251.42,"ret_90d":206.58,"metrics":{"volume":2493603.0,"vol_60avg":7718237.57,"vol_ratio":0.32,"turnover":null,"pe":43.06,"pbr":6.38},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"2491":{"stock_id":"2491","name":"吉祥全","price":31.1,"ret_6d":21.48,"ret_30d":107.33,"ret_60d":100.65,"ret_90d":52.08,"metrics":{"volume":2129512.0,"vol_60avg":832167.52,"vol_ratio":2.56,"turnover":null,"pe":9.04,"pbr":2.55},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"2492":{"stock_id":"2492","name":"華新科","price":440.0,"ret_6d":5.77,"ret_30d":239.77,"ret_60d":252.0,"ret_90d":200.34,"metrics":{"volume":4116054.0,"vol_60avg":12719878.72,"vol_ratio":0.32,"turnover":null,"pe":84.29,"pbr":3.99},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"2911":{"stock_id":"2911","name":"麗嬰房","price":8.55,"ret_6d":11.33,"ret_30d":56.88,"ret_60d":61.63,"ret_90d":65.38,"metrics":{"volume":151205.0,"vol_60avg":331698.9,"vol_ratio":0.46,"turnover":null,"pe":2.22,"pbr":0.62},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3021":{"stock_id":"3021","name":"鴻名","price":28.0,"ret_6d":-15.41,"ret_30d":71.25,"ret_60d":71.25,"ret_90d":50.54,"metrics":{"volume":895850.0,"vol_60avg":462880.88,"vol_ratio":1.94,"turnover":null,"pe":48.28,"pbr":1.69},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3026":{"stock_id":"3026","name":"禾伸堂","price":661.0,"ret_6d":-1.64,"ret_30d":203.21,"ret_60d":526.54,"ret_90d":506.42,"metrics":{"volume":1905446.0,"vol_60avg":6908932.17,"vol_ratio":0.28,"turnover":null,"pe":85.18,"pbr":11.32},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"3114":{"stock_id":"3114","name":"好德","price":41.35,"ret_6d":24.92,"ret_30d":59.34,"ret_60d":59.04,"ret_90d":53.15,"metrics":{"volume":2118859.0,"vol_60avg":745005.8,"vol_ratio":2.84,"turnover":null,"pe":15.66,"pbr":1.64},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3147":{"stock_id":"3147","name":"大綜","price":312.5,"ret_6d":55.86,"ret_30d":81.16,"ret_60d":68.92,"ret_90d":99.04,"metrics":{"volume":626106.0,"vol_60avg":556877.83,"vol_ratio":1.12,"turnover":null,"pe":34.99,"pbr":8.52},"conditions_triggered":[1,11],"all_conditions":{"1":true,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":true,"12":false,"13":false},"total_triggered":2},"3149":{"stock_id":"3149","name":"正達","price":87.2,"ret_6d":11.37,"ret_30d":96.62,"ret_60d":87.93,"ret_90d":81.86,"metrics":{"volume":4925418.0,"vol_60avg":15056775.05,"vol_ratio":0.33,"turnover":null,"pe":null,"pbr":7.96},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3189":{"stock_id":"3189","name":"景碩","price":714.0,"ret_6d":-7.75,"ret_30d":38.64,"ret_60d":147.06,"ret_90d":237.59,"metrics":{"volume":5537626.0,"vol_60avg":27580423.75,"vol_ratio":0.2,"turnover":null,"pe":201.13,"pbr":8.72},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"3191":{"stock_id":"3191","name":"雲嘉南","price":20.95,"ret_6d":-15.18,"ret_30d":53.48,"ret_60d":45.49,"ret_90d":23.6,"metrics":{"volume":192839.0,"vol_60avg":130017.22,"vol_ratio":1.48,"turnover":null,"pe":95.23,"pbr":3.8},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3236":{"stock_id":"3236","name":"千如","price":56.5,"ret_6d":-1.4,"ret_30d":91.2,"ret_60d":108.87,"ret_90d":49.47,"metrics":{"volume":2598169.0,"vol_60avg":6743890.38,"vol_ratio":0.39,"turnover":null,"pe":134.52,"pbr":3.65},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3288":{"stock_id":"3288","name":"點晶","price":23.3,"ret_6d":27.67,"ret_30d":59.59,"ret_60d":51.79,"ret_90d":37.46,"metrics":{"volume":96253.0,"vol_60avg":43663.38,"vol_ratio":2.2,"turnover":null,"pe":null,"pbr":3.54},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3346":{"stock_id":"3346","name":"麗清","price":24.8,"ret_6d":5.31,"ret_30d":43.77,"ret_60d":27.18,"ret_90d":5.76,"metrics":{"volume":978996.0,"vol_60avg":807553.82,"vol_ratio":1.21,"turnover":null,"pe":null,"pbr":0.84},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3481":{"stock_id":"3481","name":"群創","price":49.1,"ret_6d":-12.48,"ret_30d":102.06,"ret_60d":49.01,"ret_90d":70.49,"metrics":{"volume":124513602.0,"vol_60avg":522803589.12,"vol_ratio":0.24,"turnover":null,"pe":446.36,"pbr":1.73},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"3485":{"stock_id":"3485","name":"敘豐","price":328.0,"ret_6d":-10.63,"ret_30d":null,"ret_60d":null,"ret_90d":null,"metrics":{"volume":299062.0,"vol_60avg":711544.2,"vol_ratio":0.42,"turnover":null,"pe":63.44,"pbr":8.11},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3523":{"stock_id":"3523","name":"迎輝","price":17.8,"ret_6d":1.71,"ret_30d":33.83,"ret_60d":30.88,"ret_90d":-2.2,"metrics":{"volume":46872.0,"vol_60avg":63384.8,"vol_ratio":0.74,"turnover":null,"pe":null,"pbr":2.88},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3528":{"stock_id":"3528","name":"安馳","price":133.0,"ret_6d":3.1,"ret_30d":73.86,"ret_60d":113.48,"ret_90d":91.92,"metrics":{"volume":482519.0,"vol_60avg":728626.6,"vol_ratio":0.66,"turnover":null,"pe":42.9,"pbr":4.25},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3532":{"stock_id":"3532","name":"台勝科","price":284.5,"ret_6d":-18.83,"ret_30d":56.32,"ret_60d":125.79,"ret_90d":103.94,"metrics":{"volume":719417.0,"vol_60avg":3957496.2,"vol_ratio":0.18,"turnover":null,"pe":360.13,"pbr":4.55},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3535":{"stock_id":"3535","name":"晶彩科","price":134.5,"ret_6d":0.0,"ret_30d":15.45,"ret_60d":8.47,"ret_90d":26.29,"metrics":{"volume":1424921.0,"vol_60avg":6570109.17,"vol_ratio":0.22,"turnover":null,"pe":336.25,"pbr":9.55},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3556":{"stock_id":"3556","name":"禾瑞亞","price":71.5,"ret_6d":-3.25,"ret_30d":42.15,"ret_60d":70.24,"ret_90d":88.9,"metrics":{"volume":478290.0,"vol_60avg":874094.97,"vol_ratio":0.55,"turnover":null,"pe":24.49,"pbr":4.03},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"3581":{"stock_id":"3581","name":"博磊","price":141.0,"ret_6d":-42.21,"ret_30d":-7.84,"ret_60d":102.88,"ret_90d":83.59,"metrics":{"volume":231443.0,"vol_60avg":1319394.7,"vol_ratio":0.18,"turnover":null,"pe":105.22,"pbr":7.94},"conditions_triggered":[1,11],"all_conditions":{"1":true,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":true,"12":false,"13":false},"total_triggered":2},"4707":{"stock_id":"4707","name":"磐亞","price":20.5,"ret_6d":14.53,"ret_30d":39.46,"ret_60d":95.24,"ret_90d":101.97,"metrics":{"volume":1604310.0,"vol_60avg":3750597.18,"vol_ratio":0.43,"turnover":null,"pe":22.04,"pbr":1.28},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"4807":{"stock_id":"4807","name":"日成-KY","price":33.95,"ret_6d":18.29,"ret_30d":99.71,"ret_60d":102.69,"ret_90d":89.14,"metrics":{"volume":396015.0,"vol_60avg":356327.98,"vol_ratio":1.11,"turnover":null,"pe":24.78,"pbr":1.71},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"4919":{"stock_id":"4919","name":"新唐","price":174.5,"ret_6d":-16.11,"ret_30d":28.31,"ret_60d":108.48,"ret_90d":189.87,"metrics":{"volume":4244210.0,"vol_60avg":21239559.22,"vol_ratio":0.2,"turnover":null,"pe":null,"pbr":5.54},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"4958":{"stock_id":"4958","name":"臻鼎-KY","price":545.0,"ret_6d":-0.55,"ret_30d":52.02,"ret_60d":217.78,"ret_90d":219.65,"metrics":{"volume":11129854.0,"vol_60avg":41705321.63,"vol_ratio":0.27,"turnover":null,"pe":76.87,"pbr":4.64},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"4973":{"stock_id":"4973","name":"廣穎電通","price":176.0,"ret_6d":12.46,"ret_30d":99.77,"ret_60d":188.05,"ret_90d":201.89,"metrics":{"volume":2102019.0,"vol_60avg":6631814.0,"vol_ratio":0.32,"turnover":null,"pe":18.72,"pbr":4.54},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"4979":{"stock_id":"4979","name":"華星光","price":560.0,"ret_6d":-13.85,"ret_30d":2.56,"ret_60d":44.52,"ret_90d":111.72,"metrics":{"volume":865823.0,"vol_60avg":8334393.18,"vol_ratio":0.1,"turnover":null,"pe":101.27,"pbr":19.29},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"5321":{"stock_id":"5321","name":"美而快","price":40.3,"ret_6d":-29.79,"ret_30d":71.49,"ret_60d":68.62,"ret_90d":25.94,"metrics":{"volume":746609.0,"vol_60avg":355736.5,"vol_ratio":2.1,"turnover":null,"pe":null,"pbr":3.39},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"5426":{"stock_id":"5426","name":"振發","price":36.05,"ret_6d":75.85,"ret_30d":103.1,"ret_60d":89.74,"ret_90d":68.46,"metrics":{"volume":7295819.0,"vol_60avg":1132003.9,"vol_ratio":6.45,"turnover":null,"pe":92.44,"pbr":2.23},"conditions_triggered":[1,2,3,9],"all_conditions":{"1":true,"2":true,"3":true,"4":false,"5":null,"6":false,"7":false,"8":null,"9":true,"10":false,"11":false,"12":false,"13":false},"total_triggered":4},"5701":{"stock_id":"5701","name":"劍湖山","price":5.53,"ret_6d":25.68,"ret_30d":61.22,"ret_60d":46.3,"ret_90d":38.6,"metrics":{"volume":1162388.0,"vol_60avg":306895.63,"vol_ratio":3.79,"turnover":null,"pe":null,"pbr":1.58},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6116":{"stock_id":"6116","name":"彩晶","price":15.6,"ret_6d":-17.02,"ret_30d":89.09,"ret_60d":65.43,"ret_90d":44.44,"metrics":{"volume":69654183.0,"vol_60avg":69180794.65,"vol_ratio":1.01,"turnover":null,"pe":null,"pbr":1.32},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6173":{"stock_id":"6173","name":"信昌電","price":230.0,"ret_6d":-2.95,"ret_30d":197.16,"ret_60d":261.64,"ret_90d":194.49,"metrics":{"volume":1347746.0,"vol_60avg":6190821.42,"vol_ratio":0.22,"turnover":null,"pe":61.66,"pbr":4.42},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"6182":{"stock_id":"6182","name":"合晶","price":87.2,"ret_6d":-10.1,"ret_30d":116.38,"ret_60d":168.31,"ret_90d":124.45,"metrics":{"volume":9833055.0,"vol_60avg":31127713.4,"vol_ratio":0.32,"turnover":null,"pe":2180.0,"pbr":3.28},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"6239":{"stock_id":"6239","name":"力成","price":321.0,"ret_6d":-12.3,"ret_30d":47.93,"ret_60d":56.97,"ret_90d":22.29,"metrics":{"volume":11574547.0,"vol_60avg":19600503.33,"vol_ratio":0.59,"turnover":null,"pe":38.21,"pbr":4.06},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6271":{"stock_id":"6271","name":"同欣電","price":240.0,"ret_6d":-3.03,"ret_30d":37.93,"ret_60d":60.54,"ret_90d":83.21,"metrics":{"volume":2121395.0,"vol_60avg":7256933.85,"vol_ratio":0.29,"turnover":null,"pe":35.61,"pbr":1.9},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6291":{"stock_id":"6291","name":"沛亨","price":558.0,"ret_6d":-13.89,"ret_30d":30.07,"ret_60d":74.1,"ret_90d":219.77,"metrics":{"volume":528879.0,"vol_60avg":2158488.58,"vol_ratio":0.25,"turnover":null,"pe":65.19,"pbr":18.33},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6405":{"stock_id":"6405","name":"悅城","price":72.1,"ret_6d":-9.54,"ret_30d":88.25,"ret_60d":129.25,"ret_90d":122.19,"metrics":{"volume":283777.0,"vol_60avg":1780657.28,"vol_ratio":0.16,"turnover":null,"pe":null,"pbr":1.69},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6442":{"stock_id":"6442","name":"光聖","price":2100.0,"ret_6d":11.41,"ret_30d":18.31,"ret_60d":24.26,"ret_90d":70.04,"metrics":{"volume":1110799.0,"vol_60avg":2914289.68,"vol_ratio":0.38,"turnover":null,"pe":79.22,"pbr":23.2},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6449":{"stock_id":"6449","name":"鈺邦","price":370.5,"ret_6d":-9.85,"ret_30d":131.56,"ret_60d":130.12,"ret_90d":91.97,"metrics":{"volume":257898.0,"vol_60avg":1250264.65,"vol_ratio":0.21,"turnover":null,"pe":48.18,"pbr":5.93},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"6488":{"stock_id":"6488","name":"環球晶","price":803.0,"ret_6d":-15.47,"ret_30d":29.52,"ret_60d":87.18,"ret_90d":60.92,"metrics":{"volume":2250709.0,"vol_60avg":7169906.38,"vol_ratio":0.31,"turnover":null,"pe":49.54,"pbr":4.11},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6548":{"stock_id":"6548","name":"長科*","price":86.5,"ret_6d":15.33,"ret_30d":65.39,"ret_60d":74.75,"ret_90d":71.97,"metrics":{"volume":3559885.0,"vol_60avg":10381212.47,"vol_ratio":0.34,"turnover":null,"pe":52.74,"pbr":7.07},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6570":{"stock_id":"6570","name":"維田","price":57.9,"ret_6d":-4.3,"ret_30d":48.46,"ret_60d":49.23,"ret_90d":39.69,"metrics":{"volume":187407.0,"vol_60avg":257695.5,"vol_ratio":0.73,"turnover":null,"pe":35.3,"pbr":2.69},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6654":{"stock_id":"6654","name":"天正國際","price":170.0,"ret_6d":0.59,"ret_30d":86.0,"ret_60d":82.21,"ret_90d":75.26,"metrics":{"volume":107768.0,"vol_60avg":76653.08,"vol_ratio":1.41,"turnover":null,"pe":459.46,"pbr":6.05},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6770":{"stock_id":"6770","name":"力積電","price":71.5,"ret_6d":-17.82,"ret_30d":31.19,"ret_60d":13.31,"ret_90d":15.32,"metrics":{"volume":57680845.0,"vol_60avg":223402978.48,"vol_ratio":0.26,"turnover":null,"pe":40.4,"pbr":3.14},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6806":{"stock_id":"6806","name":"森崴能源","price":5.52,"ret_6d":-25.2,"ret_30d":-74.33,"ret_60d":-86.4,"ret_90d":-89.32,"metrics":{"volume":1458592.0,"vol_60avg":1659487.88,"vol_ratio":0.88,"turnover":null,"pe":null,"pbr":8.36},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6821":{"stock_id":"6821","name":"聯寶","price":66.7,"ret_6d":-3.33,"ret_30d":25.38,"ret_60d":81.0,"ret_90d":81.25,"metrics":{"volume":216977.0,"vol_60avg":1477054.95,"vol_ratio":0.15,"turnover":null,"pe":59.55,"pbr":3.28},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"6834":{"stock_id":"6834","name":"天二科技","price":75.0,"ret_6d":-2.6,"ret_30d":117.39,"ret_60d":167.86,"ret_90d":112.77,"metrics":{"volume":805269.0,"vol_60avg":2052155.13,"vol_ratio":0.39,"turnover":null,"pe":122.95,"pbr":4.54},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"6890":{"stock_id":"6890","name":"來億-KY","price":274.0,"ret_6d":57.02,"ret_30d":76.21,"ret_60d":71.25,"ret_90d":14.64,"metrics":{"volume":2762813.0,"vol_60avg":1132371.17,"vol_ratio":2.44,"turnover":null,"pe":27.1,"pbr":2.76},"conditions_triggered":[1,11],"all_conditions":{"1":true,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":true,"12":false,"13":false},"total_triggered":2},"6906":{"stock_id":"6906","name":"現觀科","price":99.5,"ret_6d":-5.24,"ret_30d":57.19,"ret_60d":42.75,"ret_90d":26.75,"metrics":{"volume":129091.0,"vol_60avg":181926.42,"vol_ratio":0.71,"turnover":null,"pe":50.25,"pbr":4.29},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"7610":{"stock_id":"7610","name":"聯友金屬-創","price":1915.0,"ret_6d":18.58,"ret_30d":233.04,"ret_60d":476.81,"ret_90d":882.05,"metrics":{"volume":216824.0,"vol_60avg":897405.27,"vol_ratio":0.24,"turnover":null,"pe":118.58,"pbr":43.83},"conditions_triggered":[2,11],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":true,"12":false,"13":false},"total_triggered":2},"7709":{"stock_id":"7709","name":"榮田","price":116.0,"ret_6d":-4.53,"ret_30d":66.19,"ret_60d":110.91,"ret_90d":187.84,"metrics":{"volume":256460.0,"vol_60avg":818990.55,"vol_ratio":0.31,"turnover":null,"pe":57.43,"pbr":2.76},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"7828":{"stock_id":"7828","name":"創新服務","price":1550.0,"ret_6d":6.9,"ret_30d":29.17,"ret_60d":null,"ret_90d":null,"metrics":{"volume":103043.0,"vol_60avg":483748.62,"vol_ratio":0.21,"turnover":null,"pe":229.29,"pbr":53.71},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"8042":{"stock_id":"8042","name":"金山電","price":143.5,"ret_6d":-15.09,"ret_30d":154.88,"ret_60d":169.23,"ret_90d":100.42,"metrics":{"volume":1169786.0,"vol_60avg":3200726.85,"vol_ratio":0.37,"turnover":null,"pe":45.85,"pbr":4.4},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"8277":{"stock_id":"8277","name":"商丞","price":11.25,"ret_6d":18.8,"ret_30d":74.42,"ret_60d":40.98,"ret_90d":25.98,"metrics":{"volume":697045.0,"vol_60avg":470350.92,"vol_ratio":1.48,"turnover":null,"pe":null,"pbr":2.32},"conditions_triggered":[],"all_conditions":{"1":false,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":0},"8291":{"stock_id":"8291","name":"尚茂","price":57.6,"ret_6d":-46.67,"ret_30d":246.99,"ret_60d":293.17,"ret_90d":null,"metrics":{"volume":14419.0,"vol_60avg":72089.12,"vol_ratio":0.2,"turnover":null,"pe":null,"pbr":15.4},"conditions_triggered":[1],"all_conditions":{"1":true,"2":false,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"8358":{"stock_id":"8358","name":"金居","price":610.0,"ret_6d":-8.68,"ret_30d":81.82,"ret_60d":166.38,"ret_90d":119.82,"metrics":{"volume":2173232.0,"vol_60avg":18558341.28,"vol_ratio":0.12,"turnover":null,"pe":117.08,"pbr":18.9},"conditions_triggered":[2],"all_conditions":{"1":false,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":false,"12":false,"13":false},"total_triggered":1},"8454":{"stock_id":"8454","name":"富邦媒","price":426.5,"ret_6d":76.6,"ret_30d":150.88,"ret_60d":143.71,"ret_90d":114.86,"metrics":{"volume":3503276.0,"vol_60avg":1245185.97,"vol_ratio":2.81,"turnover":null,"pe":40.7,"pbr":10.92},"conditions_triggered":[1,2,11],"all_conditions":{"1":true,"2":true,"3":false,"4":false,"5":null,"6":false,"7":false,"8":null,"9":false,"10":false,"11":true,"12":false,"13":false},"total_triggered":3}}};
+</script>
+</head>
+<body>
+<div class="container">
+
+    <!-- Header -->
+    <div class="page-header">
+        <h1>⚠️ 處置偵測 Monitor</h1>
+        <p>注意有價證券異常偵測 — 第1~13款全條款掃描（依臺灣證券交易所作業要點）</p>
+        <div class="nav-links">
+            <a href="/" class="nav-link">📊 Order Book (含排隊)</a>
+            <a href="/options" class="nav-link">📊 選擇權看板</a>
+            <a href="/etf0050" class="nav-link green">💹 ETF iNAV</a>
+        </div>
+    </div>
+
+    <!-- Tab Bar -->
+    <div class="glass tab-bar">
+        <button class="tab-btn active" onclick="switchTab('disposed')" id="tab-disposed">🔒 處置中</button>
+        <button class="tab-btn" onclick="switchTab('attention')" id="tab-attention">🚨 注意股預警</button>
+        <button class="tab-btn" onclick="switchTab('query')" id="tab-query">🔍 個股查詢</button>
+        <button class="tab-btn" onclick="switchTab('scan')" id="tab-scan">⚠️ 高風險一覽</button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- Tab 1: 處置中 -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div class="tab-content active" id="content-disposed">
+        <!-- 近三交易日新增 -->
+        <div class="recent-section" id="recent-section" style="display:none; margin-top:0; border-top:none; padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div class="recent-title">
+                <span>🆕 近三交易日被納入處置的簡易名單</span>
+                <span class="new-badge">NEW</span>
+                <span class="count-badge" id="recent-count" style="margin-left:auto"></span>
+            </div>
+            <div id="recent-area" class="recent-list"></div>
+        </div>
+
+        <div class="section-title" style="justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span>目前處置中的股票</span>
+                <span class="count-badge" id="disposed-count">載入中...</span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+                <input type="text" id="disposed-search" class="search-input"
+                       placeholder="🔍 搜尋代號或名稱"
+                       oninput="renderDisposed()"
+                       style="flex:0 0 220px; padding:6px 12px; font-size:0.85rem; border-radius:8px;">
+                <button id="btn-disp-all" onclick="renderDisposed('all')" class="nav-a active" style="font-size:0.75rem; padding:4px 10px">全部</button>
+                <button id="btn-disp-5" onclick="renderDisposed('5')" class="nav-a" style="font-size:0.75rem; padding:4px 10px; color:#f59e0b; border-color:rgba(245,158,11,0.3)">5分鐘撮合</button>
+                <button id="btn-disp-20" onclick="renderDisposed('20')" class="nav-a" style="font-size:0.75rem; padding:4px 10px; color:#ef4444; border-color:rgba(239,68,68,0.3)">20分鐘以上</button>
+            </div>
+        </div>
+        <div id="disposed-area">
+            <div class="loading-area">
+                <div class="spinner"></div>
+                <div>正在查詢 TWSE / TPEx 處置清單...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- Tab 2: 注意股預警 -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div class="tab-content" id="content-attention">
+        <div class="glass" style="padding:20px; margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+                <div>
+                    <div class="section-title" style="margin-bottom:4px">官方注意股清單 + 處置預警</div>
+                    <div style="color:#64748b; font-size:0.8rem">資料來源：TWSE notice API + TPEx warning API，每日盤後17:30更新</div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <input type="text" id="attn-search" class="search-input"
+                           placeholder="🔍 搜尋代號或名稱"
+                           oninput="renderAttention()"
+                           style="flex:0 0 200px; padding:8px 14px; font-size:0.85rem; border-radius:8px;">
+                    <button class="btn-primary" id="attnRefreshBtn" onclick="loadAttention(true)" style="padding:10px 18px; font-size:0.82rem;">🔄 重新載入</button>
+                </div>
+            </div>
+
+            <!-- Summary Stats -->
+            <div class="attention-summary-bar" id="attn-summary">
+                <div class="attn-stat red"   ><div class="val" id="attn-cnt-red"   >—</div><div class="lbl">🚨 即將處置</div></div>
+                <div class="attn-stat orange" ><div class="val" id="attn-cnt-orange">—</div><div class="lbl">⚠️ 高度警戒</div></div>
+                <div class="attn-stat yellow" ><div class="val" id="attn-cnt-yellow">—</div><div class="lbl">🟡 注意追蹤</div></div>
+                <div class="attn-stat total"  ><div class="val" id="attn-cnt-total" >—</div><div class="lbl">📊 今日注意</div></div>
+            </div>
+
+            <!-- Risk Filters -->
+            <div class="attention-filters">
+                <button class="attn-filter-btn active all" id="attnf-all"    onclick="setAttnFilter('all')">全部</button>
+                <button class="attn-filter-btn red"        id="attnf-red"    onclick="setAttnFilter('red')">🚨 即將處置</button>
+                <button class="attn-filter-btn orange"     id="attnf-orange" onclick="setAttnFilter('orange')">⚠️ 高度警戒</button>
+                <button class="attn-filter-btn yellow"     id="attnf-yellow" onclick="setAttnFilter('yellow')">🟡 注意中</button>
+                <span style="margin-left:auto; color:#475569; font-size:0.75rem;" id="attn-update-time"></span>
+                <span id="attn-ws-status" style="margin-left:12px; display:inline-flex; align-items:center; gap:6px; color:#64748b; font-size:0.75rem; font-weight:600;">
+                    <span id="attn-ws-dot" style="width:7px; height:7px; border-radius:50%; background:#475569; display:inline-block; transition:all 0.3s;"></span>
+                    <span id="attn-ws-text">即時價格未連線</span>
+                </span>
+            </div>
+        </div>
+
+        <div id="attention-area">
+            <div class="loading-area">
+                <div class="spinner"></div>
+                <div>正在查詢 TWSE / TPEx 注意股清單...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- Tab 3: 個股查詢 -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div class="tab-content" id="content-query">
+        <div class="glass search-section">
+            <div class="search-row">
+                <input type="text" class="search-input" id="stockInput"
+                       placeholder="輸入股票代號（例如 2330）" maxlength="10">
+                <button class="btn-primary" id="queryBtn" onclick="queryStock()">查詢</button>
+            </div>
+        </div>
+        <div id="query-result">
+            <div class="empty-state">
+                <div class="icon">🔍</div>
+                <div>輸入股票代號，查看該股票的注意交易警示狀態</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- Tab 3: 高風險一覽 -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div class="tab-content" id="content-scan">
+        <div class="glass scan-section" id="scan-area">
+            <div class="scan-header">
+                <div>
+                    <div class="section-title" style="margin-bottom:4px">全條款異常掃描</div>
+                    <div style="color:#64748b; font-size:0.8rem">掃描全市場股票，找出觸發注意交易條件的高風險標的</div>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <button class="btn-primary" id="scanBtn" onclick="startScan()">🚀 開始掃描</button>
+                    <button class="btn-primary" id="refreshBtn" onclick="startScan(true)" style="background:rgba(100,116,139,0.3);font-size:0.8rem;padding:10px 16px;display:none">🔄 重新掃描</button>
+                </div>
+            </div>
+            <div id="scan-results">
+                <div class="empty-state">
+                    <div class="icon">📡</div>
+                    <div>點擊「開始掃描」載入資料並執行全條款偵測</div>
+                    <div style="margin-top:8px;font-size:0.75rem;color:#475569">首次掃描約需 15-30 秒(資料下載),後續使用快取</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // ============================================================
+    // 條款定義
+    // ============================================================
+    const CONDITIONS = {
+        1:  { name: "近6日累積漲跌幅", desc: "6日漲跌幅>30%或≥23%(含價差≥NT$40)" },
+        2:  { name: "起迄兩日漲跌幅", desc: "30/60/90日漲跌幅超標且方向確認" },
+        3:  { name: "漲跌幅＋量能放大", desc: "6日漲跌幅>27%且當日量≥均量5倍" },
+        4:  { name: "漲跌幅＋週轉率", desc: "6日漲跌幅>27%且當日週轉率>5%" },
+        5:  { name: "券商集中度", desc: "需個別券商資料，略過", skip: true },
+        6:  { name: "估值異常＋週轉率", desc: "PE≥65或為負、PBR≥4、週轉率≥5%" },
+        7:  { name: "漲跌幅＋券資比", desc: "6日漲跌幅>27%且券資比≥10%放大" },
+        8:  { name: "TDR 溢折價", desc: "TDR專用，略過", skip: true },
+        9:  { name: "成交量持續放大", desc: "近6日均量≥60日均量5倍" },
+        10: { name: "累積週轉率過高", desc: "近6日累積週轉率>80%且當日≥5%" },
+        11: { name: "絕對價差異常", desc: "起迄兩日價差≥NT$70 (依價分級)" },
+        12: { name: "借券賣出比率", desc: "近6日借券占比>9%且倍增" },
+        13: { name: "當沖比率過高", desc: "近6日當沖占比>60%" }
+    };
+
+    let scanData = null;
+    let activeFilter = null;
+    let sortCol = 'count';
+    let sortAsc = false;
+
+    // ============================================================
+    // Tab Switching
+    // ============================================================
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        document.getElementById('content-' + tab).classList.add('active');
+    }
+
+    // ============================================================
+    // Tab 1: 處置中
+    // ============================================================
+    let allDisposedData = [];
+
+    // source 欄位顯示轉換 (避免特定資料來源字眼直接出現在 UI)
+    function displaySource(src) {
+        if (!src) return '';
+        if (String(src).toLowerCase() === 'finlab') return '補充';
+        return src;
+    }
+
+    /**
+     * 從 period 字串解析處置開始日期。
+     * 格式例如 "2026/04/20 ~ 2026/04/30" 或 "2026/04/20~2026/04/30"
+     */
+    function parseStartDate(period) {
+        if (!period) return null;
+        const parts = period.split('~');
+        if (parts.length < 1) return null;
+        const raw = parts[0].trim().replace(/\//g, '-');
+        const d = new Date(raw);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    /**
+     * 取得最近 N 個交易日（排除週末）的日期門檻。
+     * 回傳一個 Date 物件，代表 N 個交易日前的 00:00。
+     */
+    function getTradingDayCutoff(n) {
+        const now = new Date();
+        let count = 0;
+        let d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        while (count < n) {
+            d.setDate(d.getDate() - 1);
+            const dow = d.getDay();
+            if (dow !== 0 && dow !== 6) count++;
+        }
+        return d;
+    }
+
+    function renderRecentlyAdded() {
+        const section = document.getElementById('recent-section');
+        const area = document.getElementById('recent-area');
+        const countEl = document.getElementById('recent-count');
+
+        // 計算近 3 個交易日門檻
+        const cutoff = getTradingDayCutoff(3);
+
+        const recentStocks = allDisposedData.filter(([sid, info]) => {
+            const startDate = parseStartDate(info.period);
+            return startDate && startDate >= cutoff;
+        }).sort((a, b) => {
+            // 依開始日期降序排列（最新的在前面）
+            const da = parseStartDate(a[1].period);
+            const db = parseStartDate(b[1].period);
+            return (db?.getTime() || 0) - (da?.getTime() || 0);
+        });
+
+        if (recentStocks.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        countEl.textContent = `${recentStocks.length} 檔`;
+
+        let html = '';
+        for (const [sid, info] of recentStocks) {
+            const isDanger = (info.measures || '').includes('20分') || (info.measures || '').includes('45分') || (info.measures || '').includes('停止買賣');
+            const chipClass = isDanger ? 'recent-chip danger' : 'recent-chip';
+            const startDate = parseStartDate(info.period);
+            const dateStr = startDate ? `${startDate.getMonth()+1}/${startDate.getDate()}` : '';
+            html += `<div class="${chipClass}" onclick="quickQuery('${sid}')" title="${info.period || ''}">
+                <span class="chip-id">${sid}</span>
+                <span class="chip-name">${info.name || ''}</span>
+                ${dateStr ? `<span class="chip-date">📅${dateStr}起</span>` : ''}
+            </div>`;
+        }
+        area.innerHTML = html;
+    }
+
+    // 離線分享模式偵測:若頁面內嵌 __SHARE_DATA__ 則不走 API
+    const SHARE_DATA = (typeof window !== 'undefined' && window.__SHARE_DATA__) ? window.__SHARE_DATA__ : null;
+    const IS_OFFLINE = !!SHARE_DATA;
+
+    async function loadDisposed() {
+        try {
+            let data;
+            if (IS_OFFLINE) {
+                data = SHARE_DATA.disposed_payload || { disposed: {} };
+            } else {
+                const res = await fetch('/api/disposal/disposed');
+                data = await res.json();
+            }
+
+            if (data.error) {
+                document.getElementById('disposed-area').innerHTML =
+                    `<div class="error-msg">❌ ${data.error}</div>`;
+                document.getElementById('disposed-count').textContent = '錯誤';
+                return;
+            }
+
+            const disposed = data.disposed || {};
+            allDisposedData = Object.entries(disposed).sort((a, b) => a[0].localeCompare(b[0]));
+
+            renderDisposed('all');
+            renderRecentlyAdded();
+        } catch (e) {
+            document.getElementById('disposed-area').innerHTML =
+                `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
+            document.getElementById('disposed-count').textContent = '錯誤';
+        }
+    }
+
+    // 目前選擇的時段模式 (all / 5 / 20),供搜尋框 oninput 沿用
+    let disposedMode = 'all';
+
+    function renderDisposed(mode) {
+        // 若有指定 mode,更新目前模式;否則沿用既有 mode (供搜尋輸入觸發時使用)
+        if (mode) {
+            disposedMode = mode;
+        }
+        const curMode = disposedMode;
+
+        document.getElementById('btn-disp-all').classList.remove('active');
+        document.getElementById('btn-disp-5').classList.remove('active');
+        document.getElementById('btn-disp-20').classList.remove('active');
+        document.getElementById('btn-disp-' + curMode).classList.add('active');
+
+        // 先依時段按鈕過濾
+        let filtered = allDisposedData;
+        if (curMode === '5') {
+            filtered = allDisposedData.filter(([sid, info]) => {
+                const m = info.measures || '';
+                const is5min = m.includes('5分') || m.includes('五分');
+                const isHigher = m.includes('20分') || m.includes('二十分') || m.includes('45分') || m.includes('四十五分') || m.includes('60分') || m.includes('六十分') || m.includes('停止買賣');
+                return is5min && !isHigher;
+            });
+        } else if (curMode === '20') {
+            filtered = allDisposedData.filter(([sid, info]) => {
+                const m = info.measures || '';
+                return m.includes('20分') || m.includes('二十分') || m.includes('45分') || m.includes('四十五分') || m.includes('60分') || m.includes('六十分') || m.includes('停止買賣');
+            });
+        }
+
+        // 再依搜尋字串過濾 (代號或名稱,不分大小寫)
+        const searchEl = document.getElementById('disposed-search');
+        const keyword = (searchEl ? searchEl.value : '').trim().toLowerCase();
+        if (keyword) {
+            filtered = filtered.filter(([sid, info]) => {
+                const id = (sid || '').toLowerCase();
+                const name = (info.name || '').toLowerCase();
+                return id.includes(keyword) || name.includes(keyword);
+            });
+        }
+
+        document.getElementById('disposed-count').textContent = `${filtered.length} 檔`;
+
+        if (filtered.length === 0) {
+            const emptyMsg = keyword
+                ? `查無符合「${keyword}」的處置股票`
+                : '目前無符合此條件的處置股票';
+            document.getElementById('disposed-area').innerHTML =
+                `<div class="empty-state"><div class="icon">✅</div><div>${emptyMsg}</div>
+                 <div style="margin-top:8px;font-size:0.75rem;color:#475569">資料來源:TWSE、TPEx</div></div>`;
+            return;
+        }
+
+        let html = '<div class="disposed-grid">';
+        for (const [sid, info] of filtered) {
+            const sourceClass = (info.source || 'TWSE').toLowerCase();
+            const dc = info.disposal_count || 1;
+            // 處置等級樣式
+            const isSecond = dc >= 2;
+            const isDanger = isSecond ||
+                (info.measures || '').includes('20分') || (info.measures || '').includes('二十分') ||
+                (info.measures || '').includes('45分') || (info.measures || '').includes('停止買賣');
+            const condStyle   = isDanger ? 'color:#ef4444' : 'color:#fbbf24';
+            const borderStyle = isDanger ? 'border-left-color:#ef4444' : 'border-left-color:#f59e0b';
+            const dcBadgeClass = isSecond ? 'second' : 'first';
+            const dcLabel = dc <= 1 ? '第一次' : `第${dc}次`;
+            const triggerHtml = info.trigger_reason
+                ? `<div class="measures" style="color:#94a3b8">🎯 ${info.trigger_reason}</div>` : '';
+
+            html += `
+                <div class="disposed-card" style="${borderStyle}" onclick="quickQuery('${sid}')">
+                    <div class="stock-header">
+                        <div>
+                            <span class="stock-id">${sid}</span>
+                            <span class="stock-name">${info.name || ''}</span>
+                            <span class="disposal-count-badge ${dcBadgeClass}">${dcLabel}處置</span>
+                        </div>
+                        <span class="source-badge ${sourceClass}">${displaySource(info.source)}</span>
+                    </div>
+                    <div class="period">📅 ${info.period || '—'}</div>
+                    ${triggerHtml}
+                    ${info.measures ? `<div class="measures" style="${condStyle}">📋 ${info.measures}</div>` : ''}
+                </div>`;
+        }
+        html += '</div>';
+        document.getElementById('disposed-area').innerHTML = html;
+    }
+
+
+    // ============================================================
+    // Tab 2: 個股查詢
+    // ============================================================
+    function quickQuery(sid) {
+        document.getElementById('stockInput').value = sid;
+        switchTab('query');
+        queryStock();
+    }
+
+    async function queryStock() {
+        const sid = document.getElementById('stockInput').value.trim();
+        if (!sid) return;
+
+        const resultArea = document.getElementById('query-result');
+        const btn = document.getElementById('queryBtn');
+        btn.disabled = true;
+        btn.textContent = '查詢中...';
+        resultArea.innerHTML = `<div class="loading-area"><div class="spinner"></div><div>正在分析 ${sid} 的警示狀態...</div>
+            <div style="margin-top:8px;font-size:0.75rem;color:#475569">首次查詢會觸發全市場掃描，約需 15-30 秒</div></div>`;
+
+        try {
+            let data;
+            if (IS_OFFLINE) {
+                // 離線模式:從內嵌的個股詳細資料表查
+                const reports = SHARE_DATA.stock_reports || {};
+                if (reports[sid]) {
+                    data = reports[sid];
+                } else {
+                    data = { error: `查無股票 ${sid},本份分享檔僅包含處置中與高風險股票的詳細資料。` };
+                }
+            } else {
+                const res = await fetch(`/api/disposal/stock/${sid}`);
+                data = await res.json();
+            }
+
+            if (data.error) {
+                resultArea.innerHTML = `<div class="error-msg">❌ ${data.error}</div>`;
+                btn.disabled = false;
+                btn.textContent = '查詢';
+                return;
+            }
+
+            renderStockReport(data);
+        } catch (e) {
+            resultArea.innerHTML = `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
+        }
+
+        btn.disabled = false;
+        btn.textContent = '查詢';
+    }
+
+    function renderStockReport(data) {
+        const resultArea = document.getElementById('query-result');
+        const price = data.price != null ? data.price.toFixed(2) : '—';
+        const n = data.total_triggered || 0;
+
+        // Summary bar
+        let summaryClass, summaryIcon, summaryText;
+        if (n === 0) {
+            summaryClass = 'safe'; summaryIcon = '✅'; summaryText = '未觸發任何注意交易條款';
+        } else if (n <= 2) {
+            summaryClass = 'warning'; summaryIcon = '⚠️'; summaryText = `觸發 ${n} 項條款 — 建議關注`;
+        } else {
+            summaryClass = 'danger'; summaryIcon = '🚨'; summaryText = `觸發 ${n} 項條款 — 高風險`;
+        }
+
+        // Return badges
+        function retBadge(label, val) {
+            if (val == null) return '';
+            const cls = val > 0 ? 'up' : (val < 0 ? 'down' : 'flat');
+            const sign = val > 0 ? '+' : '';
+            return `<span class="ret-badge ${cls}">${label} ${sign}${val}%</span>`;
+        }
+
+        // Price color
+        const ret6 = data.ret_6d;
+        const priceClass = ret6 > 0 ? 'up' : (ret6 < 0 ? 'down' : 'neutral');
+
+        // Metrics
+        const m = data.metrics || {};
+        let metricsHtml = '';
+        if (Object.keys(m).length > 0) {
+            metricsHtml = '<div class="metrics-row">';
+            if (m.turnover != null) metricsHtml += `<div class="metric-chip"><div class="label">週轉率</div><div class="value">${m.turnover}%</div></div>`;
+            if (m.vol_ratio != null) metricsHtml += `<div class="metric-chip"><div class="label">量比(vs 60日均)</div><div class="value">${m.vol_ratio}x</div></div>`;
+            if (m.pe != null) metricsHtml += `<div class="metric-chip"><div class="label">本益比</div><div class="value">${m.pe}</div></div>`;
+            if (m.pbr != null) metricsHtml += `<div class="metric-chip"><div class="label">股價淨值比</div><div class="value">${m.pbr}</div></div>`;
+            if (m.volume != null) metricsHtml += `<div class="metric-chip"><div class="label">成交量(股)</div><div class="value">${Number(m.volume).toLocaleString()}</div></div>`;
+            metricsHtml += '</div>';
+        }
+
+        // Condition grid
+        let condHtml = '<div class="cond-grid">';
+        for (let i = 1; i <= 13; i++) {
+            const c = CONDITIONS[i];
+            const val = data.all_conditions[String(i)];
+            let cls, statusText, icon;
+            if (c.skip || val === null) {
+                cls = 'skipped'; statusText = '略過'; icon = '⏭️';
+            } else if (val) {
+                cls = 'triggered'; statusText = '⚠️ 觸發'; icon = '';
+            } else {
+                cls = 'safe'; statusText = '✅ 安全'; icon = '';
+            }
+            condHtml += `
+                <div class="cond-card ${cls}">
+                    <div class="cond-num">${icon} 第${i}款</div>
+                    <div class="cond-name">${c.name}</div>
+                    <div class="cond-status">${statusText}</div>
+                </div>`;
+        }
+        condHtml += '</div>';
+
+        resultArea.innerHTML = `
+            <div class="glass report-card">
+                <div class="report-header">
+                    <div class="left">
+                        <div class="stock-id">${data.stock_id}</div>
+                        <div class="stock-name">${data.name}</div>
+                    </div>
+                    <div class="right">
+                        <div class="price ${priceClass}">${price}</div>
+                        <div class="returns">
+                            ${retBadge('6D', data.ret_6d)}
+                            ${retBadge('30D', data.ret_30d)}
+                            ${retBadge('60D', data.ret_60d)}
+                            ${retBadge('90D', data.ret_90d)}
+                        </div>
+                    </div>
+                </div>
+                <div class="summary-bar ${summaryClass}">
+                    <span style="font-size:1.2rem">${summaryIcon}</span>
+                    <span>${summaryText}</span>
+                </div>
+                ${condHtml}
+                ${metricsHtml}
+            </div>`;
+    }
+
+    // ============================================================
+    // Tab 3: 高風險一覽
+    // ============================================================
+    async function startScan(refresh = false) {
+        const btn = document.getElementById('scanBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const resultsArea = document.getElementById('scan-results');
+
+        // 離線模式:直接從內嵌資料載入,不打 API、不顯示 loading
+        if (IS_OFFLINE) {
+            const data = SHARE_DATA.scan_payload;
+            if (!data || data.error) {
+                resultsArea.innerHTML = `<div class="error-msg">❌ ${(data && data.error) || '本份分享檔未包含掃描資料'}</div>`;
+                return;
+            }
+            scanData = data;
+            renderScanResults(data);
+            btn.style.display = 'none';
+            refreshBtn.style.display = 'none';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '⏳ 掃描中...';
+
+        resultsArea.innerHTML = `
+            <div class="loading-area">
+                <div class="spinner"></div>
+                <div>正在載入資料並執行全條款掃描...</div>
+                <div class="progress-bar"><div class="fill" style="width:60%"></div></div>
+                <div style="font-size:0.75rem;color:#475569;margin-top:8px">
+                    首次掃描需下載歷史資料,約 15-30 秒<br>後續查詢使用快取,約 1 秒
+                </div>
+            </div>`;
+
+        try {
+            const url = refresh ? '/api/disposal/scan?refresh=true' : '/api/disposal/scan';
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.error) {
+                resultsArea.innerHTML = `<div class="error-msg">❌ ${data.error}</div>`;
+                btn.disabled = false;
+                btn.textContent = '🚀 開始掃描';
+                return;
+            }
+
+            scanData = data;
+            renderScanResults(data);
+            refreshBtn.style.display = 'inline-block';
+        } catch (e) {
+            resultsArea.innerHTML = `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
+        }
+
+        btn.disabled = false;
+        btn.textContent = '🚀 開始掃描';
+    }
+
+    function renderScanResults(data) {
+        const resultsArea = document.getElementById('scan-results');
+        const stocks = data.stocks || [];
+        const byCond = data.by_condition || {};
+
+        // Stats
+        let statsHtml = `
+            <div class="scan-stats">
+                <div class="stat-card">
+                    <div class="stat-value">${data.total_flagged || 0}</div>
+                    <div class="stat-label">觸發警示</div>
+                </div>`;
+
+        // Top conditions
+        const condEntries = Object.entries(byCond).sort((a,b) => b[1] - a[1]).slice(0, 5);
+        for (const [cNum, cnt] of condEntries) {
+            const cInfo = CONDITIONS[Number(cNum)] || {};
+            statsHtml += `
+                <div class="stat-card" style="cursor:pointer" onclick="toggleFilter(${cNum})">
+                    <div class="stat-value" style="font-size:1.2rem;color:#f87171">${cnt}</div>
+                    <div class="stat-label">第${cNum}款</div>
+                </div>`;
+        }
+        statsHtml += '</div>';
+
+        // Filter buttons
+        let filterHtml = '<div class="filter-row">';
+        filterHtml += `<button class="filter-btn ${activeFilter===null?'active':''}" onclick="toggleFilter(null)">全部</button>`;
+        for (let i = 1; i <= 13; i++) {
+            if (i === 5 || i === 8) continue;
+            const cnt = byCond[String(i)] || 0;
+            if (cnt === 0) continue;
+            filterHtml += `<button class="filter-btn ${activeFilter===i?'active':''}" onclick="toggleFilter(${i})">第${i}款 (${cnt})</button>`;
+        }
+        filterHtml += '</div>';
+
+        // Filter stocks
+        let filtered = stocks;
+        if (activeFilter !== null) {
+            filtered = stocks.filter(s => s.conditions.includes(activeFilter));
+        }
+
+        // Sort
+        filtered = [...filtered].sort((a, b) => {
+            let va = a[sortCol], vb = b[sortCol];
+            if (va == null) va = -Infinity;
+            if (vb == null) vb = -Infinity;
+            return sortAsc ? va - vb : vb - va;
+        });
+
+        // Table
+        let tableHtml = `
+            <div class="table-wrapper">
+            <table class="results-table">
+                <thead>
+                    <tr>
+                        <th onclick="sortBy('stock_id')" style="text-align:left">代號 ↕</th>
+                        <th onclick="sortBy('name')" style="text-align:left">名稱 ↕</th>
+                        <th onclick="sortBy('price')" style="text-align:right">收盤價 ↕</th>
+                        <th onclick="sortBy('ret_6d')" style="text-align:right">6日漲跌% ↕</th>
+                        <th style="text-align:left">觸發條款</th>
+                        <th onclick="sortBy('count')" style="text-align:center">觸發數 ↕</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        if (filtered.length === 0) {
+            tableHtml += `<tr><td colspan="6" style="text-align:center;padding:30px;color:#475569">無符合條件的股票</td></tr>`;
+        }
+
+        for (const s of filtered) {
+            const retClass = s.ret_6d > 0 ? 'up' : (s.ret_6d < 0 ? 'down' : 'neutral');
+            const retStr = s.ret_6d != null ? `${s.ret_6d > 0 ? '+' : ''}${s.ret_6d}%` : '—';
+            const priceStr = s.price != null ? s.price.toFixed(2) : '—';
+
+            let badges = '<div class="cond-badges">';
+            for (const c of s.conditions) {
+                badges += `<span class="cond-badge c${c}" title="第${c}款: ${(CONDITIONS[c]||{}).name||''}">${c}</span>`;
+            }
+            badges += '</div>';
+
+            tableHtml += `
+                <tr onclick="quickQuery('${s.stock_id}')">
+                    <td style="font-weight:700;color:#f8fafc">${s.stock_id}</td>
+                    <td style="color:#94a3b8">${s.name}</td>
+                    <td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${priceStr}</td>
+                    <td style="text-align:right;font-weight:600" class="${retClass}">${retStr}</td>
+                    <td>${badges}</td>
+                    <td style="text-align:center;font-weight:800;color:#fbbf24">${s.count}</td>
+                </tr>`;
+        }
+
+        tableHtml += '</tbody></table></div>';
+
+        resultsArea.innerHTML = `
+            ${statsHtml}
+            <div style="margin-top:20px">
+                ${filterHtml}
+                ${tableHtml}
+            </div>
+            <div style="text-align:right;font-size:0.7rem;color:#475569;margin-top:12px">
+                掃描日期：${data.scan_date || '—'} | 第5、8款因資料限制略過
+            </div>`;
+    }
+
+    function toggleFilter(condNum) {
+        activeFilter = (activeFilter === condNum) ? null : condNum;
+        if (scanData) renderScanResults(scanData);
+    }
+
+    function sortBy(col) {
+        if (sortCol === col) {
+            sortAsc = !sortAsc;
+        } else {
+            sortCol = col;
+            sortAsc = (col === 'stock_id' || col === 'name');
+        }
+        if (scanData) renderScanResults(scanData);
+    }
+
+    // ============================================================
+    // Tab 2: 注意股預警
+    // ============================================================
+    let allAttentionData = [];  // [ [stock_id, info], ... ]
+    let attnFilter = 'all';
+    let attnLoaded = false;
+
+    let attentionWs = null;
+    let attentionWsRetryTimer = null;
+
+    function updateAttnWsStatus(status) {
+        const dot = document.getElementById('attn-ws-dot');
+        const text = document.getElementById('attn-ws-text');
+        if (!dot || !text) return;
+
+        if (status === 'connected') {
+            dot.style.background = '#10b981';
+            dot.style.boxShadow = '0 0 8px #10b981';
+            text.textContent = '即時價格已連線';
+            text.style.color = '#a3e635';
+        } else if (status === 'connecting') {
+            dot.style.background = '#f59e0b';
+            dot.style.boxShadow = '0 0 8px #f59e0b';
+            text.textContent = '即時價格連線中';
+            text.style.color = '#fbbf24';
+        } else {
+            dot.style.background = '#475569';
+            dot.style.boxShadow = 'none';
+            text.textContent = '即時價格未連線';
+            text.style.color = '#64748b';
+        }
+    }
+
+    function setupAttentionWebSocket() {
+        if (attentionWs) {
+            try { attentionWs.close(); } catch(e) {}
+            attentionWs = null;
+        }
+        if (attentionWsRetryTimer) {
+            clearTimeout(attentionWsRetryTimer);
+            attentionWsRetryTimer = null;
+        }
+
+        const symbols = allAttentionData.map(([sid]) => sid).filter(sid => sid);
+        if (symbols.length === 0) {
+            updateAttnWsStatus('disconnected');
+            return;
+        }
+
+        updateAttnWsStatus('connecting');
+
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${proto}//${window.location.host}/ws/${symbols.join(',')}?trades_only=true`;
+        console.log("[Attention WS] Connecting to:", wsUrl);
+
+        attentionWs = new WebSocket(wsUrl);
+
+        attentionWs.onopen = () => {
+            console.log("[Attention WS] Connected!");
+            updateAttnWsStatus('connected');
+        };
+
+        attentionWs.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.event === 'data' && msg.channel === 'trades' && msg.data) {
+                    const d = msg.data;
+                    const sym = d.symbol;
+                    let price = d.price;
+                    if (price === undefined && Array.isArray(d.trades) && d.trades.length > 0) {
+                        price = d.trades[d.trades.length - 1].price;
+                    }
+                    if (price === undefined) return;
+                    price = parseFloat(price);
+
+                    // 尋找對應的股票並更新現價與可達性
+                    const idx = allAttentionData.findIndex(([sid]) => sid === sym);
+                    if (idx !== -1) {
+                        const info = allAttentionData[idx][1];
+                        info.close = price.toFixed(2);
+                        if (info.trigger_calc) {
+                            const tc = info.trigger_calc;
+                            tc.p_today = price;
+                            // 重新計算百分比距離
+                            tc.up_pct = Math.round(((tc.trigger_up / price) - 1) * 10000) / 100;
+                            tc.down_pct = tc.trigger_down ? (Math.round(((tc.trigger_down / price) - 1) * 10000) / 100) : null;
+                            tc.is_up_reachable = tc.trigger_up <= tc.up_limit;
+                            tc.is_down_reachable = tc.trigger_down ? (tc.trigger_down >= tc.down_limit) : false;
+                        }
+                        
+                        // 重新渲染以更新進度條與可達性標籤
+                        renderAttention();
+                    }
+                }
+            } catch(e) {
+                console.error("[Attention WS] Message parsing error:", e);
+            }
+        };
+
+        attentionWs.onclose = () => {
+            console.log("[Attention WS] Disconnected. Reconnecting in 5s...");
+            updateAttnWsStatus('disconnected');
+            attentionWsRetryTimer = setTimeout(() => setupAttentionWebSocket(), 5000);
+        };
+
+        attentionWs.onerror = (e) => {
+            console.error("[Attention WS] Error:", e);
+            updateAttnWsStatus('disconnected');
+        };
+    }
+
+    function setAttnFilter(f) {
+        attnFilter = f;
+        ['all','red','orange','yellow'].forEach(k => {
+            const btn = document.getElementById('attnf-' + k);
+            if (!btn) return;
+            btn.classList.remove('active');
+        });
+        const activeBtn = document.getElementById('attnf-' + f);
+        if (activeBtn) activeBtn.classList.add('active');
+        renderAttention();
+    }
+
+    async function loadAttention(force = false) {
+        if (attnLoaded && !force) return;
+        const area = document.getElementById('attention-area');
+        const btn  = document.getElementById('attnRefreshBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '載入中...'; }
+        area.innerHTML = `<div class="loading-area"><div class="spinner"></div><div>正在查詢 TWSE / TPEx 注意股清單...</div></div>`;
+
+        try {
+            const res  = await fetch('/api/disposal/attention');
+            const data = await res.json();
+            if (data.error) {
+                area.innerHTML = `<div class="error-msg">❌ ${data.error}</div>`;
+                return;
+            }
+            const attention = data.attention || {};
+            allAttentionData = Object.entries(attention).sort((a, b) => {
+                // 排序：紅色 > 橙色 > 黃色 > 綠色
+                const order = {red:0, orange:1, yellow:2, green:3};
+                const ra = order[(a[1].risk||{}).level] ?? 9;
+                const rb = order[(b[1].risk||{}).level] ?? 9;
+                return ra !== rb ? ra - rb : a[0].localeCompare(b[0]);
+            });
+
+            // 更新 Summary Stats
+            const cnts = {red:0, orange:0, yellow:0, green:0};
+            for (const [, info] of allAttentionData) {
+                const lv = (info.risk || {}).level || 'green';
+                cnts[lv] = (cnts[lv] || 0) + 1;
+            }
+            document.getElementById('attn-cnt-red').textContent    = cnts.red;
+            document.getElementById('attn-cnt-orange').textContent  = cnts.orange;
+            document.getElementById('attn-cnt-yellow').textContent  = cnts.yellow;
+            document.getElementById('attn-cnt-total').textContent   = allAttentionData.length;
+
+            // 更新時間
+            const timeEl = document.getElementById('attn-update-time');
+            if (timeEl && data.fetch_time) {
+                const ft = new Date(data.fetch_time);
+                timeEl.textContent = `更新：${ft.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'})}`;
+            }
+
+            attnLoaded = true;
+            renderAttention();
+            setupAttentionWebSocket();
+        } catch(e) {
+            area.innerHTML = `<div class="error-msg">❌ 連線失敗: ${e.message}</div>`;
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🔄 重新載入'; }
+        }
+    }
+
+    function renderAttention() {
+        const area    = document.getElementById('attention-area');
+        const keyword = (document.getElementById('attn-search')?.value || '').trim().toLowerCase();
+
+        let filtered = allAttentionData;
+
+        // 依風險等級篩選
+        if (attnFilter !== 'all') {
+            filtered = filtered.filter(([, info]) => (info.risk || {}).level === attnFilter);
+        }
+        // 依關鍵字篩選
+        if (keyword) {
+            filtered = filtered.filter(([sid, info]) =>
+                (sid || '').toLowerCase().includes(keyword) ||
+                (info.name || '').toLowerCase().includes(keyword)
+            );
+        }
+
+        if (filtered.length === 0) {
+            area.innerHTML = `<div class="empty-state"><div class="icon">✅</div>
+                <div>${attnLoaded ? (keyword ? `查無「${keyword}」的注意股票` : '今日無此風險等級的注意股票') : '請稍後，資料載入中...'}</div>
+                <div style="margin-top:8px;font-size:0.75rem;color:#475569">注意股資料在每個交易日盤後 17:30 更新，假日或休市日無資料</div>
+            </div>`;
+            return;
+        }
+
+        const levelConfig = {
+            red:    { icon: '🚨', cls: 'risk-red',    badge: 'red',    label: '即將處置' },
+            orange: { icon: '⚠️', cls: 'risk-orange',  badge: 'orange', label: '高度警戒' },
+            yellow: { icon: '🟡', cls: 'risk-yellow',  badge: 'yellow', label: '注意中' },
+            green:  { icon: '✅', cls: 'risk-green',   badge: 'green',  label: '觀察' },
+        };
+
+        let html = '<div class="attention-grid">';
+        for (const [sid, info] of filtered) {
+            const risk    = info.risk || {};
+            const lv      = risk.level || 'yellow';
+            const cfg     = levelConfig[lv] || levelConfig.yellow;
+            const src     = (info.source || 'TWSE').toLowerCase();
+            const srcDisp = info.source || 'TWSE';
+
+            // 倒數提示
+            let countdownHtml = '';
+            const dl = risk.days_left;
+            if (dl !== undefined && dl < 99) {
+                if (dl <= 0) {
+                    countdownHtml = `<span class="countdown-pill urgent">⏱️ 明日即處置</span>`;
+                } else if (dl === 1) {
+                    countdownHtml = `<span class="countdown-pill warn">⏱️ 再 ${dl} 次即處置</span>`;
+                } else {
+                    countdownHtml = `<span class="countdown-pill ok">⏱️ 再 ${dl} 次達門檻</span>`;
+                }
+            }
+
+            // 注意資訊截短顯示
+            const infoText = (info.info || '').replace(/<[^>]+>/g, '').trim();
+            const infoHtml = infoText
+                ? `<div class="attn-info-text" title="${infoText.replace(/"/g,'&quot;')}">${infoText}</div>` : '';
+
+            // 預估明日處置觸發價 UI
+            let triggerHtml = '';
+            if (info.trigger_calc) {
+                const tc = info.trigger_calc;
+                const pToday = tc.p_today;
+                const upLimit = tc.up_limit;
+                const downLimit = tc.down_limit;
+                const trigUp = tc.trigger_up;
+                const trigDown = tc.trigger_down;
+                const isUpReachable = tc.is_up_reachable;
+                const isDownReachable = tc.is_down_reachable;
+                const upPct = tc.up_pct;
+                const downPct = tc.down_pct;
+
+                // 可達性 Badge & 提示
+                let reachBadge = '';
+                if (isUpReachable) {
+                    if (upPct <= 0) {
+                        reachBadge = `<span class="reach-badge triggered">🔥 已在觸發區 (臨界 ${trigUp})</span>`;
+                    } else if (upPct <= 5.0) {
+                        reachBadge = `<span class="reach-badge warning">⚡ 高機率觸發 (+${upPct}%)</span>`;
+                    } else {
+                        reachBadge = `<span class="reach-badge active">🎯 可達觸發 (+${upPct}%)</span>`;
+                    }
+                } else if (isDownReachable) {
+                    reachBadge = `<span class="reach-badge active">📉 下跌觸發 (${downPct}%)</span>`;
+                } else {
+                    reachBadge = `<span class="reach-badge unreachable">❄️ 明日安全 (漲停不觸發)</span>`;
+                }
+
+                // 計算進度條比例位置
+                const totalRange = upLimit - downLimit;
+                let todayPct = totalRange > 0 ? ((pToday - downLimit) / totalRange) * 100 : 50;
+                todayPct = Math.max(0, Math.min(100, todayPct)); // limit to [0, 100]
+
+                let trigPct = totalRange > 0 ? ((trigUp - downLimit) / totalRange) * 100 : 50;
+                trigPct = Math.max(0, Math.min(100, trigPct));
+
+                let trigDownPct = (trigDown && totalRange > 0) ? ((trigDown - downLimit) / totalRange) * 100 : 0;
+                trigDownPct = Math.max(0, Math.min(100, trigDownPct));
+
+                // 繪製橫向進度條
+                let progressBarHtml = `
+                    <div class="trigger-progress-container" style="margin-top: 10px;">
+                        <div class="progress-labels">
+                            <span class="limit-label down">跌停 ${downLimit}</span>
+                            <span class="current-price-label" style="left: calc(${todayPct}% - 15px)">現 ${pToday}</span>
+                            <span class="limit-label up">漲停 ${upLimit}</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <!-- 觸發危險區高亮背景 (從上漲觸發價到漲停) -->
+                            ${isUpReachable ? `<div class="danger-zone-bg" style="left: ${trigPct}%; width: ${100 - trigPct}%;"></div>` : ''}
+                            <!-- 下跌觸發危險區高亮背景 (從跌停到下跌觸發價) -->
+                            ${isDownReachable && trigDown ? `<div class="danger-zone-bg" style="left: 0%; width: ${trigDownPct}%; background: rgba(239,68,68,0.25);"></div>` : ''}
+                            <!-- 今日收盤價指示點 -->
+                            <div class="current-price-pin" style="left: ${todayPct}%"></div>
+                            <!-- 上漲觸發價刻度線 -->
+                            ${isUpReachable ? `<div class="trigger-pin" style="left: ${trigPct}%" title="上漲觸發價：${trigUp}"></div>` : ''}
+                            <!-- 下跌觸發價刻度線 -->
+                            ${isDownReachable && trigDown ? `<div class="trigger-pin" style="left: ${trigDownPct}%; background: #ef4444;" title="下跌觸發價：${trigDown}"></div>` : ''}
+                        </div>
+                        <div class="progress-bottom-labels" style="margin-top: 2px;">
+                            ${isUpReachable 
+                                ? `<span class="trigger-label" style="left: calc(${trigPct}% - 25px)">⚠️ 觸發價 ${trigUp}</span>` 
+                                : (isDownReachable && trigDown 
+                                    ? `<span class="trigger-label" style="left: calc(${trigDownPct}% - 25px); color: #f43f5e;">⚠️ 下跌觸發價 ${trigDown}</span>`
+                                    : `<span class="trigger-label unreachable">漲停亦不觸發 (臨界價 ${trigUp})</span>`
+                                )
+                            }
+                        </div>
+                    </div>
+                `;
+
+                triggerHtml = `
+                    <div class="trigger-info-section" style="margin-top:10px; padding-top:8px; border-top:1px dashed #334155;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:0.75rem; color:#94a3b8; font-weight:500;">明日注意預估臨界：</span>
+                            ${reachBadge}
+                        </div>
+                        ${progressBarHtml}
+                    </div>
+                `;
+            }
+
+            html += `
+                <div class="attention-card ${cfg.cls}" onclick="quickQuery('${sid}')">
+                    <div class="stock-header">
+                        <div>
+                            <span class="stock-id">${sid}</span>
+                            <span class="stock-name">${info.name || ''}</span>
+                        </div>
+                        <span class="source-badge ${src}">${srcDisp}</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;">
+                        <span class="risk-badge ${cfg.badge}">${cfg.icon} ${risk.label || cfg.label}</span>
+                        ${info.acc_text ? `<span style="color:#64748b; font-size:0.72rem;">${info.acc_text}</span>` : ''}
+                    </div>
+                    ${countdownHtml}
+                    ${info.date ? `<div class="period" style="margin-top:6px;">📅 注意日期：${info.date}</div>` : ''}
+                    ${info.close ? `<div style="margin-top:4px; font-size:0.8rem; color:#94a3b8;">收盤：<span style="color:#f1f5f9; font-weight:700;">${info.close}</span>${info.pe && info.pe!='N/A' ? ` &nbsp;本益比：${info.pe}` : ''}</div>` : ''}
+                    ${triggerHtml}
+                    ${infoHtml}
+                </div>`;
+        }
+        html += '</div>';
+        area.innerHTML = html;
+    }
+
+    // ============================================================
+    // Tab Switching (override to lazy-load attention)
+    // ============================================================
+    const _origSwitchTab = switchTab;
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        document.getElementById('content-' + tab).classList.add('active');
+        // 切到注意股預警 Tab 時自動載入
+        if (tab === 'attention' && !attnLoaded) {
+            loadAttention();
+        }
+    }
+
+    // ============================================================
+    // Init
+    // ============================================================
+    document.getElementById('stockInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') queryStock();
+    });
+
+    // ============================================================
+    // 離線分享模式啟動處理
+    // ============================================================
+    if (IS_OFFLINE) {
+        // 1. 頁面上方插入「離線分享版 / 產出時間」橫幅
+        const gen = SHARE_DATA.generated_at || '';
+        const banner = document.createElement('div');
+        banner.style.cssText = 'max-width:1200px;margin:0 auto 16px;padding:10px 16px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#fcd34d;font-size:0.85rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;';
+        banner.innerHTML = `<span>📦 離線分享版 — 資料為快照,非即時</span><span style="color:#94a3b8">產出時間:${gen || '—'}</span>`;
+        document.body.insertBefore(banner, document.body.firstChild);
+
+        // 2. 自動載入「高風險一覽」資料(切到該分頁時不需要按按鈕)
+        if (SHARE_DATA.scan_payload && !SHARE_DATA.scan_payload.error) {
+            scanData = SHARE_DATA.scan_payload;
+            renderScanResults(scanData);
+            const scanBtn = document.getElementById('scanBtn');
+            const refreshBtn = document.getElementById('refreshBtn');
+            if (scanBtn) scanBtn.style.display = 'none';
+            if (refreshBtn) refreshBtn.style.display = 'none';
+        }
+    }
+
+    // Auto-load disposed stocks on page load
+    loadDisposed();
+</script>
+
+<!-- SPA Engine Interceptor -->
+<script>
+    document.addEventListener('click', e => {
+        const a = e.target.closest('a[href^="/"]');
+        if (a && window.parent !== window) {
+            e.preventDefault();
+            window.parent.postMessage({type:'NAVIGATE', path: a.getAttribute('href')}, '*');
+        }
+    });
+</script>
+</body>
+
+</html>

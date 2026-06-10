@@ -219,9 +219,9 @@ def bool_series(index, val=False):
 # 第1款：近6日累積漲跌幅異常
 # ============================================================
 def cond_1(close, company):
-    if len(close) < 6:
+    if len(close) < 7:
         return bool_series(close.columns)
-    ret, p0, p1, sc, avg_all, iavg = prep_ret(close.iloc[-6:], company)
+    ret, p0, p1, sc, avg_all, iavg = prep_ret(close.iloc[-7:], company)
     gap      = (p1 - p0).abs()
     a_ok     = all_diff_ok(ret, avg_all, C1_DIFF, sc)
     i_ok     = ind_diff_ok(ret, iavg, C1_DIFF, sc)
@@ -238,9 +238,9 @@ def cond_2(close, company):
     p_ref   = close.iloc[-2]
 
     def _one_period(n_days, base_thr, low_thr):
-        if len(close) < n_days:
+        if len(close) < n_days + 1:
             return bool_series(close.columns)
-        ret, _, p1, sc, avg_all, iavg = prep_ret(close.iloc[-n_days:], company)
+        ret, _, p1, sc, avg_all, iavg = prep_ret(close.iloc[-(n_days+1):], company)
         thr = pd.Series(base_thr, index=ret.index)
         thr[p1 < MIN_PRICE] = low_thr
         a_ok  = all_diff_ok(ret, avg_all, C2_DIFF, sc)
@@ -262,7 +262,7 @@ def cond_2(close, company):
 def cond_3(close, volume, company):
     if volume is None or len(close) < 60:
         return bool_series(close.columns)
-    ret, _, p1, sc, avg_all, iavg = prep_ret(close.iloc[-6:], company)
+    ret, _, p1, sc, avg_all, iavg = prep_ret(close.iloc[-7:], company)
     vol_today  = volume.iloc[-1].reindex(ret.index)
     vol_60_avg = volume.iloc[-60:].mean().reindex(ret.index)
     vol_ratio  = (vol_today / vol_60_avg.replace(0, np.nan))
@@ -281,9 +281,9 @@ def cond_3(close, volume, company):
 # 第4款：漲跌幅異常 + 週轉率過高
 # ============================================================
 def cond_4(close, turnover, company):
-    if turnover is None or len(close) < 6:
+    if turnover is None or len(close) < 7:
         return bool_series(close.columns)
-    ret, _, _, sc, avg_all, iavg = prep_ret(close.iloc[-6:], company)
+    ret, _, _, sc, avg_all, iavg = prep_ret(close.iloc[-7:], company)
     turn_today   = turnover.iloc[-1].reindex(ret.index)
     avg_turn_all = turnover.iloc[-1].mean()
     ret_ok = (ret.abs() > C4_RET)
@@ -332,9 +332,9 @@ def cond_6(close, pe, pbr, turnover, volume, company):
 def cond_7(close, mg_buy, mg_sell, mg_buy_rate, mg_sell_rate, company):
     if any(x is None for x in [mg_buy, mg_sell, mg_buy_rate, mg_sell_rate]):
         return bool_series(close.columns)
-    if len(close) < 6:
+    if len(close) < 7:
         return bool_series(close.columns)
-    ret, _, _, sc, avg_all, iavg = prep_ret(close.iloc[-6:], company)
+    ret, _, _, sc, avg_all, iavg = prep_ret(close.iloc[-7:], company)
     buy_prev  = mg_buy.iloc[-2].reindex(ret.index)
     sell_prev = mg_sell.iloc[-2].reindex(ret.index)
     mr_prev = (sell_prev / buy_prev.replace(0, np.nan)) * 100
@@ -673,8 +673,8 @@ def _calc_tomorrow_trigger_info(stock_id: str, close: pd.DataFrame, company: pd.
         # ────────────────────────────────────────────────────────
         # 1. 條款 1 (6日累積漲跌幅)
         # ────────────────────────────────────────────────────────
-        # 明日為第 6 日， return 起點為今日往回第 4 天（即 iloc[-5]）
-        p_start_6 = float(series.iloc[-5])
+        # 明日為第 6 日， return 起點為今日往回第 5 天（即 iloc[-6]）
+        p_start_6 = float(series.iloc[-6])
         
         # 1A: |R| > 30%
         c1a_up = p_start_6 * 1.30
@@ -695,8 +695,8 @@ def _calc_tomorrow_trigger_info(stock_id: str, close: pd.DataFrame, company: pd.
         # ────────────────────────────────────────────────────────
         # 2. 條款 2 (30日累積漲跌幅)
         # ────────────────────────────────────────────────────────
-        # 明日為第 30 日， return 起點為今日往回第 28 天（即 iloc[-29]）
-        p_start_30 = float(series.iloc[-29])
+        # 明日為第 30 日， return 起點為今日往回第 29 天（即 iloc[-30]）
+        p_start_30 = float(series.iloc[-30])
         # 30日: |R| > 100%
         trigger_30_up = p_start_30 * 2.0
         trigger_30_up_rounded = round_tick(trigger_30_up, 'up')
@@ -1238,9 +1238,9 @@ def _get_stock_name(stock_id, company):
 
 def _calc_ret(close, stock_id, days):
     try:
-        if len(close) < days:
+        if len(close) < days + 1:
             return None
-        p0 = close.iloc[-days].get(stock_id, None)
+        p0 = close.iloc[-(days+1)].get(stock_id, None)
         p1 = close.iloc[-1].get(stock_id, None)
         if p0 is not None and p1 is not None and not np.isnan(p0) and not np.isnan(p1) and p0 > 0:
             return round(float((p1 / p0 - 1) * 100), 2)
