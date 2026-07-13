@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔥 產業熱力圖 | Sector Heatmap</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: #0a0e1a;
+            background-image:
+                radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.2) 0%, transparent 55%),
+                radial-gradient(ellipse at 80% 100%, rgba(236, 72, 153, 0.18) 0%, transparent 55%);
+            color: #f8fafc;
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 30px 20px 60px; }
+
+        /* === Header === */
+        .page-header { text-align: center; margin-bottom: 28px; }
+        .page-header h1 {
+            font-size: 2.6rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, #ff8a00, #e52e71);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+            margin-bottom: 4px;
+        }
+        .page-header p { color: #64748b; font-size: 0.9rem; }
+        .nav-links {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+        .nav-link {
+            color: #818cf8;
+            text-decoration: none;
+            font-size: 0.82rem;
+            border: 1px solid rgba(129,140,248,0.3);
+            padding: 4px 14px;
+            border-radius: 20px;
+            transition: all 0.2s ease;
+            background: rgba(15,23,42,0.6);
+            backdrop-filter: blur(4px);
+        }
+        .nav-link:hover { background: rgba(129,140,248,0.15); border-color: rgba(129,140,248,0.6); transform: translateY(-1px); }
+        .nav-link.green { color: #34d399; border-color: rgba(52,211,153,0.3); }
+        .nav-link.green:hover { background: rgba(52,211,153,0.15); border-color: rgba(52,211,153,0.6); }
+        .nav-link.amber { color: #fbbf24; border-color: rgba(251,191,36,0.3); }
+        .nav-link.amber:hover { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.6); }
+
+        .status-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            font-size: 0.85rem;
+            background: rgba(15,23,42,0.6);
+            padding: 8px 20px;
+            border-radius: 30px;
+            border: 1px solid rgba(255,255,255,0.05);
+            width: fit-content;
+            margin-left: auto;
+            margin-right: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            backdrop-filter: blur(8px);
+        }
+        .live-indicator { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+        .live-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #64748b; transition: all 0.3s;
+        }
+        .live-dot.connected {
+            background: #4ade80;
+            box-shadow: 0 0 8px #4ade80, 0 0 12px #4ade80;
+            animation: pulse 1.5s infinite alternate;
+        }
+        @keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
+
+        /* === Heatmap Grid === */
+        .heatmap-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .sector-card {
+            background: rgba(15,23,42,0.6);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .sector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 8px;
+        }
+
+        .sector-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        .sector-avg {
+            font-size: 1rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+
+        .tickers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+            gap: 8px;
+        }
+
+        .ticker-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 4px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, filter 0.2s ease;
+            color: white;
+            text-shadow: 0px 1px 2px rgba(0,0,0,0.5);
+            min-height: 60px;
+        }
+
+        .ticker-card:hover {
+            transform: scale(1.05);
+            filter: brightness(1.2);
+            z-index: 10;
+        }
+
+        .ticker-symbol {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+
+        .ticker-price {
+            font-size: 0.9rem;
+            margin-top: 2px;
+        }
+
+        .ticker-pct {
+            font-size: 0.75rem;
+            opacity: 0.8;
+            margin-top: 1px;
+        }
+
+        /* Loading */
+        #loading {
+            text-align: center;
+            padding: 50px;
+            color: #94a3b8;
+            font-size: 1.2rem;
+            grid-column: 1 / -1;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header class="page-header">
+        <h1>🔥 Sector Heatmap</h1>
+        <p>即時產業熱力圖 - Live Sector Performance Tracker</p>
+        <div class="nav-links">
+            <a href="/" class="nav-link">🏠 回首頁</a>
+            <a href="/options" class="nav-link">📊 選擇權看板</a>
+            <a href="/etf0050" class="nav-link green">💹 ETF iNAV</a>
+            <a href="/disposal" class="nav-link amber">⚠️ 處置偵測</a>
+            <a href="/queue" class="nav-link" style="color:#22d3ee;border-color:rgba(34,211,238,0.3)">⏱️ 洗價排隊</a>
+        </div>
+    </header>
+
+    <div class="status-bar">
+        <div class="live-indicator">
+            <div id="liveIndicator" class="live-dot"></div>
+            <span id="statusText" style="color:#64748b">Connecting...</span>
+        </div>
+        <div style="color:#94a3b8">Sectors: <span id="sectorCount" style="color:#e2e8f0;font-weight:700">0</span></div>
+        <div style="color:#94a3b8">Tickers: <span id="tickerCount" style="color:#e2e8f0;font-weight:700">0</span></div>
+        <div style="display:flex; background:rgba(255,255,255,0.05); border-radius:20px; padding:2px; margin-left:15px; border:1px solid rgba(255,255,255,0.1)">
+            <button id="btn-daily" onclick="setMode('daily')" style="border:none; border-radius:20px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold; background:#818cf8; color:#fff; transition:0.3s">今日總計</button>
+            <button id="btn-5m" onclick="setMode('5m')" style="border:none; border-radius:20px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold; background:transparent; color:#94a3b8; transition:0.3s">近5分鐘</button>
+        </div>
+    </div>
+
+    <div id="heatmapContainer" class="heatmap-container">
+        <div id="loading">載入產業資料中... Loading sector data...</div>
+    </div>
+</div>
+
+<script>
+    const statusText = document.getElementById('statusText');
+    const liveIndicator = document.getElementById('liveIndicator');
+    const heatmapContainer = document.getElementById('heatmapContainer');
+    
+    let ws = null;
+    let wsRetryCount = 0;
+    const WS_MAX_RETRIES = 10;
+    const WS_BASE_DELAY = 1000;
+    const WS_MAX_DELAY = 30000;
+    
+    let sectorsData = {};
+    let sharesData = {};
+    let allTickers = [];
+    let viewMode = 'daily';
+    let momentumData = {};
+    
+    function setMode(mode) {
+        viewMode = mode;
+        document.getElementById('btn-daily').style.background = mode === 'daily' ? '#818cf8' : 'transparent';
+        document.getElementById('btn-daily').style.color = mode === 'daily' ? '#fff' : '#94a3b8';
+        
+        document.getElementById('btn-5m').style.background = mode === '5m' ? '#ec4899' : 'transparent';
+        document.getElementById('btn-5m').style.color = mode === '5m' ? '#fff' : '#94a3b8';
+        
+        // Immediately fetch and update
+        updateSectors();
+    }
+    let quotes = {}; // sym -> { price, prev, name }
+
+    // Color mapping helper (Taiwan: Red is UP, Green is DOWN)
+    function getColor(pctChange) {
+        if (pctChange === null || pctChange === undefined || isNaN(pctChange)) {
+            return 'rgba(148, 163, 184, 0.2)'; // Gray for N/A
+        }
+        
+        // Clamp between -10 and 10 for color intensity calculation
+        const clamped = Math.max(-10, Math.min(10, pctChange));
+        const intensity = Math.max(0.3, Math.abs(clamped) / 10); // Base 0.3 opacity to max 1.0
+        
+        if (pctChange > 0) {
+            // UP: Red (#ef4444 -> 239, 68, 68)
+            return `rgba(239, 68, 68, ${intensity})`;
+        } else if (pctChange < 0) {
+            // DOWN: Green (#22c55e -> 34, 197, 94)
+            return `rgba(34, 197, 94, ${intensity})`;
+        } else {
+            // ZERO
+            return 'rgba(148, 163, 184, 0.4)';
+        }
+    }
+
+    async function init() {
+        try {
+            // 1. Fetch sectors JSON and shares JSON
+            const res = await fetch('/static/sectors.json');
+            if (!res.ok) throw new Error('Failed to load sectors.json');
+            sectorsData = await res.json();
+            
+            try {
+                const sRes = await fetch('/static/shares.json');
+                if (sRes.ok) sharesData = await sRes.json();
+            } catch (e) {
+                console.warn('Could not load shares.json', e);
+            }
+            
+            // Extract all unique tickers
+            const tickerSet = new Set();
+            for (const [sector, tickers] of Object.entries(sectorsData)) {
+                tickers.forEach(t => tickerSet.add(t));
+            }
+            allTickers = Array.from(tickerSet);
+            
+            document.getElementById('sectorCount').innerText = Object.keys(sectorsData).length;
+            document.getElementById('tickerCount').innerText = allTickers.length;
+
+            if (allTickers.length === 0) {
+                heatmapContainer.innerHTML = '<div id="loading">No tickers found.</div>';
+                return;
+            }
+
+            // 2. Fetch initial quotes for prev close and current price
+            heatmapContainer.innerHTML = '<div id="loading">Fetching quotes...</div>';
+            
+            // Chunk requests if too many
+            const chunkSize = 100;
+            for (let i = 0; i < allTickers.length; i += chunkSize) {
+                const chunk = allTickers.slice(i, i + chunkSize);
+                try {
+                    const qRes = await fetch(`/api/stock-quotes?symbols=${chunk.join(',')}`);
+                    const qData = await qRes.json();
+                    for (const [sym, data] of Object.entries(qData)) {
+                        quotes[sym] = { price: data.price, prev: data.prev };
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch quotes chunk', e);
+                }
+            }
+
+            // Fetch metadata for names asynchronously (optional, fire and forget)
+            allTickers.forEach(sym => {
+                if(!quotes[sym]) quotes[sym] = { price: 0, prev: 0 };
+                fetch(`/api/meta/${sym}`).then(r => r.json()).then(data => {
+                    if (data && data.name) {
+                        quotes[sym].name = data.name;
+                        const el = document.getElementById(`name-${sym}`);
+                        if(el) el.innerText = data.name;
+                    }
+                }).catch(()=>{});
+            });
+
+            // 3. Render Heatmap
+            renderHeatmap();
+
+            // 4. Connect WebSocket
+            connectWS();
+            
+            // 5. Setup loop to recalculate averages and re-render every 3 seconds to avoid flashing too much
+            setInterval(updateSectors, 3000);
+
+        } catch (e) {
+            heatmapContainer.innerHTML = `<div id="loading" style="color:#ef4444">Error initializing: ${e.message}</div>`;
+            console.error(e);
+        }
+    }
+
+    function renderHeatmap() {
+        heatmapContainer.innerHTML = '';
+        
+        for (const [sector, tickers] of Object.entries(sectorsData)) {
+            if (tickers.length === 0) continue;
+            
+            const sectorCard = document.createElement('div');
+            sectorCard.className = 'sector-card';
+            sectorCard.id = `sector-card-${sector}`;
+            
+            const header = document.createElement('div');
+            header.className = 'sector-header';
+            
+            const title = document.createElement('div');
+            title.className = 'sector-title';
+            title.innerText = sector;
+            
+            const avgBadge = document.createElement('div');
+            avgBadge.className = 'sector-avg';
+            avgBadge.id = `sector-avg-${sector}`;
+            avgBadge.innerText = '0.00%';
+            avgBadge.style.background = getColor(0);
+            
+            header.appendChild(title);
+            
+            const volBadge = document.createElement('div');
+            volBadge.className = 'sector-vol';
+            volBadge.id = `sector-vol-${sector}`;
+            volBadge.style.fontSize = '0.75rem';
+            volBadge.style.color = '#cbd5e1';
+            volBadge.style.marginLeft = '12px';
+            volBadge.style.marginRight = 'auto';
+            volBadge.innerText = '';
+            header.appendChild(volBadge);
+            
+            header.appendChild(avgBadge);
+            sectorCard.appendChild(header);
+            
+            const grid = document.createElement('div');
+            grid.className = 'tickers-grid';
+            
+            tickers.forEach(sym => {
+                const tCard = document.createElement('div');
+                tCard.className = 'ticker-card';
+                tCard.id = `tcard-${sym}`;
+                
+                const q = quotes[sym] || { price: 0, prev: 0 };
+                const pct = (q.price && q.prev && q.prev > 0) ? ((q.price - q.prev) / q.prev * 100) : 0;
+                
+                tCard.style.background = getColor(pct);
+                
+                tCard.innerHTML = `
+                    <div class="ticker-symbol" id="name-${sym}" title="${sym}">${q.name || sym}</div>
+                    <div class="ticker-price" id="tprice-${sym}">${q.price > 0 ? q.price.toFixed(2) : '-'}</div>
+                    <div class="ticker-pct" id="tpct-${sym}">${pct !== 0 ? pct.toFixed(2) + '%' : '-'}</div>
+                `;
+                grid.appendChild(tCard);
+            });
+            
+            sectorCard.appendChild(grid);
+            heatmapContainer.appendChild(sectorCard);
+        }
+        updateSectors();
+    }
+
+    function updateTickerUI(sym, price) {
+        if (!quotes[sym]) return;
+        quotes[sym].price = price;
+        const q = quotes[sym];
+        let pct = 0;
+        if (viewMode === 'daily') {
+            pct = (q.price && q.prev && q.prev > 0) ? ((q.price - q.prev) / q.prev * 100) : 0;
+        } else {
+            const m = momentumData[sym];
+            const prev = (m && m.oldest_price) ? m.oldest_price : q.price;
+            pct = prev > 0 ? ((q.price - prev) / prev * 100) : 0;
+        }
+        
+        const card = document.getElementById(`tcard-${sym}`);
+        const pEl = document.getElementById(`tprice-${sym}`);
+        const pctEl = document.getElementById(`tpct-${sym}`);
+        
+        if (card && pEl && pctEl) {
+            card.style.background = getColor(pct);
+            pEl.innerText = price.toFixed(2);
+            pctEl.innerText = pct > 0 ? '+' + pct.toFixed(2) + '%' : pct.toFixed(2) + '%';
+        }
+    }
+
+    async function updateSectors() {
+        if (viewMode === '5m') {
+            try {
+                const res = await fetch('/api/momentum-5m');
+                if (res.ok) momentumData = await res.json();
+            } catch(e) {}
+        }
+        let sectorAverages = [];
+
+        for (const [sector, tickers] of Object.entries(sectorsData)) {
+            if (tickers.length === 0) continue;
+            
+            let sumWeightedPct = 0;
+            let sumWeight = 0;
+            let tickerData = [];
+            
+            let sectorVol = 0;
+            let sectorLargeVol = 0;
+
+            tickers.forEach(sym => {
+                const q = quotes[sym];
+                let pct = 0;
+                if (viewMode === 'daily') {
+                    if (q && q.price > 0 && q.prev > 0) {
+                        pct = ((q.price - q.prev) / q.prev * 100);
+                        const shares = sharesData[sym] || 1; 
+                        const mcap = q.price * shares;
+                        sumWeightedPct += (pct * mcap);
+                        sumWeight += mcap;
+                    }
+                } else {
+                    const m = momentumData[sym];
+                    if (m) {
+                        if (q) q.price = m.price;
+                        const prev = m.oldest_price || (q && q.price) || 0;
+                        if (prev > 0 && m.price > 0) {
+                            pct = ((m.price - prev) / prev * 100);
+                            const shares = sharesData[sym] || 1; 
+                            const mcap = m.price * shares;
+                            sumWeightedPct += (pct * mcap);
+                            sumWeight += mcap;
+                        }
+                        sectorVol += (m.vol || 0);
+                        sectorLargeVol += (m.large_vol || 0);
+                    }
+                }
+                tickerData.push({ sym, pct });
+            });
+            
+            const avgPct = sumWeight > 0 ? (sumWeightedPct / sumWeight) : 0;
+            sectorAverages.push({ sector, avgPct });
+
+            const avgBadge = document.getElementById(`sector-avg-${sector}`);
+            const sCard = document.getElementById(`sector-card-${sector}`);
+            const volBadge = document.getElementById(`sector-vol-${sector}`);
+            
+            if (avgBadge && sCard) {
+                if (viewMode === '5m' && volBadge) {
+                    volBadge.innerHTML = `總量 <strong style="color:#38bdf8">${sectorVol}</strong> | 大單 <strong style="color:#fbbf24">${sectorLargeVol}</strong>`;
+                } else if (volBadge) {
+                    volBadge.innerHTML = '';
+                }
+
+                avgBadge.innerText = avgPct > 0 ? '+' + avgPct.toFixed(2) + '%' : avgPct.toFixed(2) + '%';
+                avgBadge.style.background = getColor(avgPct);
+                
+                // Subtle tint to the sector card border based on average
+                if (avgPct > 0) {
+                    sCard.style.borderColor = `rgba(239, 68, 68, ${Math.min(avgPct/5, 0.8)})`;
+                } else if (avgPct < 0) {
+                    sCard.style.borderColor = `rgba(34, 197, 94, ${Math.min(Math.abs(avgPct)/5, 0.8)})`;
+                } else {
+                    sCard.style.borderColor = 'rgba(255,255,255,0.1)';
+                }
+
+                // Sort tickers within this sector
+                tickerData.sort((a, b) => b.pct - a.pct);
+                const grid = sCard.querySelector('.tickers-grid');
+                if (grid) {
+                    tickerData.forEach(item => {
+                        const tCard = document.getElementById(`tcard-${item.sym}`);
+                        if (tCard) grid.appendChild(tCard);
+                    });
+                }
+            }
+        }
+
+        // Sort sectors
+        sectorAverages.sort((a, b) => b.avgPct - a.avgPct);
+        sectorAverages.forEach(item => {
+            const sCard = document.getElementById(`sector-card-${item.sector}`);
+            if (sCard) heatmapContainer.appendChild(sCard);
+        });
+    }
+
+    function connectWS() {
+        if (ws) {
+            ws.onclose = null;
+            ws.close();
+        }
+
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // Connect to the WS with all tickers. Note: URLs can be long, but usually standard limits allow ~2000 chars.
+        // If we have hundreds of tickers, it might be better to split or POST, but /ws/{symbols} is a GET.
+        // Assuming the list fits in the URL.
+        const wsUrl = `${proto}//${window.location.host}/ws/${allTickers.join(',')}`;
+        console.log(`Connecting WS...`);
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            wsRetryCount = 0;
+            statusText.innerText = 'Live';
+            statusText.style.color = '#4ade80';
+            liveIndicator.className = 'live-dot connected';
+        };
+
+        ws.onclose = () => {
+            statusText.innerText = 'Disconnected';
+            statusText.style.color = '#64748b';
+            liveIndicator.className = 'live-dot';
+
+            if (wsRetryCount < WS_MAX_RETRIES) {
+                wsRetryCount++;
+                const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
+                setTimeout(connectWS, delay);
+            }
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.event === 'data' && msg.data) {
+                    const channel = msg.channel;
+                    const d = msg.data;
+                    const sym = d.symbol;
+                    if (!sym || !quotes[sym]) return;
+
+                    if (channel === 'trades') {
+                        // Only update if there is a new valid price
+                        if (d.price && d.price > 0) {
+                            updateTickerUI(sym, d.price);
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore parsing errors
+            }
+        };
+    }
+
+    init();
+</script>
+
+</body>
+</html>
+
+<!-- SPA Engine Interceptor -->
+<script>
+    document.addEventListener('click', e => {
+        const a = e.target.closest('a[href^="/"]');
+        if (a && window.parent !== window) {
+            e.preventDefault();
+            window.parent.postMessage({type:'NAVIGATE', path: a.getAttribute('href')}, '*');
+        }
+    });
+</script>

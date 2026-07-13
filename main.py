@@ -34,6 +34,18 @@ PW = os.getenv("PW")
 CERT_PW = os.getenv("c_pw")
 
 # ─── Lifespan (replaces deprecated on_event) ───────────────────────
+# ─── Momentum Snapshot Task ──────────────
+async def momentum_snapshot_task():
+    global CURRENT_BUCKET
+    print("Started Momentum Snapshot task (10s intervals)")
+    while True:
+        await asyncio.sleep(10)
+        # Snapshot the current bucket
+        MOMENTUM_BUCKETS.append(dict(CURRENT_BUCKET))
+        # Reset current bucket
+        CURRENT_BUCKET = defaultdict(lambda: {'price': None, 'vol': 0, 'large_vol': 0})
+
+
 @asynccontextmanager
 async def lifespan(app):
     global sdk, loop
@@ -58,9 +70,11 @@ async def lifespan(app):
     except Exception as e:
         print(f"Failed to login or connect to python sdk: {e}")
         
+    # Start background tasks
     asyncio.create_task(message_processor())
     asyncio.create_task(vix_scraper())
     asyncio.create_task(fubon_sdk_watchdog())
+    asyncio.create_task(momentum_snapshot_task())
     
     yield  # ← Server is running
     
@@ -120,6 +134,17 @@ manager = ConnectionManager()
 sdk = None
 loop = None
 
+from collections import deque, defaultdict
+import copy
+
+# Momentum tracking
+LATEST_QUOTES = {}
+# BUCKETS stores the last 30 buckets (5 minutes if 10s per bucket)
+# Each bucket is a dict: symbol -> {'price': float, 'vol': int, 'large_vol': int}
+MOMENTUM_BUCKETS = deque(maxlen=30)
+CURRENT_BUCKET = defaultdict(lambda: {'price': None, 'vol': 0, 'large_vol': 0})
+
+
 sdk_last_msg_time = time.time()
 sdk_retry_count = 0
 
@@ -136,9 +161,26 @@ def handle_fubon_message(message):
         # Debug: log channel and top-level keys for every data message
         if event == "data" and data:
             data_keys = list(data.keys()) if isinstance(data, dict) else f"(type={type(data).__name__})"
-            print(f"[DEBUG] channel={channel}, event={event}, data_keys={data_keys}")
             if channel == "trades":
-                print(f"[DEBUG-TRADES] Full data: {json.dumps(data, ensure_ascii=False)[:300]}")
+                sym = data.get("symbol")
+                if sym:
+                    price = data.get("price")
+                    if price is None and "trades" in data and len(data["trades"]) > 0:
+                        price = data["trades"][-1].get("price")
+                    
+                    vol = data.get("size", data.get("volume", 0))
+                    if vol == 0 and "trades" in data and len(data["trades"]) > 0:
+                        vol = data["trades"][-1].get("size", data["trades"][-1].get("volume", 0))
+                        
+                    if price is not None:
+                        price = float(price)
+                        LATEST_QUOTES[sym] = {'price': price}
+                        if CURRENT_BUCKET[sym]['price'] is None:
+                            CURRENT_BUCKET[sym]['price'] = price
+                        CURRENT_BUCKET[sym]['vol'] += vol
+                        if vol >= 50:  # define large order as >= 50
+                            CURRENT_BUCKET[sym]['large_vol'] += vol
+                            
             if loop and loop.is_running():
                 asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
         # Handle 'subscribed' confirmation events
@@ -600,13 +642,14 @@ def get_taiex_benchmark(req: TaiexRequest):
 @app.get("/etf0050")
 @app.get("/disposal")
 @app.get("/queue")
+@app.get("/sector_heatmap")
 async def get_app_wrapper():
     with open(os.path.join(BASE_DIR, "static", "app.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 @app.get("/_content/{page}")
 async def get_content(page: str):
-    valid = {"index", "options", "etf0050", "disposal", "queue"}
+    valid = {"index", "options", "etf0050", "disposal", "queue", "sector_heatmap"}
     if page not in valid: 
         return HTMLResponse("Not Found", status_code=404)
     with open(os.path.join(BASE_DIR, "static", f"{page}.html"), "r", encoding="utf-8") as f:
@@ -999,6 +1042,56 @@ async def api_disposal_stock(stock_id: str):
     except Exception as e:
         print(f"Disposal stock API error: {e}")
         return {"error": str(e)}
+
+
+@app.get("/api/momentum-5m")
+def get_momentum_5m():
+    """
+    Calculate the 5-minute momentum for all tracked symbols.
+    Combines the historic BUCKETS + CURRENT_BUCKET.
+    """
+    result = {}
+    # Find the oldest price and accumulate volumes
+    # Iterate from oldest bucket to newest to find the first valid price
+    
+    # Combine all historical buckets and current
+    all_buckets = list(MOMENTUM_BUCKETS) + [CURRENT_BUCKET]
+    
+    # We want to iterate through all symbols that we have data for
+    all_symbols = set()
+    for b in all_buckets:
+        all_symbols.update(b.keys())
+        
+    for sym in all_symbols:
+        oldest_price = None
+        total_vol = 0
+        total_large = 0
+        
+        for b in all_buckets:
+            if sym in b:
+                if oldest_price is None and b[sym]['price'] is not None:
+                    oldest_price = b[sym]['price']
+                total_vol += b[sym]['vol']
+                total_large += b[sym]['large_vol']
+                
+        current_price = LATEST_QUOTES.get(sym, {}).get("price")
+        if current_price is None:
+            current_price = oldest_price
+            
+        if oldest_price and oldest_price > 0:
+            pct_change = (current_price - oldest_price) / oldest_price * 100
+        else:
+            pct_change = 0
+            
+        result[sym] = {
+            "price": current_price,
+            "oldest_price": oldest_price,
+            "pct_change": pct_change,
+            "vol": total_vol,
+            "large_vol": total_large
+        }
+        
+    return result
 
 
 if __name__ == "__main__":
