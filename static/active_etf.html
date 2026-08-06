@@ -149,6 +149,9 @@
         <button id="btn-00403A" onclick="switchETF('00403A', '主動統一升級50')" class="nav-a font-bold text-xs">
             00403A 主動統一升級50
         </button>
+        <button id="btn-00631L" onclick="switchETF('00631L', '元大台灣50正2')" class="nav-a font-bold text-xs">
+            ⚡ 00631L 元大台灣50正2
+        </button>
     </div>
 </div>
 
@@ -162,7 +165,6 @@
             <div class="space-y-1">
                 <div class="flex items-center gap-2">
                     <span class="text-xs font-semibold text-purple-400 tracking-wider uppercase">即時估算淨值 (iNAV)</span>
-                    <span class="badge badge-purple" id="inavBadge">計算中</span>
                 </div>
                 <div class="text-4xl md:text-5xl font-black mono text-emerald-400 tracking-tight" id="inavDisplay">--.--</div>
                 <div class="text-xs text-slate-400 flex items-center gap-2">
@@ -182,15 +184,8 @@
                 <div class="h-8 w-px bg-slate-800 hidden sm:block"></div>
 
                 <div class="space-y-0.5">
-                    <div class="text-[11px] font-medium text-slate-400">即時折溢價 (%)</div>
-                    <div class="text-2xl font-bold mono" id="premPctDisplay">--.--%</div>
-                </div>
-
-                <div class="h-8 w-px bg-slate-800 hidden sm:block"></div>
-
-                <div class="space-y-0.5">
-                    <div class="text-[11px] font-medium text-slate-400">折溢價金額 (元)</div>
-                    <div class="text-xl font-bold mono" id="premDiffDisplay">--.--</div>
+                    <div class="text-[11px] font-medium text-slate-400">即時折溢價 (bps)</div>
+                    <div class="text-3xl md:text-4xl font-black mono" id="premPctDisplay">--.--</div>
                 </div>
             </div>
 
@@ -294,6 +289,13 @@
 // ═══════════════════════════════════════════════════════
 // Global State & Helpers
 // ═══════════════════════════════════════════════════════
+const ACTIVE_TICKERS = ['00981A', '00403A', '00631L'];
+const TICKER_NAMES = {
+    '00981A': '主動統一台股增長',
+    '00403A': '主動統一升級50',
+    '00631L': '元大台灣50正2'
+};
+
 let activeTicker = '00981A';
 let activeTickerName = '主動統一台股增長';
 let allPcfCache = {};
@@ -311,9 +313,9 @@ let globalSymbols = new Set();
 let subscribedSet = new Set();
 let ws = null;
 let wsRetryCount = 0;
-const WS_MAX_RETRIES = 5;
-const WS_BASE_DELAY = 1000;
-const WS_MAX_DELAY = 10000;
+const WS_MAX_RETRIES = 8;
+const WS_BASE_DELAY = 5000;
+const WS_MAX_DELAY = 60000;
 
 function fmt(n, d = 2) {
     if (n == null || isNaN(n)) return '--';
@@ -336,6 +338,7 @@ function fmtAum(n) {
 function setWsStatus(state) {
     const dot = document.getElementById('wsDot');
     const lbl = document.getElementById('wsStatus');
+    if (!dot || !lbl) return;
     if (state === 'connecting') {
         dot.className = 'dot dot-yellow'; lbl.textContent = '連線中...';
     } else if (state === 'live') {
@@ -348,114 +351,124 @@ function setWsStatus(state) {
 }
 
 function updateSubCounter() {
-    if (!composition.length) return;
-    const total = composition.length + 1;
+    let total = (composition ? composition.length : 0) + 1;
+    if (futuresList && futuresList.length > 0) total += futuresList.length;
     let count = 0;
     if (subscribedSet.has(activeTicker)) count++;
-    composition.forEach(s => {
-        if (subscribedSet.has(s.stkcd)) count++;
-    });
-    document.getElementById('subCounter').textContent = `${count}/${total} 檔訂閱`;
+    if (composition) {
+        composition.forEach(s => {
+            if (subscribedSet.has(s.stkcd)) count++;
+        });
+    }
+    if (futuresList && futuresList.length > 0) {
+        if (subscribedSet.has('TXFR1') || subscribedSet.has('TXF') || subscribedSet.has('TX')) count++;
+    }
+    const el = document.getElementById('subCounter');
+    if (el) el.textContent = `${count}/${total} 檔訂閱`;
     if (count > 0) setWsStatus('live');
 }
 
 function renderNAV() {
-    if (!composition.length || !officialNav) return;
+    if (!officialNav) return;
 
-    let weightedReturn = 0;
-    let hasPriceCount = 0;
+    // 1. Total Stock PnL (NTD for all shares held by fund)
+    let totalStockPnl = 0;
+    if (composition && composition.length > 0) {
+        composition.forEach(s => {
+            const px = stockPrices[s.stkcd];
+            const prev = stockPrevCloses[s.stkcd];
 
-    composition.forEach(s => {
-        const px = stockPrices[s.stkcd];
-        const prev = stockPrevCloses[s.stkcd];
-        const w = (s.weight || 0) / 100.0;
-
-        if (px > 0 && prev > 0) {
-            const stockReturn = (px - prev) / prev;
-            weightedReturn += w * stockReturn;
-            hasPriceCount++;
-        }
-    });
-
-    // Futures return contribution (if TX / futures available)
-    if (futuresList && futuresList.length > 0) {
-        futuresList.forEach(f => {
-            const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
-            const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
-            if (txPrice > 0 && txPrev > 0) {
-                const futReturn = (txPrice - txPrev) / txPrev;
-                const fw = (f.weight || 0) / 100.0;
-                weightedReturn += fw * futReturn;
+            if (px > 0 && prev > 0) {
+                const shares = s.total_shares || ((s.qty || 0) / (baseunit || 500000) * (outUnits || 1));
+                totalStockPnl += shares * (px - prev);
             }
         });
     }
 
-    // iNAV = Official NAV * (1 + Weighted Return)
-    const inav = officialNav * (1.0 + weightedReturn);
+    // 2. Total Futures PnL (NTD for all contracts held by fund)
+    let totalFuturesPnl = 0;
+    if (futuresList && futuresList.length > 0) {
+        futuresList.forEach(f => {
+            const code = f.code || '';
+            const name = f.name || '';
+            if (code === 'TX' || code.startsWith('TX')) {
+                const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
+                const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
+                if (txPrice > 0 && txPrev > 0) {
+                    const pointDiff = txPrice - txPrev;
+                    const pointVal = code.startsWith('MTX') ? 50 : 200;
+                    totalFuturesPnl += f.qty * pointDiff * pointVal;
+                }
+            } else if (code === 'NYF' || name.includes('50')) {
+                const px0050 = stockPrices['0050'];
+                const prev0050 = stockPrevCloses['0050'];
+                if (px0050 > 0 && prev0050 > 0) {
+                    const diff0050 = px0050 - prev0050;
+                    totalFuturesPnl += f.qty * diff0050 * 10000;
+                }
+            }
+        });
+    }
+
+    // 3. iNAV = officialNav + (totalStockPnl + totalFuturesPnl) / outUnits
+    const totalFundPnl = totalStockPnl + totalFuturesPnl;
+    const pnlPerUnit = (outUnits > 0) ? (totalFundPnl / outUnits) : 0;
+    const inav = officialNav + pnlPerUnit;
 
     const inavEl = document.getElementById('inavDisplay');
+    if (!inavEl) return;
     const oldVal = parseFloat(inavEl.dataset.val || '0');
     inavEl.dataset.val = inav;
     inavEl.textContent = fmt(inav, 2) + ' 元';
 
     if (oldVal > 0 && Math.abs(oldVal - inav) > 0.001) {
         inavEl.classList.remove('nav-flash');
-        void inavEl.offsetWidth; // trigger reflow
+        void inavEl.offsetWidth;
         inavEl.classList.add('nav-flash');
     }
 
-    // Inav change vs official NAV
     if (officialNav > 0) {
         const chg = inav - officialNav;
         const chgPct = (chg / officialNav) * 100;
         const chgEl = document.getElementById('inavChgDisplay');
-        const sign = chg > 0 ? '+' : '';
-        chgEl.textContent = `${sign}${fmt(chg, 2)} (${sign}${fmt(chgPct, 2)}%)`;
-        chgEl.className = chg > 0 ? 'mono text-red-400 font-bold' : chg < 0 ? 'mono text-emerald-400 font-bold' : 'mono text-slate-300';
+        if (chgEl) {
+            const sign = chg > 0 ? '+' : '';
+            chgEl.textContent = `${sign}${fmt(chg, 2)} (${sign}${fmt(chgPct, 2)}%)`;
+            chgEl.className = chg > 0 ? 'mono text-red-400 font-bold' : chg < 0 ? 'mono text-emerald-400 font-bold' : 'mono text-slate-300';
+        }
     }
 
-    // Premium / Discount Calculation
     if (etfPrice != null && etfPrice > 0 && inav > 0) {
         const diff = etfPrice - inav;
         const pct = (diff / inav) * 100;
+        const bps = pct * 100;
 
         const premPctEl = document.getElementById('premPctDisplay');
-        const premDiffEl = document.getElementById('premDiffDisplay');
-        const badgeEl = document.getElementById('inavBadge');
 
-        const sign = diff > 0 ? '+' : '';
-        premPctEl.textContent = `${sign}${fmt(pct, 2)}%`;
-        premDiffEl.textContent = `${sign}${fmt(diff, 2)} 元`;
+        if (premPctEl) {
+            const sign = diff > 0 ? '+' : '';
+            premPctEl.textContent = `${sign}${fmt(bps, 1)}`;
 
-        if (diff > 0) {
-            // Premium 溢價
-            premPctEl.className = 'text-2xl font-bold mono text-red-400';
-            premDiffEl.className = 'text-xl font-bold mono text-red-400';
-            badgeEl.className = 'badge badge-red';
-            badgeEl.textContent = `溢價 ${fmt(pct, 2)}%`;
-        } else if (diff < 0) {
-            // Discount 折價 (甜甜價)
-            premPctEl.className = 'text-2xl font-bold mono text-emerald-400';
-            premDiffEl.className = 'text-xl font-bold mono text-emerald-400';
-            badgeEl.className = 'badge badge-green';
-            badgeEl.textContent = `折價 ${fmt(Math.abs(pct), 2)}% 🍬`;
-        } else {
-            premPctEl.className = 'text-2xl font-bold mono text-slate-200';
-            premDiffEl.className = 'text-xl font-bold mono text-slate-200';
-            badgeEl.className = 'badge badge-purple';
-            badgeEl.textContent = '平價';
+            if (diff > 0) {
+                premPctEl.className = 'text-3xl md:text-4xl font-black mono text-red-400';
+            } else if (diff < 0) {
+                premPctEl.className = 'text-3xl md:text-4xl font-black mono text-emerald-400';
+            } else {
+                premPctEl.className = 'text-3xl md:text-4xl font-black mono text-slate-200';
+            }
         }
     }
 }
 
 function renderTable() {
     const tbody = document.getElementById('tableBody');
+    if (!tbody) return;
     if (!composition.length) {
         tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-500">無成分股資料</td></tr>`;
         return;
     }
 
-    const filter = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+    const filter = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
 
     let html = '';
     composition.forEach(s => {
@@ -466,20 +479,18 @@ function renderTable() {
         const px = stockPrices[s.stkcd];
         const prev = stockPrevCloses[s.stkcd];
         let chgStr = '--';
-        let chgClass = 'text-slate-400';
+        let chgClass = 'py-2.5 text-right font-medium mono text-slate-400';
 
         if (px != null && prev != null && prev > 0) {
             const diff = px - prev;
             const pct = (diff / prev) * 100;
             const sign = diff > 0 ? '+' : '';
             chgStr = `${sign}${fmt(pct, 2)}%`;
-            chgClass = diff > 0 ? 'text-red-400 font-bold' : diff < 0 ? 'text-emerald-400 font-bold' : 'text-slate-300';
+            chgClass = diff > 0 ? 'py-2.5 text-right font-medium mono text-red-400 font-bold' : diff < 0 ? 'py-2.5 text-right font-medium mono text-emerald-400 font-bold' : 'py-2.5 text-right font-medium mono text-slate-300';
         }
 
-        // iNAV Contribution: (Qty * px) / 500,000
         const contrib = (px && baseunit) ? (px * s.qty / baseunit) : null;
         const contribStr = contrib != null ? fmt(contrib, 3) + ' 元' : '--';
-
         const qtyK = (s.qty / 1000).toFixed(2);
 
         html += `
@@ -493,7 +504,7 @@ function renderTable() {
             <td class="py-2.5 text-right font-bold mono ${px ? 'text-slate-100' : 'text-slate-500'}" id="px-${s.stkcd}">
                 ${px != null ? fmt(px, 2) : '--'}
             </td>
-            <td class="py-2.5 text-right font-medium mono ${chgClass}" id="chg-${s.stkcd}">
+            <td class="${chgClass}" id="chg-${s.stkcd}">
                 ${chgStr}
             </td>
             <td class="py-2.5 text-right pr-2 font-semibold mono text-emerald-400" id="contrib-${s.stkcd}">
@@ -508,6 +519,7 @@ function renderTable() {
 function renderFutures() {
     const card = document.getElementById('futuresCard');
     const list = document.getElementById('futuresList');
+    if (!card || !list) return;
     
     if (!futuresList || futuresList.length === 0) {
         card.classList.add('hidden');
@@ -570,6 +582,7 @@ function connectGlobalWS() {
         if (wsRetryCount < WS_MAX_RETRIES) {
             wsRetryCount++;
             const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
+            console.log(`WS disconnected, retry ${wsRetryCount}/${WS_MAX_RETRIES} in ${delay/1000}s...`);
             setTimeout(() => connectGlobalWS(), delay);
         } else {
             setWsStatus('error');
@@ -592,6 +605,11 @@ function connectGlobalWS() {
             const sym = msg.data.symbol;
             if (!sym) return;
 
+            if (!subscribedSet.has(sym)) {
+                subscribedSet.add(sym);
+                updateSubCounter();
+            }
+
             let price = null;
             if (msg.channel === 'trades') {
                 price = parseFloat(extractTradePrice(msg.data));
@@ -599,14 +617,38 @@ function connectGlobalWS() {
 
             if (price === null || isNaN(price)) return;
 
-            if (sym === activeTicker) {
-                etfPrice = price;
-                const el = document.getElementById('etfPriceDisplay');
-                if (el) el.textContent = fmt(price, 2) + ' 元';
+            if (ACTIVE_TICKERS.includes(sym)) {
+                stockPrices[sym] = price;
+                if (sym === activeTicker) {
+                    etfPrice = price;
+                    const el = document.getElementById('etfPriceDisplay');
+                    if (el) el.textContent = fmt(price, 2) + ' 元';
+                }
             } else {
                 stockPrices[sym] = price;
                 const pxEl = document.getElementById(`px-${sym}`);
                 if (pxEl) pxEl.textContent = fmt(price, 2);
+                
+                const prev = stockPrevCloses[sym];
+                const chgEl = document.getElementById(`chg-${sym}`);
+                if (chgEl && prev != null && prev > 0) {
+                    const diff = price - prev;
+                    const pct = (diff / prev) * 100;
+                    const sign = diff > 0 ? '+' : '';
+                    chgEl.textContent = `${sign}${fmt(pct, 2)}%`;
+                    chgEl.className = diff > 0 ? 'py-2.5 text-right font-medium mono text-red-400 font-bold'
+                                    : diff < 0 ? 'py-2.5 text-right font-medium mono text-emerald-400 font-bold'
+                                    : 'py-2.5 text-right font-medium mono text-slate-300';
+                }
+                
+                const contribEl = document.getElementById(`contrib-${sym}`);
+                if (contribEl && baseunit) {
+                    const s = composition.find(item => item.stkcd === sym);
+                    if (s) {
+                        const contrib = (price * s.qty / baseunit);
+                        contribEl.textContent = fmt(contrib, 3) + ' 元';
+                    }
+                }
             }
 
             renderNAV();
@@ -615,86 +657,123 @@ function connectGlobalWS() {
 }
 
 // ═══════════════════════════════════════════════════════
-// Fetch & Launch Logic
+// Render Active ETF UI
 // ═══════════════════════════════════════════════════════
-async function loadActiveETF(ticker, name) {
+function renderSpecificETF(ticker, name) {
     activeTicker = ticker;
-    activeTickerName = name;
+    if (name) activeTickerName = name;
 
     document.querySelectorAll('[id^="btn-"]').forEach(b => b.classList.remove('active'));
     document.getElementById(`btn-${ticker}`)?.classList.add('active');
 
     document.getElementById('pageTitle').textContent = `🚀 ${ticker} 即時折溢價`;
-    document.getElementById('pageSubtitle').textContent = `${name} · Real-time iNAV & Premium/Discount Monitor`;
+    document.getElementById('pageSubtitle').textContent = `${activeTickerName || ticker} · Real-time iNAV & Premium/Discount Monitor`;
     document.getElementById('etfSymbolLabel').textContent = ticker;
 
-    document.getElementById('tableBody').innerHTML = `<tr><td colspan="6" class="py-8"><div class="skel h-9 w-full"></div></td></tr>`;
+    const data = allPcfCache[ticker];
+    if (!data) return;
+
+    const pcf = data.PCF || {};
+    composition = data.InKind?.FundComposition || [];
+    futuresList = data.Futures || [];
+    officialNav = (pcf.nav_total && pcf.out_unit) ? (pcf.nav_total / pcf.out_unit) : (pcf.nav || 0);
+    baseunit = pcf.baseunit || 500000;
+    estdvalue = pcf.estdvalue || 0;
+    outUnits = pcf.out_unit || 0;
+
+    document.getElementById('prevNavDisplay').textContent = fmt(officialNav, 2) + ' 元';
+    document.getElementById('outUnitsVal').textContent = outUnits ? outUnits.toLocaleString('zh-TW') : '--';
+    document.getElementById('fundAumVal').textContent = (outUnits && officialNav) ? fmtAum(outUnits * officialNav) : '--';
+    document.getElementById('cashDiffVal').textContent = `${fmt(baseunit, 0)} / ${fmtM(estdvalue)}`;
+    document.getElementById('infoDate').textContent = pcf.trandate ? pcf.trandate.slice(0,10) : '--';
+    document.getElementById('totalStocksBadge').textContent = `${composition.length} 檔`;
+
+    etfPrice = stockPrices[ticker] || null;
+    const el = document.getElementById('etfPriceDisplay');
+    if (el) el.textContent = etfPrice != null ? fmt(etfPrice, 2) + ' 元' : '--.-- 元';
+
+    renderFutures();
+    renderTable();
+    renderNAV();
+    updateSubCounter();
+}
+
+async function globalLaunch() {
+    const refreshBtn = document.getElementById('refreshBtn');
+    const refreshIcon = document.getElementById('refreshIcon');
+    if (refreshIcon) refreshIcon.classList.add('spin');
+    if (refreshBtn) refreshBtn.disabled = true;
+
+    setWsStatus('connecting');
+    const wsStatus = document.getElementById('wsStatus');
+    if (wsStatus) wsStatus.textContent = '預載所有主動式 ETF PCF 資料...';
 
     try {
-        const r = await fetch(`/api/etf-pcf/${ticker}`);
-        const data = await r.json();
+        const psts = ACTIVE_TICKERS.map(async t => {
+            const r = await fetch(`/api/etf-pcf/${t}`);
+            const data = await r.json();
+            if (!data.error) {
+                allPcfCache[t] = data;
+                globalSymbols.add(t);
+                const comp = data.InKind?.FundComposition || [];
+                comp.forEach(s => globalSymbols.add(s.stkcd));
+                const futs = data.Futures || [];
+                if (futs.length > 0) {
+                    globalSymbols.add('TXFR1');
+                    futs.forEach(f => {
+                        if (f.code === 'NYF' || (f.name && f.name.includes('50'))) {
+                            globalSymbols.add('0050');
+                        }
+                    });
+                }
+            }
+        });
+        await Promise.all(psts);
 
-        if (data.error) {
-            alert(`載入 ${ticker} PCF 失敗: ` + data.error);
-            return;
+        const syms = Array.from(globalSymbols).join(',');
+        if (syms) {
+            try {
+                const qr = await fetch(`/api/stock-quotes?symbols=${syms}`);
+                const qdata = await qr.json();
+                globalSymbols.forEach(stkcd => {
+                    if (qdata[stkcd]) {
+                        stockPrices[stkcd] = stockPrices[stkcd] || qdata[stkcd].price;
+                        stockPrevCloses[stkcd] = stockPrevCloses[stkcd] || qdata[stkcd].prev;
+                    }
+                });
+            } catch(e) {
+                console.warn("Fetch initial quotes error:", e);
+            }
         }
 
-        allPcfCache[ticker] = data;
-        const pcf = data.PCF || {};
-        composition = data.InKind?.FundComposition || [];
-        futuresList = data.Futures || [];
-        officialNav = pcf.nav || 0;
-        baseunit = pcf.baseunit || 500000;
-        estdvalue = pcf.estdvalue || 0;
-        outUnits = pcf.out_unit || 0;
-
-        document.getElementById('prevNavDisplay').textContent = fmt(officialNav, 2) + ' 元';
-        document.getElementById('outUnitsVal').textContent = outUnits ? outUnits.toLocaleString('zh-TW') : '--';
-        document.getElementById('fundAumVal').textContent = (outUnits && officialNav) ? fmtAum(outUnits * officialNav) : '--';
-        document.getElementById('cashDiffVal').textContent = `${fmt(baseunit, 0)} / ${fmtM(estdvalue)}`;
-        document.getElementById('infoDate').textContent = pcf.trandate ? pcf.trandate.slice(0,10) : '--';
-        document.getElementById('totalStocksBadge').textContent = `${composition.length} 檔`;
-
-        globalSymbols.clear();
-        globalSymbols.add(ticker);
-        composition.forEach(s => globalSymbols.add(s.stkcd));
-
-        // Fetch current stock quotes for initial render
-        const syms = Array.from(globalSymbols).join(',');
-        try {
-            const qr = await fetch(`/api/stock-quotes?symbols=${syms}`);
-            const qdata = await qr.json();
-            globalSymbols.forEach(stkcd => {
-                if (qdata[stkcd]) {
-                    stockPrices[stkcd] = qdata[stkcd].price;
-                    stockPrevCloses[stkcd] = qdata[stkcd].prev;
-                }
-            });
-
-            if (qdata[ticker]) {
-                etfPrice = qdata[ticker].price;
-                document.getElementById('etfPriceDisplay').textContent = fmt(etfPrice, 2) + ' 元';
-            }
-        } catch(e){}
-
         connectGlobalWS();
-        renderFutures();
-        renderTable();
-        renderNAV();
+        renderSpecificETF(activeTicker, activeTickerName);
 
-    } catch(e) {
-        console.error("loadActiveETF Error:", e);
+    } catch (e) {
+        console.error("Global Launch error:", e);
+        alert('預載失敗：' + e.message);
+        setWsStatus('error');
+    } finally {
+        if (refreshIcon) refreshIcon.classList.remove('spin');
+        if (refreshBtn) refreshBtn.disabled = false;
     }
 }
 
 function switchETF(ticker, name) {
     if (activeTicker === ticker && allPcfCache[ticker]) return;
-    loadActiveETF(ticker, name);
+    activeTicker = ticker;
+    if (name) activeTickerName = name;
+
+    if (allPcfCache[ticker]) {
+        renderSpecificETF(ticker, name);
+    } else {
+        globalLaunch();
+    }
 }
 
 document.getElementById('refreshBtn').addEventListener('click', () => {
-    delete allPcfCache[activeTicker];
-    loadActiveETF(activeTicker, activeTickerName);
+    allPcfCache = {};
+    globalLaunch();
 });
 
 document.getElementById('searchInput').addEventListener('input', () => {
@@ -702,7 +781,7 @@ document.getElementById('searchInput').addEventListener('input', () => {
 });
 
 // Initialize on page load
-loadActiveETF('00981A', '主動統一台股增長');
+globalLaunch();
 </script>
 
 <!-- SPA Navigation Interceptor -->

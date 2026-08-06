@@ -1298,6 +1298,11 @@ function connectGlobalWS() {
         if (msg.event === 'data' && msg.data) {
             const sym = msg.data.symbol;
             if (!sym) return;
+
+            if (!subscribedSet.has(sym)) {
+                subscribedSet.add(sym);
+                updateSubCounter();
+            }
             const channel = msg.channel;
 
             let price = null;

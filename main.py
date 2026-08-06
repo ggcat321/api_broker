@@ -300,10 +300,20 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     
     symbols_to_subscribe = []
+    already_subscribed = []
     for symbol in symbol_list:
         is_first = await manager.connect(websocket, symbol)
         if is_first:
             symbols_to_subscribe.append(symbol)
+        else:
+            already_subscribed.append(symbol)
+    
+    # Notify client immediately for symbols already subscribed by another session
+    for symbol in already_subscribed:
+        try:
+            await websocket.send_json({"event": "subscribed", "data": {"symbol": symbol}})
+        except Exception:
+            pass
     
     # Subscribe to books and/or trades
     try:
@@ -732,6 +742,13 @@ async def fetch_ezmoney_pcf(ticker: str):
                             })
                             
                 fund_info = raw_data.get('fund') or {}
+                pcf_list = raw_data.get('pcf') or []
+                tran_date = ""
+                if pcf_list and isinstance(pcf_list[0], dict):
+                    tran_date = str(pcf_list[0].get('TranDate') or pcf_list[0].get('PostDate') or '')
+                if not tran_date:
+                    tran_date = str(fund_info.get('FundDate') or '')
+
                 res_data = {
                     'PCF': {
                         'nav': nav,
@@ -740,7 +757,7 @@ async def fetch_ezmoney_pcf(ticker: str):
                         'out_unit': out_unit,
                         'baseunit': baseunit,
                         'estdvalue': cash_diff,
-                        'trandate': str(fund_info.get('FundDate') or ''),
+                        'trandate': tran_date,
                         'is_total_fund': False
                     },
                     'InKind': {
@@ -789,6 +806,99 @@ async def get_etf_pcf(ticker: str):
             pcf_cache[ticker] = {"date": today_str, "data": res_data}
         return res_data
         
+    if ticker == "00631L":
+        import uuid
+        device_id = str(uuid.uuid4())
+        url = (
+            f"https://etfapi.yuantaetfs.com/ectranslation/api/bridge"
+            f"?APIType=ETFAPI&CompanyName=YUANTAFUNDS&PageName=%2F"
+            f"&DeviceId={device_id}&FuncId=PCF%2FDaily&AppName=ETF"
+            f"&Device=3&Platform=ETF&ticker=00631L&ndate="
+        )
+        try:
+            ev_loop = asyncio.get_running_loop()
+            res = await ev_loop.run_in_executor(None, lambda: requests.get(
+                url,
+                headers={
+                    "Referer": "https://www.yuantaetfs.com/",
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+                    "Accept": "application/json",
+                },
+                timeout=10
+            ))
+            raw_data = res.json()
+            pcf = raw_data.get('PCF', {})
+            fw = raw_data.get('FundWeights', {})
+
+            comp = []
+            out_unit = float(pcf.get('osunit') or 1)
+            baseunit = float(pcf.get('baseunit') or 500000)
+            for s in fw.get('StockWeights', []):
+                total_shares = float(s.get('qty') or 0)
+                qty_per_basket = (total_shares / out_unit) * baseunit if out_unit > 0 else 0
+                comp.append({
+                    'stkcd': str(s.get('code') or '').strip(),
+                    'name': str(s.get('name') or '').strip(),
+                    'qty': round(qty_per_basket, 2),
+                    'total_shares': total_shares,
+                    'weight': float(s.get('weights') or 0)
+                })
+
+            futures = []
+            for f in fw.get('FutureWeights', []):
+                futures.append({
+                    'code': str(f.get('code') or '').strip(),
+                    'name': str(f.get('name') or '').strip(),
+                    'qty': float(f.get('qty') or 0),
+                    'weight': float(f.get('weights') or 0),
+                    'mth': str(f.get('ym') or '')
+                })
+
+            official_inav = None
+            try:
+                url_inav = (
+                    f"https://etfapi.yuantaetfs.com/ectranslation/api/bridge"
+                    f"?APIType=ETFBackstage&CompanyName=YUANTAFUNDS&PageName=%2F"
+                    f"&DeviceId={device_id}&FuncId=ETFNAV%2FGetINAV_Data&AppName=ETF"
+                    f"&Device=3&Platform=ETF&ticker=00631L&ndate="
+                )
+                res_inav = await ev_loop.run_in_executor(None, lambda: requests.get(
+                    url_inav,
+                    headers={"Referer": "https://www.yuantaetfs.com/", "User-Agent": "Mozilla/5.0"},
+                    timeout=5
+                ))
+                for item in res_inav.json().get("Data", []):
+                    if item.get("ETF_ID") == "00631L":
+                        official_inav = float(item.get("NOW_NAV") or 0)
+                        break
+            except Exception:
+                pass
+
+            res_data = {
+                'PCF': {
+                    'nav': float(pcf.get('nav') or 0),
+                    'p_unit': float(pcf.get('nav') or 0),
+                    'official_inav': official_inav,
+                    'nav_total': float(pcf.get('totalav') or 0),
+                    'out_unit': out_unit,
+                    'baseunit': baseunit,
+                    'estdvalue': float(pcf.get('estdvalue') or 0),
+                    'trandate': str(pcf.get('trandate') or ''),
+                    'is_total_fund': False
+                },
+                'InKind': {
+                    'FundComposition': comp
+                },
+                'Futures': futures,
+                'FundName': str(pcf.get('fundname') or '元大台灣50單日正向2倍基金'),
+                'StockNo': '00631L'
+            }
+            if res_data:
+                pcf_cache[ticker] = {"date": today_str, "data": res_data}
+            return res_data
+        except Exception as e:
+            return {"error": str(e)}
+
     if ticker == "0050":
         import uuid
         device_id = str(uuid.uuid4())
@@ -959,7 +1069,7 @@ async def get_stock_quotes(symbols: str):
         ev_loop = asyncio.get_running_loop()
         
         # 1. Fetch the main ETFs instantly via Fubon SDK for live accuracy
-        etfs_to_fetch = [s for s in symbol_list if s in ["0050", "006208", "00922", "00981A", "00403A"]]
+        etfs_to_fetch = [s for s in symbol_list if s in ["0050", "006208", "00922", "00981A", "00403A", "00631L"]]
         remaining_symbols = [s for s in symbol_list if s not in etfs_to_fetch]
         
         quotes = {}
@@ -1025,11 +1135,27 @@ async def get_stock_quotes(symbols: str):
 
         # Fallback to Fubon SDK
         if missing and sdk:
+            def get_current_txf_symbol():
+                from datetime import datetime
+                import calendar
+                now = datetime.now()
+                month_letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
+                m_idx = now.month - 1
+                cal = calendar.monthcalendar(now.year, now.month)
+                third_wed = [w[2] for w in cal if w[2] != 0][2]
+                if now.day > third_wed or (now.day == third_wed and (now.hour > 13 or (now.hour == 13 and now.minute >= 30))):
+                    m_idx = (m_idx + 1) % 12
+                    year = now.year if m_idx > 0 else now.year + 1
+                else:
+                    year = now.year
+                return f"TXF{month_letters[m_idx]}{str(year)[-1]}"
+
             def fetch_one(sym):
                 try:
-                    is_futopt = sym[0].isalpha() and sym != "IX0001"
+                    is_futopt = (sym[0].isalpha() and sym != "IX0001") or sym.startswith("TX")
                     client = sdk.marketdata.rest_client.futopt if is_futopt else sdk.marketdata.rest_client.stock
-                    q = client.intraday.quote(symbol=sym)
+                    target_sym = get_current_txf_symbol() if sym in ["TXFR1", "TXF", "TX"] else sym
+                    q = client.intraday.quote(symbol=target_sym)
                     price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
                     prev  = q.get("previousClose") or price
                     return (sym, {"price": float(price), "prev": float(prev)} if price else None)
