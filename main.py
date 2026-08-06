@@ -1067,108 +1067,47 @@ async def get_stock_quotes(symbols: str):
 
     try:
         ev_loop = asyncio.get_running_loop()
-        
-        # 1. Fetch the main ETFs instantly via Fubon SDK for live accuracy
-        etfs_to_fetch = [s for s in symbol_list if s in ["0050", "006208", "00922", "00981A", "00403A", "00631L"]]
-        remaining_symbols = [s for s in symbol_list if s not in etfs_to_fetch]
-        
+
+        def get_current_txf_symbol():
+            from datetime import datetime
+            import calendar
+            now = datetime.now()
+            month_letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
+            m_idx = now.month - 1
+            cal = calendar.monthcalendar(now.year, now.month)
+            third_wed = [w[2] for w in cal if w[2] != 0][2]
+            if now.day > third_wed or (now.day == third_wed and (now.hour > 13 or (now.hour == 13 and now.minute >= 30))):
+                m_idx = (m_idx + 1) % 12
+                year = now.year if m_idx > 0 else now.year + 1
+            else:
+                year = now.year
+            return f"TXF{month_letters[m_idx]}{str(year)[-1]}"
+
         quotes = {}
-        if etfs_to_fetch and sdk:
-            def fetch_etf(sym):
+        missing = []
+
+        if sdk:
+            def fetch_via_sdk(sym):
                 try:
-                    q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
-                    price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
-                    prev  = q.get("previousClose") or price
-                    return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+                    if sym in ["TXFR1", "TXF", "TX"]:
+                        tx_sym = get_current_txf_symbol()
+                        q = sdk.marketdata.rest_client.futopt.intraday.quote(symbol=tx_sym)
+                        price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
+                        prev = q.get("previousClose") or price
+                        return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+                    else:
+                        q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
+                        price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
+                        prev = q.get("previousClose") or price
+                        return (sym, {"price": float(price), "prev": float(prev)} if price else None)
                 except Exception:
                     return (sym, None)
-            
-            tasks = [ev_loop.run_in_executor(None, fetch_etf, sym) for sym in etfs_to_fetch]
+
+            tasks = [ev_loop.run_in_executor(None, fetch_via_sdk, sym) for sym in symbol_list]
             res = await asyncio.gather(*tasks, return_exceptions=True)
             for item in res:
-                if not isinstance(item, Exception) and item[1]:
+                if not isinstance(item, Exception) and item and item[1]:
                     quotes[item[0]] = item[1]
-
-        def fetch_twse_all():
-            from datetime import datetime
-            r = requests.get(
-                "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-                headers={"Accept": "application/json"},
-                timeout=10,
-                verify=False
-            )
-            r.raise_for_status()
-            
-            now_dt = datetime.now()
-            today_minguo = f"{now_dt.year - 1911}{now_dt.strftime('%m%d')}"
-            
-            data = {}
-            for item in r.json():
-                try:
-                    code = item["Code"]
-                    close_str = item.get("ClosingPrice", "").replace(",", "")
-                    change_str = item.get("Change", "").replace(",", "")
-                    item_date = item.get("Date", "")
-                    
-                    if close_str and close_str not in ("", "--"):
-                        price = float(close_str)
-                        change = float(change_str) if change_str and change_str not in ("", "--") else 0
-                        
-                        if item_date == today_minguo:
-                            # EOD snapshot for today -> prev is price - change
-                            data[code] = {"price": price, "prev": (price - change)}
-                        else:
-                            # Snapshot from a previous session -> prev is exactly price
-                            data[code] = {"price": price, "prev": price}
-                except (ValueError, KeyError):
-                    continue
-            return data
-
-        price_map = await ev_loop.run_in_executor(None, fetch_twse_all)
-
-        missing = []
-        for sym in remaining_symbols:
-            if sym in price_map:
-                quotes[sym] = price_map[sym]
-            else:
-                missing.append(sym)
-
-        # Fallback to Fubon SDK
-        if missing and sdk:
-            def get_current_txf_symbol():
-                from datetime import datetime
-                import calendar
-                now = datetime.now()
-                month_letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
-                m_idx = now.month - 1
-                cal = calendar.monthcalendar(now.year, now.month)
-                third_wed = [w[2] for w in cal if w[2] != 0][2]
-                if now.day > third_wed or (now.day == third_wed and (now.hour > 13 or (now.hour == 13 and now.minute >= 30))):
-                    m_idx = (m_idx + 1) % 12
-                    year = now.year if m_idx > 0 else now.year + 1
-                else:
-                    year = now.year
-                return f"TXF{month_letters[m_idx]}{str(year)[-1]}"
-
-            def fetch_one(sym):
-                try:
-                    is_futopt = (sym[0].isalpha() and sym != "IX0001") or sym.startswith("TX")
-                    client = sdk.marketdata.rest_client.futopt if is_futopt else sdk.marketdata.rest_client.stock
-                    target_sym = get_current_txf_symbol() if sym in ["TXFR1", "TXF", "TX"] else sym
-                    q = client.intraday.quote(symbol=target_sym)
-                    price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
-                    prev  = q.get("previousClose") or price
-                    return (sym, {"price": float(price), "prev": float(prev)} if price else None)
-                except Exception:
-                    return (sym, None)
-
-            tasks = [ev_loop.run_in_executor(None, fetch_one, sym) for sym in missing]
-            fallback_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for item in fallback_results:
-                if isinstance(item, Exception): continue
-                sym, data = item
-                if data: quotes[sym] = data
 
         return quotes
 
