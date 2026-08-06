@@ -430,6 +430,33 @@
                 </div>
             </div>
         </div>
+    <!-- Top 5 & Bottom 5 Leaderboard Summary Cards -->
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 14px; margin-bottom: 14px;">
+        <!-- Top 5 Card (Strongest) -->
+        <div style="background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 12px 16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                <span style="font-weight: 700; font-size: 0.85rem; color: #f87171;">🔥 產業強勢榜 (TOP 5)</span>
+                <span style="font-size: 0.72rem; color: #94a3b8;">加權漲幅 / 大盤點數</span>
+            </div>
+            <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+                <tbody id="top5TableBody">
+                    <tr><td colspan="3" style="text-align:center; padding:10px; color:#64748b;">計算中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Bottom 5 Card (Weakest) -->
+        <div style="background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 12px; padding: 12px 16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                <span style="font-weight: 700; font-size: 0.85rem; color: #4ade80;">❄️ 產業弱勢榜 (BOTTOM 5)</span>
+                <span style="font-size: 0.72rem; color: #94a3b8;">加權跌幅 / 大盤點數</span>
+            </div>
+            <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+                <tbody id="bottom5TableBody">
+                    <tr><td colspan="3" style="text-align:center; padding:10px; color:#64748b;">計算中...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div id="heatmapContainer" class="heatmap-container">
@@ -882,6 +909,82 @@
             const sCard = document.getElementById(`sector-card-${item.sector}`);
             if (sCard) heatmapContainer.appendChild(sCard);
         });
+
+        // Update Top 5 & Bottom 5 Leaderboard Cards
+        renderTopBottomSummary(sectorAverages);
+    }
+
+    function renderTopBottomSummary(sectorAverages) {
+        const topBody = document.getElementById('top5TableBody');
+        const bottomBody = document.getElementById('bottom5TableBody');
+        if (!topBody || !bottomBody || !sectorAverages.length) return;
+
+        // Sort pure by return % for Top 5 / Bottom 5 ranking
+        const sortedByPct = [...sectorAverages].sort((a, b) => b.avgPct - a.avgPct);
+        const top5 = sortedByPct.slice(0, 5);
+        const bottom5 = sortedByPct.slice(-5).reverse();
+
+        // Render Top 5
+        let topHtml = '';
+        top5.forEach((item, idx) => {
+            const rank = idx + 1;
+            const pctStr = (item.avgPct > 0 ? '+' : '') + item.avgPct.toFixed(2) + '%';
+            const ptsStr = (item.pts > 0 ? '+' : '') + (item.pts || 0).toFixed(2) + ' 點';
+            const pctColor = item.avgPct > 0 ? '#f87171' : item.avgPct < 0 ? '#4ade80' : '#94a3b8';
+            topHtml += `
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04); cursor:pointer; transition:background 0.15s;" 
+                    onclick="scrollToSector('${item.sector}')" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding:4px 6px; font-weight:600; color:#f1f5f9;">
+                        <span style="color:#f87171; font-weight:800; width:16px; display:inline-block;">${rank}.</span> ${item.sector}
+                    </td>
+                    <td style="text-align:right; font-family:'JetBrains Mono',monospace; font-weight:700; color:${pctColor};">
+                        ${pctStr}
+                    </td>
+                    <td style="text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#94a3b8; padding-left:8px;">
+                        ${ptsStr}
+                    </td>
+                </tr>`;
+        });
+        topBody.innerHTML = topHtml;
+
+        // Render Bottom 5
+        let bottomHtml = '';
+        bottom5.forEach((item, idx) => {
+            const rank = idx + 1;
+            const pctStr = (item.avgPct > 0 ? '+' : '') + item.avgPct.toFixed(2) + '%';
+            const ptsStr = (item.pts > 0 ? '+' : '') + (item.pts || 0).toFixed(2) + ' 點';
+            const pctColor = item.avgPct > 0 ? '#f87171' : item.avgPct < 0 ? '#4ade80' : '#94a3b8';
+            bottomHtml += `
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04); cursor:pointer; transition:background 0.15s;" 
+                    onclick="scrollToSector('${item.sector}')" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding:4px 6px; font-weight:600; color:#f1f5f9;">
+                        <span style="color:#4ade80; font-weight:800; width:16px; display:inline-block;">${rank}.</span> ${item.sector}
+                    </td>
+                    <td style="text-align:right; font-family:'JetBrains Mono',monospace; font-weight:700; color:${pctColor};">
+                        ${pctStr}
+                    </td>
+                    <td style="text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#94a3b8; padding-left:8px;">
+                        ${ptsStr}
+                    </td>
+                </tr>`;
+        });
+        bottomBody.innerHTML = bottomHtml;
+    }
+
+    function scrollToSector(sectorName) {
+        const sCard = document.getElementById(`sector-card-${sectorName}`);
+        if (sCard) {
+            sCard.classList.remove('collapsed');
+            sCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            sCard.style.transition = 'all 0.3s';
+            const origBorder = sCard.style.borderColor;
+            sCard.style.borderColor = '#fbbf24';
+            sCard.style.boxShadow = '0 0 25px rgba(251, 191, 36, 0.5)';
+            setTimeout(() => { 
+                sCard.style.borderColor = origBorder; 
+                sCard.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
+            }, 1500);
+        }
     }
 
     function connectWS() {
