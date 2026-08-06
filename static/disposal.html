@@ -770,11 +770,26 @@
         <h1>⚠️ 處置偵測 Monitor</h1>
         <p>注意有價證券異常偵測 — 第1~13款全條款掃描（依臺灣證券交易所作業要點）</p>
         <div class="nav-links">
-            <a href="/" class="nav-link">📊 Order Book (含排隊)</a>
-            <a href="/options" class="nav-link">📊 選擇權看板</a>
-            <a href="/etf0050" class="nav-link green">💹 ETF iNAV</a>
+            <a href="/" class="nav-link">📊 Order Book</a>
+            <a href="/options" class="nav-link">📈 選擇權看板</a>
+            <a href="/etf0050" class="nav-link green">💹 0050 iNAV</a>
+            <a href="/active_etf" class="nav-link" style="color:#c084fc;border-color:rgba(192,132,252,0.3)">🚀 主動 ETF</a>
+            <a href="/disposal" class="nav-link active" style="color:#f59e0b;border-color:rgba(245,158,11,0.5);background:rgba(245,158,11,0.12)">⚠️ 處置偵測</a>
+            <a href="/queue" class="nav-link" style="color:#22d3ee;border-color:rgba(34,211,238,0.3)">⏱️ 洗價排隊</a>
+            <a href="/sector_heatmap" class="nav-link" style="color:#ff8a00;border-color:rgba(255,138,0,0.3)">🔥 產業熱力圖</a>
         </div>
     </div>
+    <script>
+        document.addEventListener('click', function(e) {
+            const a = e.target.closest('a');
+            if (a && a.getAttribute('href') && a.getAttribute('href').startsWith('/')) {
+                if (window.parent && window.parent !== window) {
+                    e.preventDefault();
+                    window.parent.postMessage({ type: 'NAVIGATE', path: a.getAttribute('href') }, '*');
+                }
+            }
+        });
+    </script>
 
     <!-- Tab Bar -->
     <div class="glass tab-bar">
@@ -782,6 +797,28 @@
         <button class="tab-btn" onclick="switchTab('attention')" id="tab-attention">🚨 注意股預警</button>
         <button class="tab-btn" onclick="switchTab('query')" id="tab-query">🔍 個股查詢</button>
         <button class="tab-btn" onclick="switchTab('scan')" id="tab-scan">⚠️ 高風險一覽</button>
+    </div>
+
+    <!-- 2026/08 證交所處置新新規定宣導卡片 -->
+    <div style="background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.25); border-radius:12px; padding:12px 16px; margin-top:14px; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; font-weight:700; color:#c084fc; font-size:0.85rem; margin-bottom:6px;">
+            <span>⚡ 2026/08 證交所/櫃買處置作業新新規定與千金股條款修正</span>
+            <span style="font-size:0.75rem; background:rgba(192,132,252,0.2); padding:2px 8px; border-radius:12px; color:#e9d5ff;">2026/08/10 起實施</span>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:10px; font-size:0.78rem; color:#cbd5e1;">
+            <div>
+                <strong style="color:#38bdf8;">⏱️ 處置期間縮短：</strong>
+                一般處置由 10 日縮短為 <span style="color:#34d399; font-weight:700;">5 個營業日</span>；含當沖過高者縮短為 <span style="color:#34d399; font-weight:700;">7 個營業日</span>。
+            </div>
+            <div>
+                <strong style="color:#38bdf8;">⚡ 撮合速度加速：</strong>
+                受處置之普通交易有價證券，撮合作業時間統一調整為約 <span style="color:#fbbf24; font-weight:700;">每 2 分鐘撮合一次</span>。
+            </div>
+            <div>
+                <strong style="color:#38bdf8;">📈 高價千金股第11款放寬：</strong>
+                收盤價 >1,000 元者，價差門檻起算提高為 <span style="color:#f87171; font-weight:700;">300 元</span> (每 1,000 元級距再加 150 元)。
+            </div>
+        </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ -->
@@ -931,7 +968,7 @@
         8:  { name: "TDR 溢折價", desc: "TDR專用，略過", skip: true },
         9:  { name: "成交量持續放大", desc: "近6日均量≥60日均量5倍" },
         10: { name: "累積週轉率過高", desc: "近6日累積週轉率>80%且當日≥5%" },
-        11: { name: "絕對價差異常", desc: "起迄兩日價差≥NT$70 (依價分級)" },
+        11: { name: "絕對價差異常 (新制)", desc: "價差門檻：≤1000元為100元；>1000元起算300元(每1000元級距+150元)" },
         12: { name: "借券賣出比率", desc: "近6日借券占比>9%且倍增" },
         13: { name: "當沖比率過高", desc: "近6日當沖占比>60%" }
     };

@@ -1,0 +1,841 @@
+
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <meta name="author" content="統一證券投資信託股份有限公司" />
+    <meta name="copyright" content="本網頁著作權屬統一證券投資信託股份有限公司所有" />
+    <meta name="description" content="統一投信輕鬆理財網為統一投信之官方入口網站，提供投資人全方位的基金投資理財服務，包括：國內及海外基金資訊、基金淨值及績效表現、全球股市評論、基金投資報告、資產配置建議、投資理財規劃、理財新知、理財試算與諮詢、基金網路申購功能等" />
+    <meta name="keywords" content="統一,統一投信,投信,基金,投資,理財,定期定額,全權委託,理財規劃,基金投資,多幣別計價,美元計價,人民幣計價,0手續費,申購優惠,定期定額,單筆投資,新興市場,中國市場,手續費優惠,報酬,收益,穩定收益,配息,動態,績效,基金獎,得獎基金,得獎常勝軍,三連霸,Smart智富基金獎,Lipper理柏基金獎,金鑽獎,最佳基金公司,最佳股票基金團隊,最佳股票型基金團隊研究獎,精選基金,推薦基金,台股基金,中國基金,大中華基金,新興市場,手續費優惠" />
+    <meta name="robots" content="index,follow" />
+    <meta name="googlebot" content="index,follow" />
+    <meta name="google-site-verification" content="Eqm78TosYZ14RoSuCXSVJsLxSigb5gguaYihGESZfQk" />
+    <meta name="facebook-domain-verification" content="wdddxkirunff4e8bbd8nvbkyvwv70c" />
+
+    <link rel="icon" href="/favicon.ico">
+    <title>統一投信輕鬆理財網 - 基金選統一，理財更輕鬆</title>
+    <link href="/Content/bootstrap/bootstrap.min.css?t=20260730" rel="stylesheet">
+    <link href="/Content/share/sticky-footer-navbar.css?t=20260730" rel="stylesheet">
+    <link type="text/css" href="/Content/share/common.css?t=20260730" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="/Content/share/bootstrap-datepicker.css?t=20260730">
+    <link href="/Content/validationEngine/validationEngine.jquery.css?t=20260730" rel="stylesheet" />
+
+  
+    <link type="text/css" rel="stylesheet" href="/Scripts/JQuery_7.2.24.304/AstarIME-3.23.11.140.css" />
+    <script type="text/javascript" src="/Scripts/JQuery_7.2.24.304/jquery-3.7.1.min.js"></script>
+    <script type="text/javascript" src="/Scripts/JQuery_7.2.24.304/AstarAPI.js"></script>
+    <script type="text/javascript" src="/Scripts/JQuery_7.2.24.304/AstarWebUI_Define.js"></script>
+    <script type="text/javascript" src="/Scripts/JQuery_7.2.24.304/AstarWebUI-7.2.24.304.min.js"></script>
+
+    
+    <script src="/Scripts/bootstrap/bootstrap.min.js?t=20260730"></script>
+
+    <!-- InstanceBeginEditable name="head" -->
+    <script src="/Scripts/momentjs-2.30.1/moment.min.js?t=20260730"></script>
+    <script src="/Scripts/momentjs-2.30.1/zh-tw.js?t=20260730"></script>
+    <script src="/Scripts/jQuery-TWzipcode-master/jquery.twzipcode.js?t=20260730"></script>
+    <script src="/Scripts/share/bootstrap-datepicker.js?t=20260730"></script>
+    <script src="/Scripts/share/locales/bootstrap-datepicker.zh-TW.js?t=20260730"></script>
+    <script src="/Scripts/share/common.js?t=20260730"></script>
+    <script src="/Scripts/validationEngine-2.6.2/jquery.validationEngine-tw.js?t=20260730"></script>
+    <script src="/Scripts/validationEngine-2.6.2/jquery.validationEngine.js?t=20260730"></script>
+    <link rel="stylesheet" href="/Content/share/simplePagination.css?t=20260730">
+    <script src="/Scripts/share/DateFormatExtension.js?t=20260730"></script>
+    <link type="text/css" href="/Content/css-loader-2.2.0/css-loader.css" rel="stylesheet">
+    <script src="/Scripts/DOMPurify/purify.min.js?t=20260730"></script>
+
+    <!--2023.02.22 Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-3MMYCX29JS"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+
+        gtag('config', 'G-3MMYCX29JS');
+    </script>
+    <style>
+        @media (max-width: 767px) {
+            .line_fb2 {
+                margin: 0px;
+                padding-top: 14px;
+            }
+        }
+
+        @media (max-width: 544px) {
+            .line_fb1 {
+                display: inline-block;
+            }
+
+            .line_fb2 {
+                margin: 0px;
+                padding: 5px 5px;
+            }
+        }
+        /* ===== 手機：漢堡選單打開時，整個選單往下推 ===== */
+        @media (max-width: 768px) {
+
+            body.menu-open .mobile-menu,
+            body.menu-open .nav-menu,
+            body.menu-open .side-menu {
+                top: 110px !important;
+                /* 50px header + ~60px progress bar，可依實際微調 */
+            }
+
+        }
+
+    </style>
+</head>
+<body class="menu-open">
+    <!-- Fixed navbar -->
+    <nav class="navbar navbar-default navbar-fixed-top">
+        <div class="container">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar"><span class="sr-only">Toggle navigation</span> <span class="icon-bar"></span><span class="icon-bar"></span><span class="icon-bar"></span></button>
+                <!-- main list Start -->
+                <div class="dropdown member-menu">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><span class="glyphicon glyphicon-member"></span></button>
+                    <ul class="dropdown-menu">
+                            <li><a href="/member/login">會員登入</a></li>
+
+                        <li><a href="/signup/index">線上開戶</a></li>
+                        <li><a href="/events/memberplus/index.html">優惠一覽/操作教學</a></li>
+                    </ul>
+                </div>
+                <!-- main list End -->
+                <!-- line zone Start -->
+                <a href="https://line.me/R/ti/p/%40ezmoney.tw" target="_blank" class="line_fb1">
+                    <div class="navbar-toggle collapsed line_fb2" data-toggle="collapse" data-target="#" aria-expanded="false" aria-controls="navbar"><span class="sr-only">Toggle navigation</span><img src="/Images/LINE_SOCIAL_Circle_72.png" height="26" /></div>
+                </a>
+                <!-- line zone End -->
+                <!-- fb zone Start -->
+                <a href="https://www.facebook.com/ezmoney.tw" target="_blank" class="line_fb1">
+                    <div class="navbar-toggle collapsed line_fb2" data-toggle="collapse" data-target="#" aria-expanded="false" aria-controls="navbar"><span class="sr-only">Toggle navigation</span><img src="/Images/f_logo_RGB-Blue_72.png" height="26" /></div>
+                </a>
+                <!-- fb zone End -->
+                <a class="navbar-brand" href="/">
+                    <h1>統一投信</h1>
+                    <sapn class="header_slogan"></sapn>
+                </a>
+                <div class="mini_menu_top_right"><a href="/">回首頁</a> | <a href="https://www.facebook.com/ezmoney.tw" target="_blank"><img src="/Images/f_logo_RGB-Blue_72.png" height="20" />粉絲團</a> | <a href="https://line.me/R/ti/p/%40ezmoney.tw" target="_blank"><img src="/Images/LINE_SOCIAL_Circle_72.png" height="20" />官方帳號</a> | <a href="/Contactus">聯絡我們</a> | <a href="https://www.pscnet.com.tw/" target="_blank">統一綜合證券</a> </div>
+            </div>
+            <div id="navbar" class="collapse navbar-collapse">
+                <ul class="nav navbar-nav">
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle MZ" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><i></i>會員專區<b>Member Zone</b> <span class="caret"></span></a>
+                        <ul class="dropdown-menu">
+                                        <li >
+                                            <a href="/Member" >Myezmoney</a>
+
+                                        </li>
+                                        <li   class="dropdown-submenu"  >
+                                            <a >線上交易</a>
+                                                    <ul class="dropdown-menu">
+                                                                <li><a href="/ETFIPO" ><font color="red">ETF募集申購</font></a></li>
+                                                                <li><a href="/SinglePurchase" >單筆申購</a></li>
+                                                                <li><a href="/FundsBuy" >基金買回</a></li>
+                                                                <li><a href="/Transfer" >基金轉換</a></li>
+                                                                <li><a href="/Quota" >定期定額申購</a></li>
+                                                                <li><a href="/Quota/List" >定期定額變更/恢復</a></li>
+                                                                <li><a href="/Daily" >日日扣申購</a></li>
+                                                                <li><a href="/Daily/List" >日日扣變更</a></li>
+                                                                <li><a href="/MultiCyclePurchase" >動能循環申購</a></li>
+                                                                <li><a href="/MultiCyclePurchase/List" >動能循環變更</a></li>
+                                                                <li><a href="/SinglePurchase/List" >委託查詢 / 取消</a></li>
+                                                                <li><a href="/TransactionHistory" >歷史交易明細查詢</a></li>
+                                                                <li><a href="/Bill" >對帳單查詢</a></li>
+                                                                <li><a href="/Bill/Mul2Bill" >對帳單查詢-動能循環</a></li>
+                                                                <li><a href="/Bonus" >紅利積點查詢</a></li>
+                                                                <li><a href="/Profit" >基金收益分配查詢</a></li>
+                                                                <li><a href="/Assess/Info" >投資適性調查表</a></li>
+                                                                <li><a href="/DebitAccount" >線上變更扣款帳戶</a></li>
+                                                                <li><a href="/Promise" >約定收益分配方式</a></li>
+                                                    </ul>
+
+                                        </li>
+                                        <li >
+                                            <a href="/member/AchievementContrast" >基金績效比較</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Schedule" >查詢開戶進度</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/MyMessage" >我的訊息</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/MyAccount" >我的投資帳戶</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/NoticePrice" >基金到價通知</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Member/EditData" >修改會員資料</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/EditPWD" >修改會員代號/密碼</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Newsletter" >訂閱/取消電子報</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/SignUp" >申請開戶/會員</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/member/forget" >忘記密碼</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Comment" >我的基金評論消息</a>
+
+                                        </li>
+
+                        </ul>
+                    </li>
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle FC" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><i></i>基金中心<b>Funds Center</b> <span class="caret"></span></a>
+                        <ul class="dropdown-menu">
+                                    <li   class="dropdown-submenu"  >
+                                        <a href="/funds" >統一系列基金</a>
+                                                <ul class="dropdown-menu">
+                                                        <li><a href="/funds?flag=1" >國內股票型</a></li>
+                                                        <li><a href="/funds?flag=2" >海外股票型</a></li>
+                                                        <li><a href="/funds?flag=3" >固定收益型</a></li>
+                                                        <li><a href="/funds?flag=4" >多重資產型</a></li>
+                                                </ul>
+
+                                    </li>
+                                    <li   class="dropdown-submenu"  >
+                                        <a >基金淨值查詢</a>
+                                                <ul class="dropdown-menu">
+                                                        <li><a href="/Funds/unit" >基金淨值一覽</a></li>
+                                                        <li><a href="/funds/nav" >歷史淨值查詢</a></li>
+                                                </ul>
+
+                                    </li>
+                                    <li >
+                                        <a href="/funds/compare" >基金績效總覽</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/4671?tid=33&amp;tmp=1" >基金風險報酬分類</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/funds/Report" >系列基金月報</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/Funds/Calendar" >基金配息行事曆</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/funds/div" >基金配息查詢</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/6938?tid=36&amp;tmp=1" >通路報酬揭露</a>
+
+                                    </li>
+
+                        </ul>
+                    </li>
+                    <!-- ETF上線後移除註解 -->
+                    <li class="dropdown">
+                        <a href="/ETF" class="dropdown-toggle EZ" target="_blank">
+                            <i></i>ETF專區<b>ETF Zone</b> <span class="caret"></span>
+                        </a>
+                    </li>
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle SD" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><i></i>服務台<b>Service Desk</b> <span class="caret"></span></a>
+                        <ul class="dropdown-menu">
+                                        <li >
+                                            <a href="/news/?tid=1" >最新消息</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Faq/?tid=2" >線上問答</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Down" >表格下載</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Askfor" >索取資料</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/news/info/4674?tid=5&amp;tmp=1" >申購買回流程</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/BillEdm" >申請電子對帳單</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/SiteMap" >網站導覽</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/Contactus" >聯絡我們</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/news/info/8092?tid=61" >金融友善服務</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/news/info/12126?tid=114" >防制洗錢宣導專區</a>
+
+                                        </li>
+                                        <li >
+                                            <a href="/news/info/13344?tid=130" >統一投信APP</a>
+
+                                        </li>
+
+                        </ul>
+                    </li>
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle MO" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><i></i>投資眺望<b>Market Outlook</b> <span class="caret"></span></a>
+                        <ul class="dropdown-menu">
+                                    <li >
+                                        <a href="/news/?tid=8" >統一觀點</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/?tid=9" >台灣股市眺望</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/?tid=10" >亞洲及中國股市眺望</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/?tid=11" >美股及美國科技股眺望</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/?tid=111" >債券市場眺望</a>
+
+                                    </li>
+
+                        </ul>
+                    </li>
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle Ay" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><i></i>理財講座<b>Finance</b> <span class="caret"></span></a>
+                        <ul class="dropdown-menu">
+                                    <li >
+                                        <a href="/NEWS/?tid=125" >退休理財規劃</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/?tid=113" >財富思維</a>
+
+                                    </li>
+                                    <li   class="dropdown-submenu"  >
+                                        <a href="/news/?tid=12&amp;sid=1" >基金充電站</a>
+                                                <ul class="dropdown-menu">
+                                                        <li><a href="/news/?tid=12&amp;sid=1" >共同基金篇</a></li>
+                                                        <li><a href="/news/?tid=12&amp;sid=2" >定期定額篇</a></li>
+                                                        <li><a href="/faq2?cid=53" >基金小辭典</a></li>
+                                                </ul>
+
+                                    </li>
+                                    <li   class="dropdown-submenu"  >
+                                        <a >定期定額專區</a>
+                                                <ul class="dropdown-menu">
+                                                        <li><a href="/rsp/Calculate02" >報酬率試算</a></li>
+                                                        <li><a href="/faq2?cid=52" >定額Smart Kit</a></li>
+                                                </ul>
+
+                                    </li>
+                                    <li   class="dropdown-submenu"  >
+                                        <a >理財規劃健診</a>
+                                                <ul class="dropdown-menu">
+                                                        <li><a href="/news/Info/4669?tid=38&amp;sid=8&amp;tmp=1" >認識投資屬性</a></li>
+                                                        <li><a href="/Question" >投資屬性分析</a></li>
+                                                </ul>
+
+                                    </li>
+                                    <li   class="dropdown-submenu"  >
+                                        <a >投資目標試算</a>
+                                                <ul class="dropdown-menu">
+                                                        <li><a href="/rsp/Calculate06" >退休金額試算</a></li>
+                                                        <li><a href="/rsp/Calculate03" >總收益試算</a></li>
+                                                        <li><a href="/rsp/Calculate04" >投資時間試算</a></li>
+                                                        <li><a href="/rsp" >年報酬率試算</a></li>
+                                                </ul>
+
+                                    </li>
+                                    <li >
+                                        <a href="/retired/consult" >講座預約</a>
+
+                                    </li>
+
+                        </ul>
+                    </li>
+                    <li class="dropdown">
+                        <a href="https://esg.ezmoney.com.tw" class="dropdown-toggle ESG" target="_blank">
+                            <i></i>永續專區<b>Sustainability</b> <span class="caret"></span>
+                        </a>
+                    </li>
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle AU" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false"><i></i>公司簡介<b>About Us</b> <span class="caret"></span></a>
+                        <ul class="dropdown-menu">
+                                    <li >
+                                        <a href="/news/info/22?tid=41" >統一投信簡介</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/27?tid=42" >堅強股東陣容</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/4672?tid=43&amp;tmp=1" >產品服務總覽</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/32?tid=44" >經營四大特色</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/33?tid=45" >專業研究團隊</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/34?tid=46" >成績深獲肯定</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/12649?tid=124" >盡職治理專區</a>
+
+                                    </li>
+                                    <li >
+                                        <a href="/news/info/11120?tid=112" >不法檢舉管道</a>
+
+                                    </li>
+
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+            <!--/.nav-collapse -->
+        </div>
+    </nav>
+
+    <!-- Begin page content -->
+    <div class="container">
+    <div class="row">
+        <div class="col-lg-3 left">
+
+<div class="sub-menus">
+    <div class="left-side_menu_member">
+        <div class="left-side_title">會員專區<i>Member Zone</i></div>
+    <ul>
+            <li><a href="/member/login"><span class="glyphicon glyphicon-user glyphicon_control_10"></span><b>會員登入</b></a></li>
+            <li><a href="/member/map"><span class="glyphicon glyphicon-shopping-cart"></span><b>線上交易</b></a></li>
+            <li><a href="/SignUp"><span class="glyphicon glyphicon-stats"></span><b>申請開戶/會員</b></a></li>
+            <li><a href="/events/memberplus/index.html" target="_blank"><span class="glyphicon glyphicon-dashboard glyphicon_control_10"></span><b>優惠一覽/操作教學</b></a></li>
+            <li><a href="/Newsletter"><span class="glyphicon glyphicon-envelope glyphicon_control_10"></span><b>訂閱/取消電子報</b></a></li>
+    </ul>
+    </div>
+    <div class="left-side_menu_sub">
+        <div class="left-side_title">
+            服務台
+                        <i>Service Desk</i>
+
+        </div>
+        <ul>
+                        <li><a href="/news/?tid=1" ><span class="glyphicon glyphicon-stop"></span><b>最新消息</b></a></li>
+                        <li><a href="/Faq/?tid=2" ><span class="glyphicon glyphicon-stop"></span><b>線上問答</b></a></li>
+                        <li><a href="/Down" ><span class="glyphicon glyphicon-stop"></span><b>表格下載</b></a></li>
+                        <li><a href="/Askfor" ><span class="glyphicon glyphicon-stop"></span><b>索取資料</b></a></li>
+                        <li><a href="/news/info/4674?tid=5&amp;tmp=1" ><span class="glyphicon glyphicon-stop"></span><b>申購買回流程</b></a></li>
+                        <li><a href="/BillEdm" ><span class="glyphicon glyphicon-stop"></span><b>申請電子對帳單</b></a></li>
+                        <li><a href="/SiteMap" ><span class="glyphicon glyphicon-stop"></span><b>網站導覽</b></a></li>
+                        <li><a href="/Contactus" ><span class="glyphicon glyphicon-stop"></span><b>聯絡我們</b></a></li>
+                        <li><a href="/news/info/8092?tid=61" ><span class="glyphicon glyphicon-stop"></span><b>金融友善服務</b></a></li>
+                        <li><a href="/news/info/12126?tid=114" ><span class="glyphicon glyphicon-stop"></span><b>防制洗錢宣導專區</b></a></li>
+                        <li><a href="/news/info/13344?tid=130" ><span class="glyphicon glyphicon-stop"></span><b>統一投信APP</b></a></li>
+
+        </ul>
+    </div>
+    
+<div id="mybanner" class="carousel slide" data-ride="carousel">
+	<div class="carousel-inner">
+		    <div class="item active">
+		    <a href="https://www.ezmoney.com.tw/news/info/6938?tid=36&amp;tmp=1" target="_blank"><img src="/docupload/image/79374915338.gif" alt="通路報酬揭露"></a>
+		    </div>
+		    <div class="item ">
+		    <a href="https://3434.twsa.org.tw/" target="_blank"><img src="/docupload/image/banner_160160_20230919.jpg" alt="非金管會核准之證券期貨業者及商品警示專區"></a>
+		    </div>
+		    <div class="item ">
+		    <a href="https://www.ezmoney.com.tw/NEWS/Info/8316?tid=1" ><img src="/docupload/image/money.jpg" alt="因應洗錢防制民眾應配合客戶審查"></a>
+		    </div>
+		    <div class="item ">
+		    <a href="https://www.foi.org.tw/index.aspx?lang=1" target="_blank"><img src="/docupload/image/704714083.gif" alt="金融消費爭議處理專區"></a>
+		    </div>
+	</div>
+</div>
+<span class="glyphicon glyphicon-circle-arrow-down openM m_s"></span>
+<span class="glyphicon glyphicon-circle-arrow-up closeM m_s"></span>
+</div>        </div>
+        <div class="col-lg-9 right">
+            <!-- InstanceBeginEditable name="EditRegion3" -->
+            <div class="article">
+                <div class="gray_gradient_bg">
+                    <div class="titleimg"><img src="/Images/title_member.png"><b><i>error</i>系統提示</b></div>
+                    <h2>系統提示</h2>
+                </div>
+
+                <div class="row tablelist">
+                    <div class="panel panel-default member">
+                        <div class="panel-body">
+                            <div class="col-md-3 col-xs-12 text-center">
+                                <img class="pull-left" src="/Images/service.png" width="166" height="188" alt="" />
+                            </div>
+                            <div class="col-md-9  col-xs-12">
+                                <p class="pinfo_right h_auto" style="padding:5px;margin-left:25px;">
+                                    <span id="SpanMsg" data-content="發生未知的錯誤！&amp;lt;br/&amp;gt;請洽客服專線：(02)2747-8388轉0。&amp;lt;br/&amp;gt;"></span>
+                                    <br>
+                                    <div class="text-center">
+                                            <a class="btn btn-primary " href="/">回首頁</a>
+                                    </div>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- InstanceEndEditable -->
+        </div>
+    </div>
+</div>
+<script>
+    $(document).ready(function () {
+        $('#SpanMsg').html(DOMPurify.sanitize(new DOMParser().parseFromString($('#SpanMsg').data('content'), 'text/html').documentElement.textContent));
+    });
+</script>
+
+    <div class="container" style="padding-top:10px;">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="article">
+                    <div class="alert">
+                        <div class="line_lg"></div>
+                        <div id="Warning" data-content="&lt;strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;基金經金管會&lt;strong&gt;或其指定機構&lt;/strong&gt;核准或同意生效，惟不表示絕無風險。由於非投資等級債券之信用評等未達投資等級或未經信用評等，且對利率變動的敏感度甚高，故基金可能會因利率上升、市場流動性下降，或債券發行機構違約不支付本金、利息或破產而蒙受虧損。基金不適合無法承擔相關風險之投資人。本公司以往之經理績效不保證基金之最低投資收益；本公司除盡善良管理人之注意義務外，不負責本基金之盈虧，亦不保證最低之收益，投資人申購前應詳閱基金公開說明書，基金應負擔之費用已揭露於基金公開說明書中。投資人可至本公司及基金銷售機構索取公開說明書或簡式公開說明書，或至本公司網站&lt;a href=&quot;https://www.ezmoney.com.tw&quot; target=&quot;_blank&quot;&gt;https://www.ezmoney.com.tw&lt;/a&gt;或公開資訊觀測站&lt;a href=&quot;https://mopsplus.twse.com.tw&quot; target=&quot;_blank&quot;&gt;https://mopsplus.twse.com.tw&lt;/a&gt;自行下載。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;本文提及之經濟走勢預測不必然代表本基金之績效，本基金投資風險請詳閱基金公開說明書。本資料所述個別企業僅為說明或舉例之用，並無推薦之意，亦非本經理公司所經理之基金必然會投資之標的。投資人申購本基金係持有基金受益憑證，而非本文提及之投資資產或標的。投資人應留意衍生性工具 /證券相關商品等槓桿投資策略所可能產生之投資風險（詳見公開說明書）。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;基金配息不代表基金實際報酬，且過去配息不代表未來配息；基金淨值可能因市場因素而上下波動&lt;strong&gt;，於配息時需一併注意基金淨值變動&lt;/strong&gt;。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;投資人因不同時間進場，將有不同之投資績效，過去之績效亦不代表未來績效之保證。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【基金風險報酬等級係參酌投信投顧公會所制定之基金風險等級分類(RR)標準，RR係計算過去5年基金淨值波動度標準差，以標準差區間予以分類等級，分類為RR1~RR5五級，數字越大代表風險越高。此等級分類係基於一般市場狀況反映市場價格波動風險，無法涵蓋所有風險(如：基金計價幣別匯率風險、投資標的產業風險、信用風險、利率風險、流動性風險等)，不宜作為投資唯一依據，投資人仍應注意所投資基金個別風險。】&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;部份基金主要投資於新興市場國家之債券或非投資等級債券，可能產生之風險包括流動性不足風險、市場風險(含政治、利率、匯率等)、債券發行人違約之信用風險等風險，或可能因受益人大量買回，致延遲給付買回價款，遇前述風險時，基金之淨資產價值可能因此產生波動。&lt;br&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;部份&lt;/strong&gt;&lt;/strong&gt;基金可投資於美國144A債券，該債券屬私募性質，較可能發生流動性不足，財務訊息揭露不完整或因價格不透明導致波動性較大之風險。&lt;br&gt;
+統一亞洲非投資等級債券基金(原名:統一中國非投資等級債券基金)&lt;strong&gt;&lt;strong&gt;&lt;strong&gt;&lt;strong&gt;(&lt;/strong&gt;&lt;/strong&gt;基金之配息來源可能為本金&lt;strong&gt;&lt;strong&gt;)&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;與統一全球動態多重資產基金&lt;strong&gt;&lt;strong&gt;&lt;strong&gt;(&lt;/strong&gt;&lt;/strong&gt;基金有相當比重投資於非投資等級之高風險債券且基金配息來源可能為本金&lt;strong&gt;&lt;strong&gt;)&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;適合能承受較高風險之非保守型投資人，由於基金主要投資於新興市場國家之公司債券或非投資等級債券，故投資人投資本基金不宜占其投資組合過高之比重。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;部份基金投資地區包含大陸地區，可能因產業循環或非經濟因素導致價格劇烈波動，或市場機制不如已開發市場健全，而產生流動性不足風險，對基金報酬產生直接或間接之影響。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【統一台灣高息優選基金（本基金並無保證收益及配息，配息來源可能為本金及收益平準金）】&lt;br&gt;
+1、本基金配息級別投資所得之現金股利、利息收入、子基金收益、淨資本利得將分為12個月配發。&lt;br&gt;
+2、淨資本利得係指基金配息級別資產投資於中華民國境內所得之已實現資本利得扣除已實現資本損失後為正，始可進行分配。&lt;br&gt;
+3、經理公司得依本基金收益情況自行決定每次分配金額或不分配，故每次分配金額並非一定相同。&lt;br&gt;
+&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【統一優選低波多重資產基金（基金之配息來源可能為本金及收益平準金）】&lt;br&gt;
+本基金經臺灣集中保管結算所股份有限公司同意生效，惟不表示本基金絕無風險。本公司以往之經理績效不保證本基金之最低投資收益；本公司除盡善良管理人之注意義務外，不負責本基金之盈虧，亦不保證最低之收益，投資人申購前應詳閱基金公開說明書。&lt;br&gt;
+本基金有相當比重投資於國內投信所發行之投資海外債券型基金(子基金)，子基金投資標的可能為非投資等級債券，由於非投資等級債券之信用評等未達投資等級或未經信用評等，且對利率變動的敏感度甚高，故本基金可能會因利率上升、市場流動性下降，或債券發行機構違約不支付本金、利息或破產而蒙受虧損，投資人須留意子基金所投資標的可能包含利率風險、信用風險及匯率風險等相關風險。&lt;br&gt;
+&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;【&lt;strong&gt;指數股票型基金(被動式ETF)&lt;/strong&gt;】&lt;br&gt;
+指數股票型基金因採被動式管理方式，以追蹤標的指數報酬為目標，因此基金之投資績效將視其追蹤之標的指數之走勢而定。基於管理有價證券價格變動風險或為增加投資效率之需要，得從事證券相關商品之交易。當其追蹤之指數價格波動劇烈時，基金之淨資產價值將有波動之風險。此外國內外政經情勢、未來發展或現有法規之變動，均可能對本基金所參與的投資市場及投資工具之報酬造成直接或間接的影響。本基金上市(櫃)前參與申購所買入的每單位淨資產價值，不等同於基金上市(櫃)後之價格，參與申購之投資人需自行承擔基金成立日起至上市(櫃)日止之期間，基金價格波動所產生折/溢價之風險。&lt;br&gt;
+&lt;strong&gt;&lt;strong&gt;被動式ETF&lt;/strong&gt;&lt;/strong&gt;追蹤指數績效或殖利率之表現，不代表基金之實際報酬或配息率及未來績效保證，不同時間進場投資，其結果將可能不同，且並未考量交易成本。&lt;/strong&gt;&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;/strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;&lt;strong&gt;【&lt;strong&gt;主動式交易所交易基金(&lt;strong&gt;&lt;strong&gt;主動式ETF)&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;】&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;strong&gt;&lt;br&gt;
+主動式ETF與被動式ETF並無絕對的優劣，主動式ETF不保證能超越績效指標、市場大盤或被動式ETF的報酬，且過去績效也不代表未來績效的保證。投資人投資前應審慎評估市場波動與各項投資風險，並詳閱公開說明書，根據自身的投資目標與風險承受度選擇最適合的產品。&lt;/strong&gt;&lt;strong&gt;&lt;strong&gt;&lt;strong&gt;&lt;b&gt;&lt;b&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;&lt;/span&gt;&lt;/b&gt;&lt;/b&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;br&gt;
+&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【配息涉及本金之基金】&lt;br&gt;
+基金的配息可能由基金的收益或本金中支付。任何涉及由本金支出的部份，可能導致原始投資金額減損，本基金配息前未先扣除應負擔之相關費用。基金配息組成項目請至本公司網站查詢。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【配息涉及收益平準金之ETF】&lt;br&gt;
+基金配息可能由基金的收益或收益平準金中支付。任何涉及由收益平準金支出的部份，可能導致原始投資金額減損。基金配息組成項目請至本公司網站查詢。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【統一NYSE FANG+ ETF基金】&lt;br&gt;
+統一NYSE FANG+ ETF基金所追蹤之標的指數其成分股檔數最低下限僅10檔，指數表現易受單一個股股價波動影響，並可能影響追蹤指數的基金績效表現。本基金適合承受較高風險之投資人，除專業機構投資人外，投資人應依金管會、中華民國證券投資信託暨顧問商業同業公會或臺灣證券交易所股份有限公司之規定，簽署風險預告書。&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;【統一彭博美國20年期以上公債ETF基金（基金之配息來源可能為收益平準金）】&lt;br&gt;
+&lt;/strong&gt;&lt;/strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;本基金可投資於美國144A債券，該債券屬私募性質，較可能發生流動性不足，財務訊息揭露不完整或因價格不透明導致波動性較大之風險。&lt;/span&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;br&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【統一台灣高息動能ETF基金（本基金並無保證收益及配息，配息來源可能為收益平準金）】&lt;br&gt;
+1、本基金主要收益分配來源為投資所得之現金股利，將分為12個月配發。其他可分配收益項目則由經理公司依實際情形決定是否進行分配。&lt;br&gt;
+2、淨資本利得係指基金投資於中華民國境內所得之已實現資本利得扣除資本損失(包括已實現及未實現資本損失)後為正，始可進行分配。&lt;br&gt;
+3、經理公司得依本基金收益情況自行決定每次分配金額或不分配，故每次分配金額並非一定相同。&lt;br&gt;
+4、當基金因有新申購參與除息導致原投資者之每單位配息金額遭明顯稀釋時，將動用收益平準金進行分配。&lt;br&gt;
+&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【統一全球15年以上BBB優選ESG公司債ETF基金（基金之配息來源可能為收益平準金）】&lt;br&gt;
+本基金將ESG納入主要投資重點，相關風險包括：ESG評鑑標準之差異風險、ESG評鑑標準之主觀判斷風險、對第三方資料來源之依賴風險、對特定ESG投資重點之集中度風險等。有關基金之ESG資訊，投資人應於申購前詳閱基金公開說明書所載之基金所有特色或目標等資訊，查詢基金ESG資訊請詳本公司網站。&lt;br&gt;
+本基金投資於金融機構發行具總損失吸收能力債券(TLAC Bond)，當金融機構出現資本適足率低於一定水平、重大營運或破產危機時，得以契約形式或透過法定機制將債券減記面額或轉換股權，可能導致客戶部分或全部債權減記、利息取消、債權轉換股權、修改債券條件如到期日、票息、付息日、或暫停配息等變動。&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;本基金可投資於美國144A債券，該債券屬私募性質，較可能發生流動性不足，財務訊息揭露不完整或因價格不透明導致波動性較大之風險。&lt;/span&gt;&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【統一台股增長主動式ETF基金&lt;strong&gt;（&lt;/strong&gt;基金之配息來源可能為收益平準金&lt;strong&gt;）、&lt;strong&gt;統一台股升級50主動式ETF基金&lt;strong&gt;（&lt;/strong&gt;基金之配息來源可能為收益平準金&lt;strong&gt;）&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;】&lt;br&gt;
+&lt;b&gt;&lt;b&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;本基金投資目標未追蹤、模擬或複製特定指數之表現，而係本公司依其所訂投資策略進行基金投資；本基金之績效指標係為基金績效評量之參考，本基金無追蹤、模擬或複製績效指標之表現。&lt;/span&gt;&lt;br&gt;
+&lt;/b&gt;&lt;/b&gt;&lt;/strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【&lt;/strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;統一全球創新主動式ETF基金&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;（&lt;/strong&gt;&lt;strong&gt;基金之配息來源可能為收益平準金&lt;/strong&gt;&lt;strong&gt;）&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;】&lt;/strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;br&gt;
+&lt;b&gt;&lt;b&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;本基金投資目標未追蹤、模擬或複製特定指數之表現，而係本公司依其所訂投資策略進行基金投資。&lt;/span&gt;&lt;br&gt;
+&lt;/b&gt;&lt;/b&gt;&lt;/strong&gt;&lt;br&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;【統一前沿科技主動式ETF基金（基金之配息來源可能為收益平準金）】&lt;/strong&gt;&lt;br&gt;
+&lt;b&gt;&lt;b&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;&lt;strong&gt;本基金投資目標未追蹤、模擬或複製特定指數之表現，而係本公司依其所訂投資策略進行基金投資。本基金自成立日起至上櫃前(不含當日)，經理公司不接受本基金受益權單位之申購或買回。&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;&lt;span style=&quot;color: rgba(0, 0, 0, 1)&quot;&gt;本基金掛牌上櫃前參與申購所買入的基金每受益權單位發行價格，不等同於基金掛牌上櫃價格，參與申購之投資人需自行承擔基金成立日起至上櫃日止間，基金每受益權單位發行價格與上櫃價格所產生折/溢價之風險。&lt;/span&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;/span&gt;&lt;/strong&gt;&lt;/span&gt;&lt;/b&gt;&lt;/b&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;br&gt;
+&lt;br&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;【統一美國公債量化增益主動式ETF基金（基金之配息來源可能為收益平準金）】&lt;/strong&gt;&lt;/strong&gt;&lt;br&gt;
+&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;&lt;strong&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;&lt;b&gt;&lt;b&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;本基金可投資於美國144A債券，該債券屬私募性質，較可能發生流動性不足，財務訊息揭露不完整或因價格不透明導致波動性較大之風險。本基金投資目標未追蹤、模擬或複製特定指數之表現，而係本公司依其所訂投資策略進行基金投資；本基金之績效指標係為基金績效評量之參考，本基金無追蹤、模擬或複製績效指標之表現。本基金自成立日起至上櫃前(不含當日)，經理公司不接受本基金受益權單位之申購或買回。&lt;/span&gt;&lt;/b&gt;&lt;/b&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;/span&gt;&lt;/strong&gt;&lt;/span&gt;&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;本基金掛牌上櫃前參與申購所買入的基金每受益權單位發行價格，不等同於基金掛牌上櫃價格，參與申購之投資人需自行承擔基金成立日起至上櫃日止間，基金每受益權單位發行價格與上櫃價格所產生折/溢價之風險。&lt;/strong&gt;&lt;/strong&gt; &lt;br&gt;
+&lt;strong&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;span style=&quot;color: rgba(229, 51, 51, 1)&quot;&gt;【金融消費者保護】&lt;br&gt;
+基金無受存款保險、保險安定基金或其他相關保障機制之保障，投資本基金可能發生部分或本金之損失，最大損失為全部投資之金額，投資人須自負盈虧。關於「金融消費者對該金融商品（或服務）之權利行使、變更、解除及終止」、「金融消費者對該金融商品（或服務）之重要權利、義務及責任」、「金融消費者應負擔之費用（及違約金）」以及「基金可能涉及之風險資訊」，請詳閱本基金公開說明書「買回受益憑證」、「受益人之權利及費用負擔」、「基金之資訊揭露」及「投資風險之揭露」等章節。就經理公司所提供之金融商品或服務所生紛爭投資人應先向經理公司提出申訴，若30日內未獲回覆或投資人不滿意處理結果得於60日內向「金融消費評議中心」申請評議。評議中心網址：&lt;/span&gt;&lt;/strong&gt;&lt;a href=&quot;https://www.foi.org.tw&quot; target=&quot;_blank&quot; style=&quot;white-space: normal&quot;&gt;https://www.foi.org.tw&lt;/a&gt;&lt;span style=&quot;white-space: normal&quot;&gt; 。&lt;/span&gt;&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;br style=&quot;white-space: normal&quot;&gt;
+&lt;strong style=&quot;white-space: normal&quot;&gt;【ICE指數免責聲明】&lt;br&gt;
+&lt;strong&gt;資料經ICE Data Indices, LLC(以下稱「ICE Data」)授權使用。NYSE是 ICE Data或其附屬公司之服務/商標，且已與NYSE美國50指數(NYSE U.S. 50 Index)及NYSE FANG&lt;strong&gt;+&lt;sup&gt;TM&lt;/sup&gt;&lt;/strong&gt; 指數一併授權予統一投信在統一美國50ETF基金（基金之配息來源可能為收益平準金）及統一NYSE FANG+ETF基金(以下稱「基金」)中使用。統一投信或基金均未受 ICE Data、其附屬公司或其第三方供應商(以下稱「ICE Data及其供應商」)贊助、認可、銷售或推廣。ICE Data及其供應商不對投資基金或指數追蹤市場表現能力作出任何聲明或保證。指數過去表現並不代表或保證未來結果。指數、指數數值或由其衍生之任何數據均依原樣提供，ICE Data及其供應商對其可銷售性，或針對特定目的/用途的適用性概不作出任何保證，亦不負責其充分性、準確性、及時性或完整性，使用者應自負風險。&lt;/strong&gt;&lt;br&gt;
+&lt;br&gt;
+&lt;strong&gt;&lt;strong&gt;【ICE美國政府20+年期債券指數績效指標聲明】&lt;br&gt;
+ICE授權統一投信使用ICE美國政府20+年期債券指數作為統一美國公債量化增益主動式ETF基金&lt;strong style=&quot;white-space: normal&quot;&gt;&lt;strong&gt;（基金之配息來源可能為收益平準金）&lt;/strong&gt;&lt;/strong&gt;之績效指標。&lt;/strong&gt;&lt;/strong&gt;&lt;br&gt;
+&lt;br&gt;
+&lt;strong&gt;【BLOOMBERG指數免責聲明】&lt;br&gt;
+「彭博R」及彭博10年期以上Aa至A級美元優質公司債券指數、 彭博20年期(以上)美國公債指數、彭博MSCI全球成熟市場15年以上美元BBB級永續ESG動能加權公司債指數為Bloomberg Finance L.P.及其關係企業（包括指數管理公司-彭博指數服務有限公司（「BISL」））（統稱「彭博」）的服務商標，且已授權由統一投信用於若干用途。彭博與統一投信並無關聯，且彭博並不會審批、認證、審查或推薦「統一彭博10年期以上Aa至A級美元優質公司債券ETF基金（基金之配息來源可能為收益平準金）」、「統一彭博美國20年期以上公債ETF基金（基金之配息來源可能為收益平準金）」、「統一全球15年以上BBB優選ESG公司債ETF基金（基金之配息來源可能為收益平準金）」。彭博不就前述基金之任何相關資料或資訊之即時性、準確性或完整性作出任何保證。&lt;/strong&gt;&lt;br&gt;
+&lt;br&gt;
+&lt;strong&gt;【特選臺灣高息動能指數免責聲明】&lt;br&gt;
+「特選臺灣高息動能指數」係由臺灣指數股份有限公司（臺灣指數公司）及財團法人中華民國證券櫃檯買賣中心（證券櫃檯買賣中心）（以上機構合稱「合作單位」）共同開發，並由臺灣指數公司單獨授權統一證券投資信託股份有限公司使用發行「基金」。「合作單位」並未以任何方式贊助、背書、出售或促銷「基金」，且「合作單位」亦未明示或默示對使用指數之結果及/或指數於任一特定日期之任一特定時間或其他時間之數據提供任何保證或聲明。指數係由臺灣指數公司所計算。然「合作單位」就指數之任何錯誤、不正確、遺漏或指數資料之傳輸中斷對任何人均不負任何責任，且無任何義務將該等錯誤、不正確或遺漏通知任何人。&lt;br&gt;
+&lt;br&gt;
+&lt;strong&gt;【臺灣證券交易所發行量加權股價報酬指數免責聲明】&lt;br&gt;
+臺灣證券交易所發行量加權股價&lt;strong&gt;&lt;strong&gt;報酬&lt;/strong&gt;&lt;/strong&gt;指數係由臺灣證券交易所股份有限公司負責計算；惟臺灣證券交易所股份有限公司並未贊助、認可或推廣本商品。與指數值及其成分股清單有關之一切著作權均歸臺灣證券交易所股份有限公司所有。統一證券投資信託股份有限公司業已就使用該著作權發行臺灣證券交易所發行量加權股價報酬指數之行為，自臺灣證券交易所股份有限公司取得完整之使用授權。&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;&lt;/strong&gt;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer_logo"></div>
+            <div class="footer_right">
+                <h3>統一證券投資信託股份有限公司</h3>
+                <p>
+                    台北總公司：(02)2747-8388　台北市松山區東興路8號8樓　<br class="m">
+                    客戶服務信箱：<span style="white-space:nowrap;"><a href="mailto:upamc.ezmoney@uni-psg.com">upamc.ezmoney@uni-psg.com</a></span><br>
+                    諮詢專線：(02)2747-8388轉0　<br class="m">
+                    服務時間：週一至五 上午8:30至下午5:30<br>
+                    台中分公司：(04) 2305-0388　<br class="m">台中市西屯區府會園道179號12樓之1　<br>
+                    台南分公司：(06) 274-7500　<br class="m">台南市永康區中華路1之135號20樓　<br>
+                    高雄分公司：(07) 229-0885　<br class="m">高雄市新興區中正三路2號6樓E室<br>
+
+                    本網站內容及言論僅供投資人參考，不作為投資決策依據。本網站內容所有權利為統一投信所有，任何人未經同意，不得將網站全部或部分內容轉載於任何形式媒體。
+                    建議使用Google Chrome、Firefox或Microsoft Edge瀏覽器，可得最佳之瀏覽效果。<br class="m"> | <a href="/news/info/4705?tid=57">隱私權政策</a> | <a href="/news/info/4706?tid=58">風險聲明</a> | 版本號:832 | Load Balance:8
+                </p>
+            </div>
+            <div class="footer_twca">
+                <div id="twcaseal" class="SMALL"><img src="/Images/SMALL.GIF" /></div>
+                <script type="text/javascript" charset="utf-8">var twca_cn = "www.ezmoney.com.tw";</script>
+                <script type="text/javascript" src="//ssllogo.twca.com.tw/v4/twcaseal_v4.js?t=20260730" charset="utf-8"></script>
+            </div>
+        </div>
+    </footer>
+    <!-- 回到上方
+    ==========================================================-->
+    <div class="scroll-top-wrapper ">
+        <span class="scroll-top-inner">
+            <i class="glyphicon glyphicon-circle-arrow-up"></i>
+        </span>
+    </div>
+    <!-- Loader -->
+    <div id="Loader" class="loader loader-default" data-text="Loading..." data-blink></div>
+
+
+    <!-- 閒置自動登出 Modal -->
+    <div class="modal fade" id="autoLogoutModal" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog modal-sm" role="document">
+            <div class="modal-content">
+                <div class="modal-header" style="background-color:#cc0000;padding:5px 10px;text-align:center">
+                    <h4 class="modal-title" style="color:#fff;font-weight:bold">已自動登出</h4>
+                </div>
+                <div class="modal-body text-center">
+                    <p>因閒置過久，系統已自動登出<br>以保護您的帳戶安全。</p>
+                </div>
+                <div class="modal-footer" style="text-align:center;border-top:none;padding-bottom:20px">
+                    <button type="button" class="btn btn-primary" id="autoLogoutLoginBtn" style="width:120px">重新登入</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 閒置警告 Modal -->
+    <div class="modal fade" id="idleWarningModal" tabindex="-1" role="dialog" aria-labelledby="idleWarningLabel" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog modal-sm" role="document">
+            <div class="modal-content">
+                <div class="modal-header" style="background-color:#cc0000;padding:5px 10px;text-align:center">
+                    <h4 class="modal-title" id="idleWarningLabel" style="color:#fff;font-weight:bold">提醒您</h4>
+                </div>
+                <div class="modal-body text-center">
+                    <p>您已閒置一段時間，系統將於 <span id="idleWarnCountdown" class="text-danger"></span> 後自動登出以保護帳戶安全！<br />如需繼續使用，請點擊下方按鈕。</p>
+                </div>
+                <div class="modal-footer" style="text-align:center;border-top:none;padding-bottom:20px">
+                    <button type="button" class="btn btn-primary" id="idleWarnConfirmBtn" style="width:120px">繼續使用</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if ("false" === "true") {
+            (function () {
+                var timeoutSec = parseInt('120');
+                var warnSec = parseInt('60');
+
+                var remaining    = timeoutSec;
+                var resetTime    = Date.now(); // 記錄倒數重設的真實時間，供牆鐘校正用
+                var tickTimer    = null;
+                var warnShowing  = false;
+
+                
+                function updateDisplay() {
+                    var m = Math.floor(remaining / 60);
+                    var s = remaining % 60;
+                    var text = m > 0 ? (m + " 分 " + s + " 秒") : (s + " 秒");
+                    $("#outtime").html(text);
+                }
+
+                
+                function updateWarnCountdown() {
+                    var m = Math.floor(remaining / 60);
+                    var s = remaining % 60;
+                    $("#idleWarnCountdown").text(m > 0 ? (m + " 分 " + s + " 秒") : (s + " 秒"));
+                }
+
+                
+                function resetTimer() {
+                    resetTime = Date.now();
+                    remaining = timeoutSec;
+                    if (warnShowing) {
+                        $("#idleWarningModal").modal("hide");
+                        warnShowing = false;
+                    }
+                }
+
+                
+                function tick() {
+                    remaining = Math.max(0, timeoutSec - Math.floor((Date.now() - resetTime) / 1000));
+
+                    if (remaining <= 0) {
+                        clearInterval(tickTimer);
+                        $("#idleWarningModal").modal("hide");
+                        $.get("/member/oulogin"); 
+                        $("#autoLogoutModal").modal("show");
+                        return;
+                    }
+                    updateDisplay();
+
+                    if (remaining <= warnSec) {
+                        if (!warnShowing) {
+                            warnShowing = true;
+                            if (throttleHandle) {
+                                clearTimeout(throttleHandle);
+                                throttleHandle = null;
+                            }
+                            $("#idleWarningModal").modal("show");
+                        }
+                        updateWarnCountdown();
+                    }
+                }
+
+                
+                function keepAliveServer() {
+                    $.ajax({
+                        url: "/Member/KeepAlive",
+                        type: "POST",
+                        headers: { "__RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val() || "" },
+                        success: function (res) {
+                            if (res && res.alive === false) {
+                                document.location.href = "/member/oulogin";
+                            }
+                        }
+                    });
+                }
+
+                
+                function broadcastActivity() {
+                    localStorage.setItem('pitc_lastActivity', Date.now().toString());
+                }
+
+                
+                var throttleHandle = null;
+                function onUserActivity() {
+                    if (warnShowing) return; 
+
+                    resetTimer();
+                    broadcastActivity();
+
+                    if (throttleHandle) return;
+                    throttleHandle = setTimeout(function () {
+                        throttleHandle = null;
+                        keepAliveServer();
+                    }, 90000);
+                }
+
+                $(document).on("mousemove keydown mousedown touchstart click scroll", onUserActivity);
+
+                
+                $(window).on("storage", function (e) {
+                    if (e.originalEvent.key === 'pitc_lastActivity') {
+                        resetTimer();
+                    }
+                });
+
+                
+                $("#idleWarnConfirmBtn").on("click", function () {
+                    resetTimer();
+                    keepAliveServer();
+                });
+
+                
+                $("#autoLogoutLoginBtn").on("click", function () {
+                    document.location.href = "/member/login";
+                });
+
+                
+                document.addEventListener("visibilitychange", function () {
+                    if (!document.hidden) tick();
+                });
+
+                
+                broadcastActivity();
+                updateDisplay();
+                tickTimer = setInterval(tick, 1000);
+            })();
+        }
+    </script>
+</body>
+</html>
+<script>
+    function ChangePage(page) {
+
+        $("#page").val(page);
+        $("#SearchForm").submit();
+    }
+    moment.suppressDeprecationWarnings = true;
+
+    $(document).ready(function () {
+        const WarningContent = $('#Warning').data('content');
+        $('#Warning').html(DOMPurify.sanitize(WarningContent));
+
+        dt_resize();
+    });
+</script>

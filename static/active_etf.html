@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 主動式 ETF 即時折溢價監控 | Active ETF iNAV</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        html { overflow-x: hidden; }
+
+        .main-row { display: flex; flex-direction: column; gap: 1rem; }
+        .main-nav { flex: 1; min-width: 0; }
+        .main-sidebar { display: flex; flex-direction: column; gap: 0.75rem; }
+        @media (min-width: 700px) {
+            .main-row { flex-direction: row; }
+            .main-sidebar { width: 280px; flex-shrink: 0; }
+        }
+
+        body {
+            background-color: #080e1a;
+            background-image:
+                radial-gradient(ellipse at 10% 0%, rgba(139,92,246,0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 90% 100%, rgba(56,189,248,0.12) 0%, transparent 50%);
+            color: #f1f5f9;
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        .glass {
+            background: rgba(15,23,42,0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 1.25rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3), 0 20px 40px rgba(0,0,0,0.5);
+        }
+
+        .glass-sm {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 0.75rem;
+        }
+
+        .nav-card {
+            background: linear-gradient(135deg, rgba(139,92,246,0.09), rgba(56,189,248,0.06));
+            border: 1px solid rgba(139,92,246,0.25);
+            border-radius: 1.5rem;
+            box-shadow: 0 0 40px rgba(139,92,246,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+
+        @keyframes nav-flash {
+            0%   { color: #fbbf24; text-shadow: 0 0 30px rgba(251,191,36,0.6); }
+            100% { color: #a78bfa; text-shadow: none; }
+        }
+        .nav-flash { animation: nav-flash 1s ease-out; }
+
+        @keyframes px-up   { 0% { background: rgba(239,68,68,0.22); } 100% { background: transparent; } }
+        @keyframes px-down { 0% { background: rgba(34,197,94,0.22); } 100% { background: transparent; } }
+        .flash-up   { animation: px-up   0.7s ease-out; border-radius: 4px; }
+        .flash-down { animation: px-down 0.7s ease-out; border-radius: 4px; }
+
+        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+        .dot-green  { background: #10b981; box-shadow: 0 0 8px #10b981; animation: blink 1.4s infinite; }
+        .dot-yellow { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+        .dot-red    { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+        .dot-grey   { background: #475569; }
+        @keyframes blink { 0%,100% { opacity:0.7; transform:scale(0.9); } 50% { opacity:1; transform:scale(1.15); } }
+
+        .srow { transition: background 0.15s; border-radius: 6px; }
+        .srow:hover { background: rgba(255,255,255,0.04); }
+
+        .nav-a {
+            color: #64748b; text-decoration: none; font-size: 0.8rem;
+            border: 1px solid rgba(100,116,139,0.25); padding: 4px 14px;
+            border-radius: 20px; transition: all 0.18s;
+        }
+        .nav-a:hover { color: #cbd5e1; border-color: rgba(203,213,225,0.3); }
+        .nav-a.active { color: #c084fc; border-color: rgba(192,132,252,0.4); background: rgba(192,132,252,0.08); }
+
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 9999px;
+        }
+        .badge-red    { background:rgba(239,68,68,0.12);  color:#f87171; border:1px solid rgba(239,68,68,0.25); }
+        .badge-green  { background:rgba(52,211,153,0.12); color:#34d399; border:1px solid rgba(52,211,153,0.25); }
+        .badge-yellow { background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.25); }
+        .badge-purple { background:rgba(192,132,252,0.12); color:#c084fc; border:1px solid rgba(192,132,252,0.25); }
+
+        .g-purple { background: linear-gradient(90deg,#a78bfa,#c084fc); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .g-cyan   { background: linear-gradient(90deg,#38bdf8,#818cf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+        @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
+        .skel {
+            background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 75%);
+            background-size: 1200px 100%; animation: shimmer 1.5s infinite; border-radius:6px;
+        }
+
+        @keyframes spin{ from{transform:rotate(0)} to{transform:rotate(360deg)} }
+        .spin { animation: spin 0.9s linear infinite; display:inline-block; }
+
+        ::-webkit-scrollbar { width: 3px; height: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="pt-8 pb-20 px-4">
+
+<div class="max-w-5xl mx-auto mb-5 flex flex-col gap-3">
+    <div class="flex items-end justify-between gap-4">
+        <div class="min-w-0">
+            <h1 class="text-2xl font-black tracking-tight g-purple leading-tight" id="pageTitle">🚀 主動式 ETF 即時折溢價</h1>
+            <p class="text-slate-400 text-xs mt-0.5" id="pageSubtitle">統一投信主動式 ETF 基金 · Real-time iNAV & Premium/Discount Monitor</p>
+        </div>
+    </div>
+    
+    <!-- Top Navigation Bar -->
+    <div class="flex items-center gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-hide" id="mainNavBar" style="-ms-overflow-style:none;scrollbar-width:none;">
+        <a href="/" class="nav-a whitespace-nowrap">📊 Order Book</a>
+        <a href="/options" class="nav-a whitespace-nowrap">📈 選擇權看板</a>
+        <a href="/etf0050" class="nav-a whitespace-nowrap">💹 0050 iNAV</a>
+        <a href="/active_etf" class="nav-a active whitespace-nowrap">🚀 主動 ETF</a>
+        <a href="/disposal" class="nav-a whitespace-nowrap" style="color:#f59e0b;border-color:rgba(245,158,11,0.3)">⚠️ 處置偵測</a>
+        <a href="/queue" class="nav-a whitespace-nowrap" style="color:#22d3ee;border-color:rgba(34,211,238,0.3)">⏱️ 洗價排隊</a>
+        <a href="/sector_heatmap" class="nav-a whitespace-nowrap" style="color:#ff8a00;border-color:rgba(255,138,0,0.3)">🔥 產業熱力圖</a>
+    </div>
+    <script>
+        document.addEventListener('click', function(e) {
+            const a = e.target.closest('a');
+            if (a && a.getAttribute('href') && a.getAttribute('href').startsWith('/')) {
+                if (window.parent && window.parent !== window) {
+                    e.preventDefault();
+                    window.parent.postMessage({ type: 'NAVIGATE', path: a.getAttribute('href') }, '*');
+                }
+            }
+        });
+    </script>
+
+    <!-- Active ETF Switcher -->
+    <div class="flex items-center gap-3 mt-1">
+        <span class="text-xs font-semibold text-slate-400">切換標的：</span>
+        <button id="btn-00981A" onclick="switchETF('00981A', '主動統一台股增長')" class="nav-a active font-bold text-xs">
+            00981A 主動統一台股增長
+        </button>
+        <button id="btn-00403A" onclick="switchETF('00403A', '主動統一升級50')" class="nav-a font-bold text-xs">
+            00403A 主動統一升級50
+        </button>
+    </div>
+</div>
+
+<main class="max-w-5xl mx-auto space-y-4">
+
+    <!-- Hero iNAV & Discount/Premium Cards -->
+    <div class="nav-card p-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            
+            <!-- Left: iNAV Big Number -->
+            <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-semibold text-purple-400 tracking-wider uppercase">即時估算淨值 (iNAV)</span>
+                    <span class="badge badge-purple" id="inavBadge">計算中</span>
+                </div>
+                <div class="text-4xl md:text-5xl font-black mono text-emerald-400 tracking-tight" id="inavDisplay">--.--</div>
+                <div class="text-xs text-slate-400 flex items-center gap-2">
+                    <span>昨日官方淨值: <strong class="text-slate-200 mono" id="prevNavDisplay">--</strong></span>
+                    <span>·</span>
+                    <span>預估淨值變動: <strong class="mono" id="inavChgDisplay">--</strong></span>
+                </div>
+            </div>
+
+            <!-- Middle: ETF Market Price & Premium/Discount -->
+            <div class="flex flex-wrap items-center gap-4 bg-slate-900/60 p-4 rounded-xl border border-purple-500/20">
+                <div class="space-y-0.5">
+                    <div class="text-[11px] font-medium text-slate-400">ETF 市價 (<span id="etfSymbolLabel">00981A</span>)</div>
+                    <div class="text-2xl font-bold mono text-cyan-400" id="etfPriceDisplay">--.-- 元</div>
+                </div>
+
+                <div class="h-8 w-px bg-slate-800 hidden sm:block"></div>
+
+                <div class="space-y-0.5">
+                    <div class="text-[11px] font-medium text-slate-400">即時折溢價 (%)</div>
+                    <div class="text-2xl font-bold mono" id="premPctDisplay">--.--%</div>
+                </div>
+
+                <div class="h-8 w-px bg-slate-800 hidden sm:block"></div>
+
+                <div class="space-y-0.5">
+                    <div class="text-[11px] font-medium text-slate-400">折溢價金額 (元)</div>
+                    <div class="text-xl font-bold mono" id="premDiffDisplay">--.--</div>
+                </div>
+            </div>
+
+            <!-- Right: Live WS Status & Refresh -->
+            <div class="flex flex-col items-end gap-2 shrink-0">
+                <div class="flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-800 text-xs">
+                    <span id="wsDot" class="dot dot-grey"></span>
+                    <span id="wsStatus" class="font-medium text-slate-300">連線中...</span>
+                </div>
+                <div class="text-[10px] text-slate-500 mono" id="subCounter">0 檔訂閱中</div>
+                <button id="refreshBtn" class="text-xs text-purple-400 hover:text-purple-300 transition flex items-center gap-1 mt-1">
+                    <span id="refreshIcon">🔄</span> 重新載入 PCF
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Fund Stats Bar -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="glass p-3.5">
+            <div class="text-[11px] text-slate-400 font-medium">已發行受益權單位總數</div>
+            <div class="text-sm font-bold mono text-slate-200 mt-0.5" id="outUnitsVal">--</div>
+        </div>
+        <div class="glass p-3.5">
+            <div class="text-[11px] text-slate-400 font-medium">基金規模資產總值 (AUM)</div>
+            <div class="text-sm font-bold mono text-slate-200 mt-0.5" id="fundAumVal">--</div>
+        </div>
+        <div class="glass p-3.5">
+            <div class="text-[11px] text-slate-400 font-medium">申購基數 (單位) / 現金差異額</div>
+            <div class="text-sm font-bold mono text-slate-200 mt-0.5" id="cashDiffVal">--</div>
+        </div>
+        <div class="glass p-3.5">
+            <div class="text-[11px] text-slate-400 font-medium">資料更新基準日</div>
+            <div class="text-sm font-bold mono text-slate-200 mt-0.5" id="infoDate">--</div>
+        </div>
+    </div>
+
+    <!-- Futures Positions Section (If applicable) -->
+    <div id="futuresCard" class="glass p-4 hidden">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
+                <span>📊 期貨避險/部位明細 (名目本金)</span>
+            </h3>
+            <span class="text-[11px] text-slate-500" id="futuresCount">0 筆合約</span>
+        </div>
+        <div id="futuresList" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            <!-- Dynamic futures items -->
+        </div>
+    </div>
+
+    <!-- Main Components Table Section -->
+    <div class="main-row">
+        <div class="main-nav">
+            <div class="glass p-5">
+                
+                <!-- Table Toolbar -->
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-sm font-bold text-slate-200">成分股持股明細</h2>
+                        <span class="badge badge-purple" id="totalStocksBadge">0 檔</span>
+                    </div>
+
+                    <!-- Search Box -->
+                    <div class="relative min-w-[220px]">
+                        <input type="text" id="searchInput" placeholder="搜尋股票代號或名稱..."
+                            class="w-full bg-slate-900/90 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition">
+                    </div>
+                </div>
+
+                <!-- Stock Holdings Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left">
+                        <thead>
+                            <tr class="text-slate-400 border-b border-slate-800 text-[11px] font-semibold">
+                                <th class="pb-2 pl-2">代號 / 名稱</th>
+                                <th class="pb-2 text-right">權重 (%)</th>
+                                <th class="pb-2 text-right">每基數持股 (千股)</th>
+                                <th class="pb-2 text-right">即時成交價</th>
+                                <th class="pb-2 text-right">漲跌幅</th>
+                                <th class="pb-2 text-right pr-2">iNAV 貢獻度</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-slate-800/50">
+                            <tr>
+                                <td colspan="6" class="py-8 text-center text-slate-500">
+                                    <div class="skel h-8 w-full"></div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// Global State & Helpers
+// ═══════════════════════════════════════════════════════
+let activeTicker = '00981A';
+let activeTickerName = '主動統一台股增長';
+let allPcfCache = {};
+let stockPrices = {};
+let stockPrevCloses = {};
+let composition = [];
+let futuresList = [];
+let etfPrice = null;
+let officialNav = 0;
+let baseunit = 500000;
+let estdvalue = 0;
+let outUnits = 0;
+
+let globalSymbols = new Set();
+let subscribedSet = new Set();
+let ws = null;
+let wsRetryCount = 0;
+const WS_MAX_RETRIES = 5;
+const WS_BASE_DELAY = 1000;
+const WS_MAX_DELAY = 10000;
+
+function fmt(n, d = 2) {
+    if (n == null || isNaN(n)) return '--';
+    return n.toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function fmtM(n) {
+    if (n == null || isNaN(n)) return '--';
+    return (n / 10000).toLocaleString('zh-TW', { maximumFractionDigits: 1 }) + ' 萬';
+}
+
+function fmtAum(n) {
+    if (n == null || isNaN(n)) return '--';
+    return (n / 100000000).toLocaleString('zh-TW', { maximumFractionDigits: 2 }) + ' 億';
+}
+
+// ═══════════════════════════════════════════════════════
+// UI Render Functions
+// ═══════════════════════════════════════════════════════
+function setWsStatus(state) {
+    const dot = document.getElementById('wsDot');
+    const lbl = document.getElementById('wsStatus');
+    if (state === 'connecting') {
+        dot.className = 'dot dot-yellow'; lbl.textContent = '連線中...';
+    } else if (state === 'live') {
+        dot.className = 'dot dot-green'; lbl.textContent = '⚡ 即時串流中';
+    } else if (state === 'error') {
+        dot.className = 'dot dot-red'; lbl.textContent = '連線錯誤';
+    } else {
+        dot.className = 'dot dot-grey'; lbl.textContent = '已斷線';
+    }
+}
+
+function updateSubCounter() {
+    if (!composition.length) return;
+    const total = composition.length + 1;
+    let count = 0;
+    if (subscribedSet.has(activeTicker)) count++;
+    composition.forEach(s => {
+        if (subscribedSet.has(s.stkcd)) count++;
+    });
+    document.getElementById('subCounter').textContent = `${count}/${total} 檔訂閱`;
+    if (count > 0) setWsStatus('live');
+}
+
+function renderNAV() {
+    if (!composition.length || !officialNav) return;
+
+    let weightedReturn = 0;
+    let hasPriceCount = 0;
+
+    composition.forEach(s => {
+        const px = stockPrices[s.stkcd];
+        const prev = stockPrevCloses[s.stkcd];
+        const w = (s.weight || 0) / 100.0;
+
+        if (px > 0 && prev > 0) {
+            const stockReturn = (px - prev) / prev;
+            weightedReturn += w * stockReturn;
+            hasPriceCount++;
+        }
+    });
+
+    // Futures return contribution (if TX / futures available)
+    if (futuresList && futuresList.length > 0) {
+        futuresList.forEach(f => {
+            const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
+            const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
+            if (txPrice > 0 && txPrev > 0) {
+                const futReturn = (txPrice - txPrev) / txPrev;
+                const fw = (f.weight || 0) / 100.0;
+                weightedReturn += fw * futReturn;
+            }
+        });
+    }
+
+    // iNAV = Official NAV * (1 + Weighted Return)
+    const inav = officialNav * (1.0 + weightedReturn);
+
+    const inavEl = document.getElementById('inavDisplay');
+    const oldVal = parseFloat(inavEl.dataset.val || '0');
+    inavEl.dataset.val = inav;
+    inavEl.textContent = fmt(inav, 2) + ' 元';
+
+    if (oldVal > 0 && Math.abs(oldVal - inav) > 0.001) {
+        inavEl.classList.remove('nav-flash');
+        void inavEl.offsetWidth; // trigger reflow
+        inavEl.classList.add('nav-flash');
+    }
+
+    // Inav change vs official NAV
+    if (officialNav > 0) {
+        const chg = inav - officialNav;
+        const chgPct = (chg / officialNav) * 100;
+        const chgEl = document.getElementById('inavChgDisplay');
+        const sign = chg > 0 ? '+' : '';
+        chgEl.textContent = `${sign}${fmt(chg, 2)} (${sign}${fmt(chgPct, 2)}%)`;
+        chgEl.className = chg > 0 ? 'mono text-red-400 font-bold' : chg < 0 ? 'mono text-emerald-400 font-bold' : 'mono text-slate-300';
+    }
+
+    // Premium / Discount Calculation
+    if (etfPrice != null && etfPrice > 0 && inav > 0) {
+        const diff = etfPrice - inav;
+        const pct = (diff / inav) * 100;
+
+        const premPctEl = document.getElementById('premPctDisplay');
+        const premDiffEl = document.getElementById('premDiffDisplay');
+        const badgeEl = document.getElementById('inavBadge');
+
+        const sign = diff > 0 ? '+' : '';
+        premPctEl.textContent = `${sign}${fmt(pct, 2)}%`;
+        premDiffEl.textContent = `${sign}${fmt(diff, 2)} 元`;
+
+        if (diff > 0) {
+            // Premium 溢價
+            premPctEl.className = 'text-2xl font-bold mono text-red-400';
+            premDiffEl.className = 'text-xl font-bold mono text-red-400';
+            badgeEl.className = 'badge badge-red';
+            badgeEl.textContent = `溢價 ${fmt(pct, 2)}%`;
+        } else if (diff < 0) {
+            // Discount 折價 (甜甜價)
+            premPctEl.className = 'text-2xl font-bold mono text-emerald-400';
+            premDiffEl.className = 'text-xl font-bold mono text-emerald-400';
+            badgeEl.className = 'badge badge-green';
+            badgeEl.textContent = `折價 ${fmt(Math.abs(pct), 2)}% 🍬`;
+        } else {
+            premPctEl.className = 'text-2xl font-bold mono text-slate-200';
+            premDiffEl.className = 'text-xl font-bold mono text-slate-200';
+            badgeEl.className = 'badge badge-purple';
+            badgeEl.textContent = '平價';
+        }
+    }
+}
+
+function renderTable() {
+    const tbody = document.getElementById('tableBody');
+    if (!composition.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-500">無成分股資料</td></tr>`;
+        return;
+    }
+
+    const filter = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+
+    let html = '';
+    composition.forEach(s => {
+        if (filter && !s.stkcd.toLowerCase().includes(filter) && !s.name.toLowerCase().includes(filter)) {
+            return;
+        }
+
+        const px = stockPrices[s.stkcd];
+        const prev = stockPrevCloses[s.stkcd];
+        let chgStr = '--';
+        let chgClass = 'text-slate-400';
+
+        if (px != null && prev != null && prev > 0) {
+            const diff = px - prev;
+            const pct = (diff / prev) * 100;
+            const sign = diff > 0 ? '+' : '';
+            chgStr = `${sign}${fmt(pct, 2)}%`;
+            chgClass = diff > 0 ? 'text-red-400 font-bold' : diff < 0 ? 'text-emerald-400 font-bold' : 'text-slate-300';
+        }
+
+        // iNAV Contribution: (Qty * px) / 500,000
+        const contrib = (px && baseunit) ? (px * s.qty / baseunit) : null;
+        const contribStr = contrib != null ? fmt(contrib, 3) + ' 元' : '--';
+
+        const qtyK = (s.qty / 1000).toFixed(2);
+
+        html += `
+        <tr class="srow">
+            <td class="py-2.5 pl-2">
+                <div class="font-bold text-slate-200 mono">${s.stkcd}</div>
+                <div class="text-[11px] text-slate-400">${s.name}</div>
+            </td>
+            <td class="py-2.5 text-right font-medium mono text-purple-300">${fmt(s.weight, 2)}%</td>
+            <td class="py-2.5 text-right font-medium mono text-slate-300">${qtyK}</td>
+            <td class="py-2.5 text-right font-bold mono ${px ? 'text-slate-100' : 'text-slate-500'}" id="px-${s.stkcd}">
+                ${px != null ? fmt(px, 2) : '--'}
+            </td>
+            <td class="py-2.5 text-right font-medium mono ${chgClass}" id="chg-${s.stkcd}">
+                ${chgStr}
+            </td>
+            <td class="py-2.5 text-right pr-2 font-semibold mono text-emerald-400" id="contrib-${s.stkcd}">
+                ${contribStr}
+            </td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+}
+
+function renderFutures() {
+    const card = document.getElementById('futuresCard');
+    const list = document.getElementById('futuresList');
+    
+    if (!futuresList || futuresList.length === 0) {
+        card.classList.add('hidden');
+        return;
+    }
+
+    card.classList.remove('hidden');
+    document.getElementById('futuresCount').textContent = `${futuresList.length} 筆合約`;
+
+    let html = '';
+    futuresList.forEach(f => {
+        html += `
+        <div class="glass-sm p-3 flex items-center justify-between">
+            <div>
+                <div class="font-bold text-xs text-purple-300 mono">${f.code} ${f.name}</div>
+                <div class="text-[10px] text-slate-400">契約年月: ${f.mth || '--'}</div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs font-bold text-slate-200 mono">${fmt(f.qty, 0)} 口</div>
+                <div class="text-[10px] text-purple-400 mono">權重 ${fmt(f.weight, 2)}%</div>
+            </div>
+        </div>`;
+    });
+    list.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// WebSocket Handler
+// ═══════════════════════════════════════════════════════
+function extractTradePrice(data) {
+    if (data.price) return data.price;
+    if (data.lastPrice) return data.lastPrice;
+    if (data.closePrice) return data.closePrice;
+    if (Array.isArray(data.trades) && data.trades.length > 0) {
+        return data.trades[data.trades.length - 1].price;
+    }
+    return null;
+}
+
+function connectGlobalWS() {
+    if (ws) { try { ws.close(); } catch(_){} }
+    subscribedSet.clear();
+
+    const allArr = Array.from(globalSymbols);
+    if (allArr.length === 0) return;
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws/${allArr.join(',')}`;
+
+    setWsStatus('connecting');
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        wsRetryCount = 0;
+        console.log(`WebSocket connected, subscribed ${allArr.length} symbols`);
+    };
+
+    ws.onclose = () => {
+        setWsStatus('disconnected');
+        if (wsRetryCount < WS_MAX_RETRIES) {
+            wsRetryCount++;
+            const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
+            setTimeout(() => connectGlobalWS(), delay);
+        } else {
+            setWsStatus('error');
+            wsRetryCount = 0;
+        }
+    };
+
+    ws.onerror = () => setWsStatus('error');
+
+    ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+
+        if (msg.event === 'subscribed' && msg.data?.symbol) {
+            subscribedSet.add(msg.data.symbol);
+            updateSubCounter();
+        }
+
+        if (msg.event === 'data' && msg.data) {
+            const sym = msg.data.symbol;
+            if (!sym) return;
+
+            let price = null;
+            if (msg.channel === 'trades') {
+                price = parseFloat(extractTradePrice(msg.data));
+            }
+
+            if (price === null || isNaN(price)) return;
+
+            if (sym === activeTicker) {
+                etfPrice = price;
+                const el = document.getElementById('etfPriceDisplay');
+                if (el) el.textContent = fmt(price, 2) + ' 元';
+            } else {
+                stockPrices[sym] = price;
+                const pxEl = document.getElementById(`px-${sym}`);
+                if (pxEl) pxEl.textContent = fmt(price, 2);
+            }
+
+            renderNAV();
+        }
+    };
+}
+
+// ═══════════════════════════════════════════════════════
+// Fetch & Launch Logic
+// ═══════════════════════════════════════════════════════
+async function loadActiveETF(ticker, name) {
+    activeTicker = ticker;
+    activeTickerName = name;
+
+    document.querySelectorAll('[id^="btn-"]').forEach(b => b.classList.remove('active'));
+    document.getElementById(`btn-${ticker}`)?.classList.add('active');
+
+    document.getElementById('pageTitle').textContent = `🚀 ${ticker} 即時折溢價`;
+    document.getElementById('pageSubtitle').textContent = `${name} · Real-time iNAV & Premium/Discount Monitor`;
+    document.getElementById('etfSymbolLabel').textContent = ticker;
+
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="6" class="py-8"><div class="skel h-9 w-full"></div></td></tr>`;
+
+    try {
+        const r = await fetch(`/api/etf-pcf/${ticker}`);
+        const data = await r.json();
+
+        if (data.error) {
+            alert(`載入 ${ticker} PCF 失敗: ` + data.error);
+            return;
+        }
+
+        allPcfCache[ticker] = data;
+        const pcf = data.PCF || {};
+        composition = data.InKind?.FundComposition || [];
+        futuresList = data.Futures || [];
+        officialNav = pcf.nav || 0;
+        baseunit = pcf.baseunit || 500000;
+        estdvalue = pcf.estdvalue || 0;
+        outUnits = pcf.out_unit || 0;
+
+        document.getElementById('prevNavDisplay').textContent = fmt(officialNav, 2) + ' 元';
+        document.getElementById('outUnitsVal').textContent = outUnits ? outUnits.toLocaleString('zh-TW') : '--';
+        document.getElementById('fundAumVal').textContent = (outUnits && officialNav) ? fmtAum(outUnits * officialNav) : '--';
+        document.getElementById('cashDiffVal').textContent = `${fmt(baseunit, 0)} / ${fmtM(estdvalue)}`;
+        document.getElementById('infoDate').textContent = pcf.trandate ? pcf.trandate.slice(0,10) : '--';
+        document.getElementById('totalStocksBadge').textContent = `${composition.length} 檔`;
+
+        globalSymbols.clear();
+        globalSymbols.add(ticker);
+        composition.forEach(s => globalSymbols.add(s.stkcd));
+
+        // Fetch current stock quotes for initial render
+        const syms = Array.from(globalSymbols).join(',');
+        try {
+            const qr = await fetch(`/api/stock-quotes?symbols=${syms}`);
+            const qdata = await qr.json();
+            globalSymbols.forEach(stkcd => {
+                if (qdata[stkcd]) {
+                    stockPrices[stkcd] = qdata[stkcd].price;
+                    stockPrevCloses[stkcd] = qdata[stkcd].prev;
+                }
+            });
+
+            if (qdata[ticker]) {
+                etfPrice = qdata[ticker].price;
+                document.getElementById('etfPriceDisplay').textContent = fmt(etfPrice, 2) + ' 元';
+            }
+        } catch(e){}
+
+        connectGlobalWS();
+        renderFutures();
+        renderTable();
+        renderNAV();
+
+    } catch(e) {
+        console.error("loadActiveETF Error:", e);
+    }
+}
+
+function switchETF(ticker, name) {
+    if (activeTicker === ticker && allPcfCache[ticker]) return;
+    loadActiveETF(ticker, name);
+}
+
+document.getElementById('refreshBtn').addEventListener('click', () => {
+    delete allPcfCache[activeTicker];
+    loadActiveETF(activeTicker, activeTickerName);
+});
+
+document.getElementById('searchInput').addEventListener('input', () => {
+    renderTable();
+});
+
+// Initialize on page load
+loadActiveETF('00981A', '主動統一台股增長');
+</script>
+
+<!-- SPA Navigation Interceptor -->
+<script>
+    document.addEventListener('click', e => {
+        const a = e.target.closest('a[href^="/"]');
+        if (a && window.parent !== window) {
+            e.preventDefault();
+            window.parent.postMessage({type:'NAVIGATE', path: a.getAttribute('href')}, '*');
+        }
+    });
+</script>
+
+</body>
+</html>

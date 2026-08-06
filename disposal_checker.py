@@ -407,6 +407,9 @@ def cond_10(close, turnover, amount):
 
 # ============================================================
 # 第11款：起迄兩日最後成交價「絕對價差」異常
+# 依據證交所 2026/08/10 新制千金股放寬標準：
+# - 當日收盤價 <= 1,000 元：價差門檻 100 元
+# - 當日收盤價 > 1,000 元：門檻 300 元，每滿 1,000 元級距 +150 元
 # ============================================================
 def cond_11(close):
     if len(close) < 6:
@@ -414,13 +417,20 @@ def cond_11(close):
     p_end   = close.iloc[-1]
     p_start = close.iloc[-6]
     gap     = (p_end - p_start).abs()
-    price_level  = ((p_end / C11_STEP).apply(np.floor)).clip(lower=0)
-    dyn_thr      = C11_GAP + price_level * C11_STEP_ADD
-    high_6 = close.iloc[-6:].max()
-    low_6  = close.iloc[-6:].min()
-    gap_ok   = gap >= dyn_thr
-    is_high  = p_end >= high_6
-    is_low   = p_end <= low_6
+    
+    # 2026/08/10 新制價差門檻計算
+    def _calc_thr(p):
+        if p <= 1000.0:
+            return 100.0
+        bracket = np.floor((p - 1000.01) / 1000.0)
+        return 300.0 + bracket * 150.0
+
+    dyn_thr = p_end.apply(_calc_thr)
+    high_6  = close.iloc[-6:].max()
+    low_6   = close.iloc[-6:].min()
+    gap_ok  = gap >= dyn_thr
+    is_high = p_end >= high_6
+    is_low  = p_end <= low_6
     return (gap_ok & (is_high | is_low)).reindex(close.columns, fill_value=False)
 
 

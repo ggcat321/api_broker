@@ -643,19 +643,136 @@ def get_taiex_benchmark(req: TaiexRequest):
 @app.get("/disposal")
 @app.get("/queue")
 @app.get("/sector_heatmap")
+@app.get("/active_etf")
+@app.get("/active-etf")
 async def get_app_wrapper():
     with open(os.path.join(BASE_DIR, "static", "app.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 @app.get("/_content/{page}")
 async def get_content(page: str):
-    valid = {"index", "options", "etf0050", "disposal", "queue", "sector_heatmap"}
+    valid = {"index", "options", "etf0050", "disposal", "queue", "sector_heatmap", "active_etf"}
     if page not in valid: 
         return HTMLResponse("Not Found", status_code=404)
     with open(os.path.join(BASE_DIR, "static", f"{page}.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 pcf_cache = {}
+
+async def fetch_ezmoney_pcf(ticker: str):
+    """Scrape PCF and Asset holdings for Active ETFs 00981A & 00403A from ezmoney using Playwright."""
+    code_map = {'00981A': '49YTW', '00403A': '63YTW'}
+    fund_code = code_map.get(ticker, ticker)
+    local_json_path = os.path.join(BASE_DIR, f"{ticker}.json")
+    
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            
+            # Block tracking/analytics domains to prevent timeout
+            await page.route('**/*', lambda route: route.abort() if any(d in route.request.url for d in ['google', 'doubleclick', 'gtag', 'analytics']) else route.continue_())
+            
+            raw_data = {}
+            async def handle_response(response):
+                if 'GetPCF' in response.url or 'getpcf' in response.url.lower():
+                    nonlocal raw_data
+                    try: raw_data = await response.json()
+                    except: pass
+            page.on('response', handle_response)
+            
+            await page.goto(f'https://www.ezmoney.com.tw/ETF/Transaction/PCF?fundCode={fund_code}', wait_until='domcontentloaded', timeout=15000)
+            
+            # Poll for raw_data up to 8 seconds
+            for _ in range(16):
+                if raw_data: break
+                await asyncio.sleep(0.5)
+                
+            await browser.close()
+            
+            if raw_data:
+                pcf_items = {item.get('PCFCode'): item.get('Amount') for item in (raw_data.get('pcf') or []) if isinstance(item, dict)}
+                out_unit = float(pcf_items.get('OUT_UNIT') or 1)
+                baseunit = float(pcf_items.get('FUND_BASEUNIT') or 500000)
+                nav_total = float(pcf_items.get('NAV') or 0)
+                p_unit = float(pcf_items.get('P_UNIT') or 0)
+                
+                # High-precision NAV: NAV / OUT_UNIT (e.g. 28.58232345...)
+                nav = (nav_total / out_unit) if (nav_total > 0 and out_unit > 0) else (p_unit or 0)
+                cash_diff = float(pcf_items.get('DIFF_ACT_AMT') or 0)
+                
+                comp = []
+                futures = []
+                for asset_grp in (raw_data.get('asset') or []):
+                    if not isinstance(asset_grp, dict): continue
+                    asset_code = asset_grp.get('AssetCode')
+                    for d in (asset_grp.get('Details') or []):
+                        if not isinstance(d, dict): continue
+                        code = str(d.get('DetailCode') or '').strip()
+                        name = str(d.get('DetailName') or '').strip()
+                        share = float(d.get('Share') or 0)
+                        weight = float(d.get('NavRate') or 0)
+                        if asset_code == 'ST' or d.get('Type') == '1' or not d.get('MTH'):
+                            qty_per_basket = (share / out_unit) * baseunit if out_unit > 0 else share
+                            comp.append({
+                                'stkcd': code,
+                                'name': name,
+                                'qty': round(qty_per_basket, 2),
+                                'total_shares': share,
+                                'weight': weight
+                            })
+                        elif asset_code == 'GD' or d.get('Type') == '2' or d.get('MTH'):
+                            futures.append({
+                                'code': code,
+                                'name': name,
+                                'qty': share,
+                                'weight': weight,
+                                'mth': str(d.get('MTH') or '')
+                            })
+                            
+                fund_info = raw_data.get('fund') or {}
+                res_data = {
+                    'PCF': {
+                        'nav': nav,
+                        'p_unit': p_unit,
+                        'nav_total': nav_total,
+                        'out_unit': out_unit,
+                        'baseunit': baseunit,
+                        'estdvalue': cash_diff,
+                        'trandate': str(fund_info.get('FundDate') or ''),
+                        'is_total_fund': False
+                    },
+                    'InKind': {
+                        'FundComposition': comp
+                    },
+                    'Futures': futures,
+                    'FundName': str(fund_info.get('sFundName') or ticker),
+                    'StockNo': str(fund_info.get('sStockNo') or ticker)
+                }
+                
+                # Save local JSON backup
+                try:
+                    with open(local_json_path, 'w', encoding='utf-8') as f:
+                        json.dump(res_data, f, ensure_ascii=False, indent=2)
+                except Exception as save_err:
+                    print(f"Warning: Could not save local backup for {ticker}: {save_err}")
+
+                return res_data
+
+    except Exception as e:
+        print(f"Ezmoney scraper error for {ticker}: {e}")
+
+    # Fallback: Read local JSON backup if available
+    if os.path.exists(local_json_path):
+        try:
+            print(f"Loading local fallback PCF for {ticker} from {local_json_path}")
+            with open(local_json_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as f_err:
+            print(f"Failed to read local fallback for {ticker}: {f_err}")
+
+    return {"error": f"Failed to receive GetPCF response for {ticker} from ezmoney"}
 
 @app.get("/api/etf-pcf/{ticker}")
 async def get_etf_pcf(ticker: str):
@@ -665,6 +782,12 @@ async def get_etf_pcf(ticker: str):
     
     if ticker in pcf_cache and pcf_cache[ticker].get("date") == today_str:
         return pcf_cache[ticker]["data"]
+
+    if ticker in ["00981A", "00403A"]:
+        res_data = await fetch_ezmoney_pcf(ticker)
+        if res_data and "error" not in res_data:
+            pcf_cache[ticker] = {"date": today_str, "data": res_data}
+        return res_data
         
     if ticker == "0050":
         import uuid
@@ -836,7 +959,7 @@ async def get_stock_quotes(symbols: str):
         ev_loop = asyncio.get_running_loop()
         
         # 1. Fetch the main ETFs instantly via Fubon SDK for live accuracy
-        etfs_to_fetch = [s for s in symbol_list if s in ["0050", "006208", "00922"]]
+        etfs_to_fetch = [s for s in symbol_list if s in ["0050", "006208", "00922", "00981A", "00403A"]]
         remaining_symbols = [s for s in symbol_list if s not in etfs_to_fetch]
         
         quotes = {}

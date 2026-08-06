@@ -498,8 +498,10 @@
         <h1>⚡ Order Book Live</h1>
         <p>Ultra-Low Latency | 買賣五檔觀測 + 成交明細 + 洗價排隊整合監控</p>
         <div class="nav-links">
-            <a href="/options" class="nav-link">📊 選擇權看板</a>
-            <a href="/etf0050" class="nav-link green">💹 ETF iNAV</a>
+            <a href="/" class="nav-link active" style="color:#818cf8;border-color:rgba(129,140,248,0.5);background:rgba(129,140,248,0.12)">📊 Order Book</a>
+            <a href="/options" class="nav-link">📈 選擇權看板</a>
+            <a href="/etf0050" class="nav-link green">💹 0050 iNAV</a>
+            <a href="/active_etf" class="nav-link" style="color:#c084fc;border-color:rgba(192,132,252,0.3)">🚀 主動 ETF</a>
             <a href="/disposal" class="nav-link amber">⚠️ 處置偵測</a>
             <a href="/queue" class="nav-link" style="color:#22d3ee;border-color:rgba(34,211,238,0.3)">⏱️ 洗價排隊</a>
             <a href="/sector_heatmap" class="nav-link" style="color:#ff8a00;border-color:rgba(255,138,0,0.3)">🔥 產業熱力圖</a>
@@ -510,6 +512,17 @@
             </div>
         </div>
     </div>
+    <script>
+        document.addEventListener('click', function(e) {
+            const a = e.target.closest('a');
+            if (a && a.getAttribute('href') && a.getAttribute('href').startsWith('/')) {
+                if (window.parent && window.parent !== window) {
+                    e.preventDefault();
+                    window.parent.postMessage({ type: 'NAVIGATE', path: a.getAttribute('href') }, '*');
+                }
+            }
+        });
+    </script>
 
     <!-- Search Bar -->
     <div class="glass search-bar">
