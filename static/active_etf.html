@@ -372,49 +372,68 @@ function updateSubCounter() {
 function renderNAV() {
     if (!officialNav) return;
 
-    // 1. Total Stock PnL (NTD for all shares held by fund)
-    let totalStockPnl = 0;
-    if (composition && composition.length > 0) {
-        composition.forEach(s => {
-            const px = stockPrices[s.stkcd];
-            const prev = stockPrevCloses[s.stkcd];
+    let inav = officialNav;
 
-            if (px > 0 && prev > 0) {
-                const shares = s.total_shares || ((s.qty || 0) / (baseunit || 500000) * (outUnits || 1));
-                totalStockPnl += shares * (px - prev);
+    if (activeTicker === '00631L') {
+        const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
+        const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
+        if (txPrice > 0 && txPrev > 0) {
+            const futReturn = (txPrice - txPrev) / txPrev;
+            inav = officialNav * (1.0 + 2.0 * futReturn);
+        } else {
+            const pcfData = allPcfCache['00631L']?.PCF || {};
+            if (pcfData.official_inav && pcfData.official_inav > 0) {
+                inav = pcfData.official_inav;
             }
-        });
-    }
+        }
+    } else {
+        // 1. Total Stock PnL (NTD for all shares held by fund)
+        let totalStockPnl = 0;
+        if (composition && composition.length > 0) {
+            composition.forEach(s => {
+                const px = stockPrices[s.stkcd];
+                const prev = stockPrevCloses[s.stkcd];
 
-    // 2. Total Futures PnL (NTD for all contracts held by fund)
-    let totalFuturesPnl = 0;
-    if (futuresList && futuresList.length > 0) {
-        futuresList.forEach(f => {
-            const code = f.code || '';
-            const name = f.name || '';
-            if (code === 'TX' || code.startsWith('TX')) {
-                const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
-                const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
-                if (txPrice > 0 && txPrev > 0) {
-                    const pointDiff = txPrice - txPrev;
-                    const pointVal = code.startsWith('MTX') ? 50 : 200;
-                    totalFuturesPnl += f.qty * pointDiff * pointVal;
+                if (px > 0 && prev > 0) {
+                    const shares = s.total_shares || ((s.qty || 0) / (baseunit || 500000) * (outUnits || 1));
+                    totalStockPnl += shares * (px - prev);
                 }
-            } else if (code === 'NYF' || name.includes('50')) {
-                const px0050 = stockPrices['0050'];
-                const prev0050 = stockPrevCloses['0050'];
-                if (px0050 > 0 && prev0050 > 0) {
-                    const diff0050 = px0050 - prev0050;
-                    totalFuturesPnl += f.qty * diff0050 * 10000;
-                }
-            }
-        });
-    }
+            });
+        }
 
-    // 3. iNAV = officialNav + (totalStockPnl + totalFuturesPnl) / outUnits
-    const totalFundPnl = totalStockPnl + totalFuturesPnl;
-    const pnlPerUnit = (outUnits > 0) ? (totalFundPnl / outUnits) : 0;
-    const inav = officialNav + pnlPerUnit;
+        // 2. Total Futures PnL (NTD for all contracts held by fund)
+        let totalFuturesPnl = 0;
+        if (futuresList && futuresList.length > 0) {
+            futuresList.forEach(f => {
+                const code = f.code || '';
+                const name = f.name || '';
+                if (code === 'TX' || code.startsWith('TX')) {
+                    const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
+                    const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
+                    if (txPrice > 0 && txPrev > 0) {
+                        let pointDiff = txPrice - txPrev;
+                        if (txPrice > 25000) {
+                            pointDiff = pointDiff / 2.0; // Correct for Fubon SDK 2X index quote scale
+                        }
+                        const pointVal = code.startsWith('MTX') ? 50 : 200;
+                        totalFuturesPnl += f.qty * pointDiff * pointVal;
+                    }
+                } else if (code === 'NYF' || name.includes('50')) {
+                    const px0050 = stockPrices['0050'];
+                    const prev0050 = stockPrevCloses['0050'];
+                    if (px0050 > 0 && prev0050 > 0) {
+                        const diff0050 = px0050 - prev0050;
+                        totalFuturesPnl += f.qty * diff0050 * 10000;
+                    }
+                }
+            });
+        }
+
+        // 3. iNAV = officialNav + (totalStockPnl + totalFuturesPnl) / outUnits
+        const totalFundPnl = totalStockPnl + totalFuturesPnl;
+        const pnlPerUnit = (outUnits > 0) ? (totalFundPnl / outUnits) : 0;
+        inav = officialNav + pnlPerUnit;
+    }
 
     const inavEl = document.getElementById('inavDisplay');
     if (!inavEl) return;
