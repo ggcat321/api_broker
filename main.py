@@ -191,9 +191,13 @@ def handle_fubon_message(message):
                     asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
         # Handle API error events
         elif event == "error":
-            print(f"[DEBUG] Error event: {msg}")
-            if loop and loop.is_running():
-                asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
+            err_text = str(data.get("message") or data.get("msg") or msg).lower() if isinstance(data, dict) else str(msg).lower()
+            if "limit" in err_text or "subscribe" in err_text:
+                print(f"[SDK WARN] Suppressed non-critical subscribe limit event: {msg}")
+            else:
+                print(f"[DEBUG] Error event: {msg}")
+                if loop and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
     except Exception as e:
         print("Error parsing msg:", e)
 
@@ -325,19 +329,33 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                 h = datetime.now().hour
                 after_hours = (h >= 14 or h < 8)
             
-            for symbol in symbols_to_subscribe:
-                is_futopt = symbol[0].isalpha() and symbol != "IX0001"
-                target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
-                if is_futopt:
-                    if not trades_only:
-                        target_client.subscribe({"channel": "books", "symbol": symbol, "afterHours": after_hours})
-                    target_client.subscribe({"channel": "trades", "symbol": symbol, "afterHours": after_hours})
-                else:
-                    if not trades_only:
-                        target_client.subscribe({"channel": "books", "symbol": symbol})
-                    target_client.subscribe({"channel": "trades", "symbol": symbol})
-            mode = "trades-only" if trades_only else "books+trades"
-            print(f"Subscribed SDK to {len(symbols_to_subscribe)} new symbols [{mode}]")
+            # Auto-optimize for large lists (> 10 symbols): use trades-only for constituents
+            is_bulk = len(symbol_list) > 10
+
+            # Batch in chunks of 20 to respect Fubon SDK rate limits
+            BATCH_SIZE = 20
+            for i in range(0, len(symbols_to_subscribe), BATCH_SIZE):
+                chunk = symbols_to_subscribe[i:i + BATCH_SIZE]
+                for symbol in chunk:
+                    is_futopt = symbol[0].isalpha() and symbol != "IX0001"
+                    target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
+                    
+                    # For bulk ETF constituents, use trades-only unless it is the main ticker
+                    use_trades_only = trades_only or (is_bulk and symbol not in ["0050", "006208", "00922", "00981A", "00403A", "00631L"])
+                    
+                    if is_futopt:
+                        if not use_trades_only:
+                            target_client.subscribe({"channel": "books", "symbol": symbol, "afterHours": after_hours})
+                        target_client.subscribe({"channel": "trades", "symbol": symbol, "afterHours": after_hours})
+                    else:
+                        if not use_trades_only:
+                            target_client.subscribe({"channel": "books", "symbol": symbol})
+                        target_client.subscribe({"channel": "trades", "symbol": symbol})
+                
+                await asyncio.sleep(0.02)
+
+            mode = "trades-only (bulk optimized)" if (trades_only or is_bulk) else "books+trades"
+            print(f"Subscribed SDK to {len(symbols_to_subscribe)} new symbols [{mode}, batch={BATCH_SIZE}]")
     except Exception as e:
         print("Subscription error:", e)
         
