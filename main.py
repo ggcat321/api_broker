@@ -771,6 +771,7 @@ async def fetch_ezmoney_pcf(ticker: str):
                     'PCF': {
                         'nav': nav,
                         'p_unit': p_unit,
+                        'official_inav': p_unit if p_unit > 0 else nav,
                         'nav_total': nav_total,
                         'out_unit': out_unit,
                         'baseunit': baseunit,
@@ -1110,9 +1111,9 @@ async def get_stock_quotes(symbols: str):
                     if sym in ["TXFR1", "TXF", "TX"]:
                         tx_sym = get_current_txf_symbol()
                         q = sdk.marketdata.rest_client.futopt.intraday.quote(symbol=tx_sym)
-                        price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
-                        prev = q.get("previousClose") or price
-                        return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+                        p_val = float(q.get("lastPrice") or q.get("closePrice") or q.get("previousClose") or 0)
+                        pr_val = float(q.get("previousClose") or p_val)
+                        return (sym, {"price": p_val, "prev": pr_val} if p_val else None)
                     else:
                         q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
                         price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")

@@ -411,10 +411,7 @@ function renderNAV() {
                     const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
                     const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
                     if (txPrice > 0 && txPrev > 0) {
-                        let pointDiff = txPrice - txPrev;
-                        if (txPrice > 25000) {
-                            pointDiff = pointDiff / 2.0; // Correct for Fubon SDK 2X index quote scale
-                        }
+                        const pointDiff = txPrice - txPrev;
                         const pointVal = code.startsWith('MTX') ? 50 : 200;
                         totalFuturesPnl += f.qty * pointDiff * pointVal;
                     }
