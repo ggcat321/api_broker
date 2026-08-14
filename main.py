@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import asyncio
@@ -14,6 +15,9 @@ from dotenv import load_dotenv
 from fubon_neo.sdk import FubonSDK
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 批次抓報價時的並發上限。太高會被富邦 API 限流，漏掉的個股會讓 iNAV 少算。
+SDK_QUOTE_CONCURRENCY = int(os.getenv("SDK_QUOTE_CONCURRENCY", "8"))
 os.chdir(BASE_DIR)
 
 # Load env variables
@@ -148,6 +152,9 @@ CURRENT_BUCKET = defaultdict(lambda: {'price': None, 'vol': 0, 'large_vol': 0})
 sdk_last_msg_time = time.time()
 sdk_retry_count = 0
 
+SUBSCRIBE_FAILURES = deque(maxlen=200)
+
+
 def handle_fubon_message(message):
     global sdk_last_msg_time, sdk_retry_count
     try:
@@ -193,7 +200,10 @@ def handle_fubon_message(message):
         elif event == "error":
             err_text = str(data.get("message") or data.get("msg") or msg).lower() if isinstance(data, dict) else str(msg).lower()
             if "limit" in err_text or "subscribe" in err_text:
-                print(f"[SDK WARN] Suppressed non-critical subscribe limit event: {msg}")
+                # 訂閱失敗 = 該檔沒有即時價 = iNAV 少算它的漲跌。不要當成無害事件吞掉，
+                # 一併轉發給前端，讓覆蓋率面板能反映出來。
+                SUBSCRIBE_FAILURES.append({"ts": time.time(), "msg": str(msg)[:300]})
+                print(f"[SDK WARN] 訂閱被拒 (累計 {len(SUBSCRIBE_FAILURES)} 次): {msg}")
             else:
                 print(f"[DEBUG] Error event: {msg}")
                 if loop and loop.is_running():
@@ -687,6 +697,51 @@ async def get_content(page: str):
 
 pcf_cache = {}
 
+
+def parse_pcf_trandate(v):
+    """PCF 來源可能是 ISO 字串或 .NET 的 '/Date(1785859200000)/'，統一轉成 date。"""
+    if not v:
+        return None
+    from datetime import datetime, date
+    if isinstance(v, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(v) / 1000.0).date()
+        except Exception:
+            return None
+    s = str(v).strip()
+    m = re.search(r"/Date\((-?\d+)", s)
+    if m:
+        try:
+            return datetime.fromtimestamp(int(m.group(1)) / 1000.0).date()
+        except Exception:
+            return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(s[:len(fmt) + 2].strip(), fmt).date()
+        except Exception:
+            continue
+    return None
+
+
+def annotate_pcf(res_data: dict, source: str):
+    """在 PCF 上補齊 trandate_iso / source / stale_days，讓前端能判斷資料新不新。"""
+    if not isinstance(res_data, dict) or "error" in res_data:
+        return res_data
+    from datetime import date
+    pcf = res_data.setdefault("PCF", {})
+    d = parse_pcf_trandate(pcf.get("trandate_iso") or pcf.get("trandate"))
+    pcf["trandate_iso"] = d.isoformat() if d else None
+    pcf["source"] = source
+    if d:
+        # 粗略的交易日落差（不含國定假日），只用於提示
+        delta = (date.today() - d).days
+        weeks, rem = divmod(max(delta, 0), 7)
+        pcf["stale_days"] = weeks * 5 + min(rem, 5)
+    else:
+        pcf["stale_days"] = None
+    return res_data
+
+
 async def fetch_ezmoney_pcf(ticker: str):
     """Scrape PCF and Asset holdings for Active ETFs 00981A & 00403A from ezmoney using Playwright."""
     code_map = {'00981A': '49YTW', '00403A': '63YTW'}
@@ -787,6 +842,8 @@ async def fetch_ezmoney_pcf(ticker: str):
                     'StockNo': str(fund_info.get('sStockNo') or ticker)
                 }
                 
+                annotate_pcf(res_data, 'ezmoney')
+
                 # Save local JSON backup
                 try:
                     with open(local_json_path, 'w', encoding='utf-8') as f:
@@ -799,12 +856,18 @@ async def fetch_ezmoney_pcf(ticker: str):
     except Exception as e:
         print(f"Ezmoney scraper error for {ticker}: {e}")
 
-    # Fallback: Read local JSON backup if available
+    # Fallback: Read local JSON backup if available.
+    # 重要：這份備份可能是好幾天前的。用舊淨值搭配今天的昨收會讓 iNAV 整段偏掉，
+    # 所以一定要把基準日與過期天數標出來給前端。
     if os.path.exists(local_json_path):
         try:
-            print(f"Loading local fallback PCF for {ticker} from {local_json_path}")
             with open(local_json_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                cached = json.load(f)
+            annotate_pcf(cached, 'local-backup')
+            stale = (cached.get('PCF') or {}).get('stale_days')
+            print(f"Loading local fallback PCF for {ticker} from {local_json_path} "
+                  f"(基準日 {(cached.get('PCF') or {}).get('trandate_iso')}, 落後約 {stale} 個交易日)")
+            return cached
         except Exception as f_err:
             print(f"Failed to read local fallback for {ticker}: {f_err}")
 
@@ -815,16 +878,24 @@ async def get_etf_pcf(ticker: str):
     """Proxy endpoint to fetch PCF data for different ETFs."""
     from datetime import datetime
     today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    if ticker in pcf_cache and pcf_cache[ticker].get("date") == today_str:
-        return pcf_cache[ticker]["data"]
+
+    # 只有「今天抓到、而且 PCF 基準日確實是今天發布的那一份」才可以整天快取。
+    # 舊寫法用抓取日當 key，早上在新 PCF 發布前抓到 T-2 的資料就會被鎖一整天。
+    entry = pcf_cache.get(ticker)
+    if entry and entry.get("date") == today_str and entry.get("fresh"):
+        return entry["data"]
 
     if ticker in ["00981A", "00403A"]:
         res_data = await fetch_ezmoney_pcf(ticker)
         if res_data and "error" not in res_data:
-            pcf_cache[ticker] = {"date": today_str, "data": res_data}
+            pcf = res_data.get("PCF") or {}
+            fresh = pcf.get("source") == "ezmoney" and (pcf.get("stale_days") or 99) <= 1
+            pcf_cache[ticker] = {"date": today_str, "fresh": fresh, "data": res_data}
+            if not fresh:
+                print(f"[PCF] {ticker} 資料非最新 (source={pcf.get('source')}, "
+                      f"基準日={pcf.get('trandate_iso')})，稍後會重新抓取")
         return res_data
-        
+
     if ticker == "00631L":
         import uuid
         device_id = str(uuid.uuid4())
@@ -913,7 +984,8 @@ async def get_etf_pcf(ticker: str):
                 'StockNo': '00631L'
             }
             if res_data:
-                pcf_cache[ticker] = {"date": today_str, "data": res_data}
+                annotate_pcf(res_data, 'yuanta')
+                pcf_cache[ticker] = {"date": today_str, "fresh": True, "data": res_data}
             return res_data
         except Exception as e:
             return {"error": str(e)}
@@ -1006,7 +1078,7 @@ async def get_etf_pcf(ticker: str):
                 "PCF": {"estdvalue": 0, "baseunit": units or 1, "is_total_fund": False, "nav": nav_val},
                 "InKind": {"FundComposition": comp}
             }
-            pcf_cache[ticker] = {"date": today_str, "data": res_data}
+            pcf_cache[ticker] = {"date": today_str, "fresh": True, "data": res_data}
             return res_data
         except Exception as e:
             print("Fubon scraper error:", e)
@@ -1056,7 +1128,7 @@ async def get_etf_pcf(ticker: str):
                     "PCF": {"estdvalue": estdvalue, "baseunit": basket_unit, "is_total_fund": False},
                     "InKind": {"FundComposition": comp}
                 }
-                pcf_cache[ticker] = {"date": today_str, "data": res_data}
+                pcf_cache[ticker] = {"date": today_str, "fresh": True, "data": res_data}
                 return res_data
         except Exception as e:
             print(f"00922 Cathay API Scraper Error: {e}")
@@ -1067,7 +1139,7 @@ async def get_etf_pcf(ticker: str):
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                return annotate_pcf(json.load(f), 'local-backup')
         except Exception as e:
             return {"error": f"Failed to read {ticker}.json: {str(e)}"}
     
@@ -1103,13 +1175,15 @@ async def get_stock_quotes(symbols: str):
             return f"TXF{month_letters[m_idx]}{str(year)[-1]}"
 
         quotes = {}
-        missing = []
 
         if sdk:
             def fetch_via_sdk(sym):
                 try:
-                    if sym in ["TXFR1", "TXF", "TX"]:
+                    if sym in ["TXFR1", "TXF", "TX", "MXFR1", "TEFR1", "TFFR1"]:
+                        root = {"MXFR1": "MXF", "TEFR1": "TEF", "TFFR1": "TFF"}.get(sym)
                         tx_sym = get_current_txf_symbol()
+                        if root:
+                            tx_sym = root + tx_sym[3:]
                         q = sdk.marketdata.rest_client.futopt.intraday.quote(symbol=tx_sym)
                         p_val = float(q.get("lastPrice") or q.get("closePrice") or q.get("previousClose") or 0)
                         pr_val = float(q.get("previousClose") or p_val)
@@ -1122,11 +1196,31 @@ async def get_stock_quotes(symbols: str):
                 except Exception:
                     return (sym, None)
 
-            tasks = [ev_loop.run_in_executor(None, fetch_via_sdk, sym) for sym in symbol_list]
-            res = await asyncio.gather(*tasks, return_exceptions=True)
-            for item in res:
-                if not isinstance(item, Exception) and item and item[1]:
-                    quotes[item[0]] = item[1]
+            # 一次噴 100+ 個 REST 請求會被限流，失敗的個股就沒有昨收，
+            # 前端會把它們當成沒漲跌 —— iNAV 因此系統性低估波動。
+            # 這裡限制並發並對漏掉的個股補抓一次。
+            sem = asyncio.Semaphore(SDK_QUOTE_CONCURRENCY)
+
+            async def bounded(sym):
+                async with sem:
+                    return await ev_loop.run_in_executor(None, fetch_via_sdk, sym)
+
+            async def sweep(syms):
+                res = await asyncio.gather(*[bounded(s) for s in syms], return_exceptions=True)
+                for item in res:
+                    if not isinstance(item, Exception) and item and item[1]:
+                        quotes[item[0]] = item[1]
+
+            await sweep(symbol_list)
+
+            missing = [s for s in symbol_list if s not in quotes]
+            if missing:
+                await asyncio.sleep(0.3)
+                await sweep(missing)
+                still_missing = [s for s in symbol_list if s not in quotes]
+                if still_missing:
+                    print(f"[QUOTES] {len(still_missing)}/{len(symbol_list)} 檔取不到報價: "
+                          f"{','.join(still_missing[:20])}{' …' if len(still_missing) > 20 else ''}")
 
         return quotes
 

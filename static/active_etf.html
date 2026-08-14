@@ -205,6 +205,22 @@
         </div>
     </div>
 
+    <!-- Data Quality / Coverage Banner -->
+    <div id="qualityBanner" class="glass p-3.5 hidden">
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px]">
+            <div class="flex items-center gap-1.5">
+                <span id="qualityDot" class="dot dot-grey"></span>
+                <span class="font-bold text-slate-200" id="qualityHeadline">資料品質檢查</span>
+            </div>
+            <div class="text-slate-400">即時報價覆蓋率：<strong class="mono text-slate-200" id="covPctVal">--</strong>
+                <span class="text-slate-500">(未報價權重 <span class="mono" id="covMissVal">--</span>)</span></div>
+            <div class="text-slate-400">持股還原淨值：<strong class="mono text-slate-200" id="reconVal">--</strong>
+                <span class="text-slate-500">/ 官方 <span class="mono" id="reconNavVal">--</span></span></div>
+            <div class="text-slate-400">PCF 基準日：<strong class="mono text-slate-200" id="staleVal">--</strong></div>
+        </div>
+        <div id="qualityDetail" class="text-[11px] text-amber-300/90 mt-2 hidden"></div>
+    </div>
+
     <!-- Fund Stats Bar -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div class="glass p-3.5">
@@ -310,9 +326,23 @@ let baseunit = 500000;
 let estdvalue = 0;
 let outUnits = 0;
 
+let navTotal = 0;
+let pcfTranDate = null;
+
+// 台指類期貨契約乘數 (TAIFEX)。未列出的商品一律不計入 iNAV，改列為「未覆蓋」，
+// 避免用錯誤的乘數靜默算出錯的淨值。
+const FUTURES_SPEC = {
+    'TX':  { mult: 200,  proxy: ['TXFR1', 'TXF', 'TX'], label: '臺股期貨' },
+    'MTX': { mult: 50,   proxy: ['MXFR1', 'TXFR1', 'TXF', 'TX'], label: '小型臺指期貨' },
+    'TE':  { mult: 4000, proxy: ['TEFR1'], label: '電子期貨' },
+    'TF':  { mult: 1000, proxy: ['TFFR1'], label: '金融期貨' }
+};
+
 let globalSymbols = new Set();
 let subscribedSet = new Set();
 let ws = null;
+let wsGeneration = 0;
+let wsRetryTimer = null;
 let wsRetryCount = 0;
 const WS_MAX_RETRIES = 8;
 const WS_BASE_DELAY = 5000;
@@ -331,6 +361,37 @@ function fmtM(n) {
 function fmtAum(n) {
     if (n == null || isNaN(n)) return '--';
     return (n / 100000000).toLocaleString('zh-TW', { maximumFractionDigits: 2 }) + ' 億';
+}
+
+// PCF 來源可能給 ISO 字串或 .NET 的 "/Date(1785859200000)/" 格式，兩種都要解析。
+function parseTranDate(v) {
+    if (!v) return null;
+    if (typeof v === 'number') return new Date(v);
+    const s = String(v);
+    const m = s.match(/\/Date\((-?\d+)/);
+    if (m) return new Date(parseInt(m[1], 10));
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function fmtDate(d) {
+    if (!d) return '--';
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// 台股交易日粗略計算：往前推 n 個非週末日（不含國定假日，僅用於過期提示）
+function businessDaysAgo(from, to) {
+    if (!from || !to) return null;
+    let days = 0;
+    const cur = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    const end = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+    while (cur < end) {
+        cur.setDate(cur.getDate() + 1);
+        const wd = cur.getDay();
+        if (wd !== 0 && wd !== 6) days++;
+    }
+    return days;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -369,67 +430,165 @@ function updateSubCounter() {
     if (count > 0) setWsStatus('live');
 }
 
+// 取第一個有值的報價來源
+function pickQuote(codes) {
+    for (const c of codes) {
+        const px = stockPrices[c];
+        const prev = stockPrevCloses[c];
+        if (px > 0 && prev > 0) return { px, prev };
+    }
+    return null;
+}
+
+// 計算 iNAV，同時回報資料覆蓋率，讓「安靜地少算」變成看得見的數字。
+function computeInav() {
+    const diag = {
+        pricedWeight: 0,      // 有即時報價的權重 (%)
+        missingWeight: 0,     // 有列在 PCF 但沒報價的權重 (%)
+        listedWeight: 0,      // PCF 成分股權重合計 (%)
+        missingNames: [],
+        reconNav: null,       // Σ(qty × 昨收) / baseunit，用來對帳官方淨值
+        reconCoverage: null,
+        futuresSkipped: []
+    };
+
+    if (!officialNav) return { inav: officialNav, diag };
+
+    if (activeTicker === '00631L') {
+        // 00631L 追蹤「臺灣50指數」單日正向兩倍，優先用 0050 現貨報酬當代理，
+        // 台指期只是退而求其次的近似（成分不同 + 基差收斂會有誤差）。
+        const proxy = pickQuote(['0050']) || pickQuote(['TXFR1', 'TXF', 'TX']);
+        if (proxy) {
+            const ret = (proxy.px - proxy.prev) / proxy.prev;
+            diag.pricedWeight = 100;
+            diag.listedWeight = 100;
+            return { inav: officialNav * (1.0 + 2.0 * ret), diag };
+        }
+        const pcfData = allPcfCache['00631L']?.PCF || {};
+        if (pcfData.official_inav > 0) return { inav: pcfData.official_inav, diag };
+        return { inav: officialNav, diag };
+    }
+
+    // 1. 股票部位損益（新台幣，全基金）
+    let totalStockPnl = 0;
+    let reconValue = 0;      // Σ(每基數持股 × 昨收)
+    let reconPriced = 0;     // 有昨收可還原的權重
+    if (composition && composition.length > 0) {
+        composition.forEach(s => {
+            const w = s.weight || 0;
+            diag.listedWeight += w;
+
+            const px = stockPrices[s.stkcd];
+            const prev = stockPrevCloses[s.stkcd];
+            const shares = s.total_shares || ((s.qty || 0) / (baseunit || 500000) * (outUnits || 1));
+
+            if (px > 0 && prev > 0) {
+                totalStockPnl += shares * (px - prev);
+                diag.pricedWeight += w;
+                reconValue += (s.qty || 0) * prev;
+                reconPriced += w;
+            } else {
+                diag.missingWeight += w;
+                if (diag.missingNames.length < 12) diag.missingNames.push(`${s.stkcd} ${s.name || ''}`.trim());
+            }
+        });
+    }
+
+    // 對帳：用昨收把 PCF 一籃子還原成每單位淨值，跟官方淨值比對。
+    // 差距≈成分股未涵蓋的現金/其他資產比例；差太多代表 PCF 抓得不完整。
+    if (baseunit > 0 && reconPriced > 0) {
+        diag.reconNav = reconValue / baseunit;
+        diag.reconCoverage = officialNav > 0 ? (diag.reconNav / officialNav) * 100 : null;
+    }
+
+    // 2. 期貨部位損益。乘數表沒有的商品不猜，改列入未覆蓋。
+    let totalFuturesPnl = 0;
+    if (futuresList && futuresList.length > 0) {
+        futuresList.forEach(f => {
+            const code = (f.code || '').toUpperCase();
+            const spec = FUTURES_SPEC[code];
+            if (!spec) {
+                diag.futuresSkipped.push(`${code} ${f.name || ''}`.trim());
+                diag.missingWeight += (f.weight || 0);
+                return;
+            }
+            const q = pickQuote(spec.proxy);
+            if (!q) {
+                diag.futuresSkipped.push(`${code}(無報價)`);
+                diag.missingWeight += (f.weight || 0);
+                return;
+            }
+            totalFuturesPnl += (f.qty || 0) * (q.px - q.prev) * spec.mult;
+            diag.pricedWeight += (f.weight || 0);
+        });
+    }
+
+    // 3. iNAV = 官方淨值 + (股票損益 + 期貨損益) / 已發行單位數
+    const pnlPerUnit = (outUnits > 0) ? ((totalStockPnl + totalFuturesPnl) / outUnits) : 0;
+    return { inav: officialNav + pnlPerUnit, diag };
+}
+
+function renderQuality(diag) {
+    const banner = document.getElementById('qualityBanner');
+    if (!banner) return;
+    banner.classList.remove('hidden');
+
+    const total = diag.pricedWeight + diag.missingWeight;
+    const covPct = total > 0 ? (diag.pricedWeight / total) * 100 : 0;
+
+    document.getElementById('covPctVal').textContent = total > 0 ? fmt(covPct, 1) + '%' : '--';
+    document.getElementById('covMissVal').textContent = total > 0 ? fmt(diag.missingWeight, 2) + '%' : '--';
+    document.getElementById('reconVal').textContent = diag.reconNav != null ? fmt(diag.reconNav, 3) + ' 元' : '--';
+    document.getElementById('reconNavVal').textContent = officialNav ? fmt(officialNav, 3) + ' 元' : '--';
+
+    const staleDays = pcfTranDate ? businessDaysAgo(pcfTranDate, new Date()) : null;
+    const staleEl = document.getElementById('staleVal');
+    staleEl.textContent = pcfTranDate ? fmtDate(pcfTranDate) + (staleDays != null ? ` (T-${staleDays})` : '') : '--';
+
+    const warns = [];
+    if (total > 0 && covPct < 99.5) {
+        warns.push(`有 ${fmt(diag.missingWeight, 2)}% 權重沒有即時報價，iNAV 會低估漲跌幅。`);
+    }
+    if (diag.missingNames.length) {
+        warns.push(`未報價：${diag.missingNames.join('、')}${diag.missingWeight > 0 && diag.missingNames.length >= 12 ? ' …' : ''}`);
+    }
+    if (diag.futuresSkipped.length) {
+        warns.push(`期貨未計入：${diag.futuresSkipped.join('、')}（乘數未定義或無報價）`);
+    }
+    if (staleDays != null && staleDays > 1) {
+        warns.push(`PCF 基準日為 ${fmtDate(pcfTranDate)}，已落後 ${staleDays} 個交易日，官方淨值與昨收基準不一致，折溢價不可用。`);
+    }
+
+    const dot = document.getElementById('qualityDot');
+    const head = document.getElementById('qualityHeadline');
+    const detail = document.getElementById('qualityDetail');
+
+    const bad = (staleDays != null && staleDays > 1) || (total > 0 && covPct < 90);
+    const warn = warns.length > 0;
+
+    dot.className = 'dot ' + (bad ? 'dot-red' : warn ? 'dot-yellow' : 'dot-green');
+    head.textContent = bad ? '⚠️ iNAV 不可靠' : warn ? '資料不完整' : '資料完整';
+    head.className = 'font-bold ' + (bad ? 'text-red-400' : warn ? 'text-amber-400' : 'text-emerald-400');
+
+    if (warns.length) {
+        detail.innerHTML = warns.map(w => `• ${w}`).join('<br>');
+        detail.classList.remove('hidden');
+    } else {
+        detail.classList.add('hidden');
+    }
+}
+
+let lastQualityRender = 0;
+
 function renderNAV() {
     if (!officialNav) return;
 
-    let inav = officialNav;
-
-    if (activeTicker === '00631L') {
-        const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
-        const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
-        if (txPrice > 0 && txPrev > 0) {
-            const futReturn = (txPrice - txPrev) / txPrev;
-            inav = officialNav * (1.0 + 2.0 * futReturn);
-        } else {
-            const pcfData = allPcfCache['00631L']?.PCF || {};
-            if (pcfData.official_inav && pcfData.official_inav > 0) {
-                inav = pcfData.official_inav;
-            }
-        }
-    } else {
-        // 1. Total Stock PnL (NTD for all shares held by fund)
-        let totalStockPnl = 0;
-        if (composition && composition.length > 0) {
-            composition.forEach(s => {
-                const px = stockPrices[s.stkcd];
-                const prev = stockPrevCloses[s.stkcd];
-
-                if (px > 0 && prev > 0) {
-                    const shares = s.total_shares || ((s.qty || 0) / (baseunit || 500000) * (outUnits || 1));
-                    totalStockPnl += shares * (px - prev);
-                }
-            });
-        }
-
-        // 2. Total Futures PnL (NTD for all contracts held by fund)
-        let totalFuturesPnl = 0;
-        if (futuresList && futuresList.length > 0) {
-            futuresList.forEach(f => {
-                const code = f.code || '';
-                const name = f.name || '';
-                if (code === 'TX' || code.startsWith('TX')) {
-                    const txPrice = stockPrices['TXFR1'] || stockPrices['TXF'] || stockPrices['TX'];
-                    const txPrev = stockPrevCloses['TXFR1'] || stockPrevCloses['TXF'] || stockPrevCloses['TX'];
-                    if (txPrice > 0 && txPrev > 0) {
-                        const pointDiff = txPrice - txPrev;
-                        const pointVal = code.startsWith('MTX') ? 50 : 200;
-                        totalFuturesPnl += f.qty * pointDiff * pointVal;
-                    }
-                } else if (code === 'NYF' || name.includes('50')) {
-                    const px0050 = stockPrices['0050'];
-                    const prev0050 = stockPrevCloses['0050'];
-                    if (px0050 > 0 && prev0050 > 0) {
-                        const diff0050 = px0050 - prev0050;
-                        totalFuturesPnl += f.qty * diff0050 * 10000;
-                    }
-                }
-            });
-        }
-
-        // 3. iNAV = officialNav + (totalStockPnl + totalFuturesPnl) / outUnits
-        const totalFundPnl = totalStockPnl + totalFuturesPnl;
-        const pnlPerUnit = (outUnits > 0) ? (totalFundPnl / outUnits) : 0;
-        inav = officialNav + pnlPerUnit;
+    const { inav, diag } = computeInav();
+    // 品質面板不需要每一筆成交都重畫
+    const now = Date.now();
+    if (now - lastQualityRender > 800) {
+        lastQualityRender = now;
+        renderQuality(diag);
     }
 
     const inavEl = document.getElementById('inavDisplay');
@@ -577,7 +736,16 @@ function extractTradePrice(data) {
 }
 
 function connectGlobalWS() {
-    if (ws) { try { ws.close(); } catch(_){} }
+    // 關閉舊連線前先拆掉 handler，否則舊的 onclose 會排一個重連，
+    // 反過來把剛建好的連線關掉 —— 每按一次「重新載入」就滾一輪重連風暴。
+    if (wsRetryTimer) { clearTimeout(wsRetryTimer); wsRetryTimer = null; }
+    if (ws) {
+        try {
+            ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
+            ws.close();
+        } catch(_) {}
+        ws = null;
+    }
     subscribedSet.clear();
 
     const allArr = Array.from(globalSymbols);
@@ -586,30 +754,35 @@ function connectGlobalWS() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws/${allArr.join(',')}`;
 
+    const gen = ++wsGeneration;   // 只有最新一代的 socket 能改動狀態
     setWsStatus('connecting');
-    ws = new WebSocket(url);
+    const sock = new WebSocket(url);
+    ws = sock;
 
-    ws.onopen = () => {
+    sock.onopen = () => {
+        if (gen !== wsGeneration) { try { sock.close(); } catch(_) {} return; }
         wsRetryCount = 0;
         console.log(`WebSocket connected, subscribed ${allArr.length} symbols`);
     };
 
-    ws.onclose = () => {
+    sock.onclose = () => {
+        if (gen !== wsGeneration) return;   // 已被新連線取代，不要重連
         setWsStatus('disconnected');
         if (wsRetryCount < WS_MAX_RETRIES) {
             wsRetryCount++;
             const delay = Math.min(WS_BASE_DELAY * Math.pow(2, wsRetryCount - 1), WS_MAX_DELAY);
             console.log(`WS disconnected, retry ${wsRetryCount}/${WS_MAX_RETRIES} in ${delay/1000}s...`);
-            setTimeout(() => connectGlobalWS(), delay);
+            wsRetryTimer = setTimeout(() => { if (gen === wsGeneration) connectGlobalWS(); }, delay);
         } else {
             setWsStatus('error');
             wsRetryCount = 0;
         }
     };
 
-    ws.onerror = () => setWsStatus('error');
+    sock.onerror = () => { if (gen === wsGeneration) setWsStatus('error'); };
 
-    ws.onmessage = (event) => {
+    sock.onmessage = (event) => {
+        if (gen !== wsGeneration) return;
         let msg;
         try { msg = JSON.parse(event.data); } catch { return; }
 
@@ -697,12 +870,14 @@ function renderSpecificETF(ticker, name) {
     baseunit = pcf.baseunit || 500000;
     estdvalue = pcf.estdvalue || 0;
     outUnits = pcf.out_unit || 0;
+    navTotal = pcf.nav_total || 0;
+    pcfTranDate = parseTranDate(pcf.trandate_iso || pcf.trandate);
 
     document.getElementById('prevNavDisplay').textContent = fmt(officialNav, 2) + ' 元';
     document.getElementById('outUnitsVal').textContent = outUnits ? outUnits.toLocaleString('zh-TW') : '--';
     document.getElementById('fundAumVal').textContent = (outUnits && officialNav) ? fmtAum(outUnits * officialNav) : '--';
     document.getElementById('cashDiffVal').textContent = `${fmt(baseunit, 0)} / ${fmtM(estdvalue)}`;
-    document.getElementById('infoDate').textContent = pcf.trandate ? pcf.trandate.slice(0,10) : '--';
+    document.getElementById('infoDate').textContent = fmtDate(pcfTranDate);
     document.getElementById('totalStocksBadge').textContent = `${composition.length} 檔`;
 
     etfPrice = stockPrices[ticker] || null;
@@ -725,6 +900,12 @@ async function globalLaunch() {
     const wsStatus = document.getElementById('wsStatus');
     if (wsStatus) wsStatus.textContent = '預載所有主動式 ETF PCF 資料...';
 
+    // 每次重載都要重建報價基準。舊的昨收若留著，跨日之後官方淨值換成新的一天、
+    // 昨收卻還停在前一天，iNAV 會整段偏掉。
+    globalSymbols = new Set();
+    stockPrices = {};
+    stockPrevCloses = {};
+
     try {
         const psts = ACTIVE_TICKERS.map(async t => {
             const r = await fetch(`/api/etf-pcf/${t}`);
@@ -734,30 +915,35 @@ async function globalLaunch() {
                 globalSymbols.add(t);
                 const comp = data.InKind?.FundComposition || [];
                 comp.forEach(s => globalSymbols.add(s.stkcd));
-                const futs = data.Futures || [];
-                if (futs.length > 0) {
-                    globalSymbols.add('TXFR1');
-                    futs.forEach(f => {
-                        if (f.code === 'NYF' || (f.name && f.name.includes('50'))) {
-                            globalSymbols.add('0050');
-                        }
-                    });
-                }
+                (data.Futures || []).forEach(f => {
+                    const spec = FUTURES_SPEC[(f.code || '').toUpperCase()];
+                    if (spec) spec.proxy.forEach(p => globalSymbols.add(p));
+                });
             }
         });
         await Promise.all(psts);
+
+        // 00631L 用 0050 當臺灣50指數的代理，另外把台指期一併訂起來當備援
+        if (ACTIVE_TICKERS.includes('00631L')) {
+            globalSymbols.add('0050');
+            globalSymbols.add('TXFR1');
+        }
 
         const syms = Array.from(globalSymbols).join(',');
         if (syms) {
             try {
                 const qr = await fetch(`/api/stock-quotes?symbols=${syms}`);
                 const qdata = await qr.json();
+                let got = 0;
                 globalSymbols.forEach(stkcd => {
-                    if (qdata[stkcd]) {
-                        stockPrices[stkcd] = stockPrices[stkcd] || qdata[stkcd].price;
-                        stockPrevCloses[stkcd] = stockPrevCloses[stkcd] || qdata[stkcd].prev;
+                    const q = qdata[stkcd];
+                    if (q && q.prev > 0) {
+                        stockPrices[stkcd] = q.price;
+                        stockPrevCloses[stkcd] = q.prev;
+                        got++;
                     }
                 });
+                console.log(`Initial quotes: ${got}/${globalSymbols.size} symbols`);
             } catch(e) {
                 console.warn("Fetch initial quotes error:", e);
             }
@@ -792,6 +978,17 @@ document.getElementById('refreshBtn').addEventListener('click', () => {
     allPcfCache = {};
     globalLaunch();
 });
+
+// 跨日自動重載：留著頁面過夜時，官方淨值與昨收基準都會換，必須整組重抓。
+let lastLoadDay = new Date().getDate();
+setInterval(() => {
+    const d = new Date().getDate();
+    if (d !== lastLoadDay) {
+        lastLoadDay = d;
+        allPcfCache = {};
+        globalLaunch();
+    }
+}, 60000);
 
 document.getElementById('searchInput').addEventListener('input', () => {
     renderTable();
