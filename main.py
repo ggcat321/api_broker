@@ -698,21 +698,41 @@ async def get_content(page: str):
 pcf_cache = {}
 
 
+TAIPEI_TZ = None  # 延遲初始化，見 _taipei_tz()
+
+
+def _taipei_tz():
+    global TAIPEI_TZ
+    if TAIPEI_TZ is None:
+        from datetime import timezone, timedelta
+        TAIPEI_TZ = timezone(timedelta(hours=8))
+    return TAIPEI_TZ
+
+
 def parse_pcf_trandate(v):
-    """PCF 來源可能是 ISO 字串或 .NET 的 '/Date(1785859200000)/'，統一轉成 date。"""
+    """PCF 來源可能是 ISO 字串或 .NET 的 '/Date(1785859200000)/'，統一轉成 date。
+
+    同一個 GetPCF 端點兩種格式都會出現（實測 00981A 回 ISO、00403A 回 .NET），
+    所以兩種都得吃。.NET 那個 epoch 是「台北時間的午夜」，一定要用固定的 +08:00
+    去換算 —— 用機器本地時區的話，伺服器如果跑在 UTC 就會整整少一天。
+    """
     if not v:
         return None
-    from datetime import datetime, date
+    from datetime import datetime
+
+    def _from_ms(ms):
+        return datetime.fromtimestamp(float(ms) / 1000.0, tz=_taipei_tz()).date()
+
     if isinstance(v, (int, float)):
         try:
-            return datetime.fromtimestamp(float(v) / 1000.0).date()
+            return _from_ms(v)
         except Exception:
             return None
     s = str(v).strip()
     m = re.search(r"/Date\((-?\d+)", s)
     if m:
         try:
-            return datetime.fromtimestamp(int(m.group(1)) / 1000.0).date()
+            return _from_ms(int(m.group(1)))
         except Exception:
             return None
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%Y-%m-%dT%H:%M:%S"):
@@ -727,14 +747,16 @@ def annotate_pcf(res_data: dict, source: str):
     """在 PCF 上補齊 trandate_iso / source / stale_days，讓前端能判斷資料新不新。"""
     if not isinstance(res_data, dict) or "error" in res_data:
         return res_data
-    from datetime import date
+    from datetime import datetime
     pcf = res_data.setdefault("PCF", {})
     d = parse_pcf_trandate(pcf.get("trandate_iso") or pcf.get("trandate"))
     pcf["trandate_iso"] = d.isoformat() if d else None
     pcf["source"] = source
     if d:
-        # 粗略的交易日落差（不含國定假日），只用於提示
-        delta = (date.today() - d).days
+        # 粗略的交易日落差（不含國定假日），只用於提示。
+        # 一律以台北日期為準，伺服器時區不影響判斷。
+        today_tpe = datetime.now(_taipei_tz()).date()
+        delta = (today_tpe - d).days
         weeks, rem = divmod(max(delta, 0), 7)
         pcf["stale_days"] = weeks * 5 + min(rem, 5)
     else:
@@ -742,38 +764,154 @@ def annotate_pcf(res_data: dict, source: str):
     return res_data
 
 
+EZMONEY_PCF_URL = 'https://www.ezmoney.com.tw/ETF/Transaction/PCF'
+# 已知的 fundCode。若網站改碼，會自動從頁面上的基金下拉選單重新探索並覆寫這裡。
+EZMONEY_FUND_CODES = {'00981A': '49YTW', '00403A': '63YTW'}
+
+
+async def _ezmoney_list_fund_options(page):
+    """把 PCF 頁面上所有可選的基金（下拉選單 option 或連結）抓出來。"""
+    return await page.evaluate("""() => {
+        const out = [];
+        document.querySelectorAll('select option').forEach(o => out.push({
+            kind: 'option',
+            value: (o.value || '').trim(),
+            text: (o.textContent || '').trim(),
+            select: o.parentElement ? (o.parentElement.id || o.parentElement.name || '') : ''
+        }));
+        document.querySelectorAll('a[href*="fundCode"], [data-fundcode], [data-fund-code]').forEach(a => {
+            const href = a.getAttribute('href') || '';
+            const m = href.match(/fundCode=([^&#]+)/i);
+            out.push({
+                kind: 'link',
+                value: (a.getAttribute('data-fundcode') || a.getAttribute('data-fund-code') || (m ? m[1] : '')).trim(),
+                text: (a.textContent || '').trim(),
+                select: href
+            });
+        });
+        return out;
+    }""")
+
+
+def _ezmoney_match_codes(options):
+    """從選單文字裡把台股 ETF 代號（如 00981A）對到它的 fundCode。"""
+    found = {}
+    for o in options or []:
+        val = (o.get('value') or '').strip()
+        if not val:
+            continue
+        m = re.search(r'(\d{4,6}[A-Z]?)', o.get('text') or '')
+        if m:
+            found.setdefault(m.group(1), val)
+    return found
+
+
 async def fetch_ezmoney_pcf(ticker: str):
-    """Scrape PCF and Asset holdings for Active ETFs 00981A & 00403A from ezmoney using Playwright."""
-    code_map = {'00981A': '49YTW', '00403A': '63YTW'}
-    fund_code = code_map.get(ticker, ticker)
+    """Scrape PCF and Asset holdings for Active ETFs from ezmoney using Playwright.
+
+    實測（2026-08-14）結論：
+    - `?fundCode=XXXXX` 這條路徑正常，開頁後站方會自己打 POST /ETF/Transaction/GetPCF。
+    - **不要**用下拉選單的 select_option()：那些 <option> 是隱藏的（外面包了自訂樣式的
+      下拉），選了也不會觸發任何請求，只會拿到頁面預設帶出來的那一檔。
+      選單只拿來「讀取 代號 -> fundCode 對照」，不拿來當觸發手段。
+    - **不要**攔截/中止任何請求。原本用 route.abort() 擋 google/analytics，
+      是這支爬蟲最可能的失效點，而且拿掉之後頁面照樣秒開。
+    """
     local_json_path = os.path.join(BASE_DIR, f"{ticker}.json")
-    
+    diag = {'urls_seen': [], 'options': None, 'used_code': None, 'title': None}
+
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
-            
-            # Block tracking/analytics domains to prevent timeout
-            await page.route('**/*', lambda route: route.abort() if any(d in route.request.url for d in ['google', 'doubleclick', 'gtag', 'analytics']) else route.continue_())
-            
+
             raw_data = {}
+
             async def handle_response(response):
-                if 'GetPCF' in response.url or 'getpcf' in response.url.lower():
-                    nonlocal raw_data
-                    try: raw_data = await response.json()
-                    except: pass
+                url = response.url
+                low = url.lower()
+                if any(k in low for k in ('pcf', 'fund', 'asset', 'nav')):
+                    if url not in diag['urls_seen']:
+                        diag['urls_seen'].append(url)
+                if 'getpcf' in low:
+                    try:
+                        payload = await response.json()
+                    except Exception:
+                        return
+                    # 只接受「確實是這一檔、而且淨值不是 0」的回應。
+                    # 頁面預設會先帶出另一檔（且欄位全為 0），不擋掉就會覆蓋掉正確結果。
+                    if not isinstance(payload, dict) or not payload:
+                        return
+                    finfo = payload.get('fund') or {}
+                    got = str(finfo.get('sStockNo') or '').strip().upper()
+                    if got and got != ticker.upper():
+                        return
+                    items = {i.get('PCFCode'): i.get('Amount')
+                             for i in (payload.get('pcf') or []) if isinstance(i, dict)}
+                    try:
+                        if float(items.get('NAV') or 0) <= 0:
+                            return
+                    except (TypeError, ValueError):
+                        return
+                    raw_data.clear()
+                    raw_data.update(payload)
             page.on('response', handle_response)
-            
-            await page.goto(f'https://www.ezmoney.com.tw/ETF/Transaction/PCF?fundCode={fund_code}', wait_until='domcontentloaded', timeout=15000)
-            
-            # Poll for raw_data up to 8 seconds
-            for _ in range(16):
-                if raw_data: break
-                await asyncio.sleep(0.5)
-                
+
+            async def wait_for_data(seconds=12):
+                for _ in range(int(seconds * 2)):
+                    if raw_data:
+                        return True
+                    await asyncio.sleep(0.5)
+                return bool(raw_data)
+
+            async def load_with_code(code):
+                diag['used_code'] = code
+                await page.goto(f'{EZMONEY_PCF_URL}?fundCode={code}',
+                                wait_until='domcontentloaded', timeout=30000)
+                return await wait_for_data()
+
+            # 1) 快路徑：用已知的 fundCode 直接開
+            fund_code = EZMONEY_FUND_CODES.get(ticker)
+            if fund_code:
+                await load_with_code(fund_code)
+
+            # 2) 沒拿到 → 回清單頁，從選單「讀出」新的 fundCode 對照表再試一次。
+            #    （只讀取，不點選 —— option 是隱藏的，選了不會觸發載入）
+            if not raw_data:
+                print(f"[PCF] {ticker} 以 fundCode={fund_code} 未取得資料，改從基金選單探索…")
+                await page.goto(EZMONEY_PCF_URL, wait_until='domcontentloaded', timeout=30000)
+                try:
+                    await page.wait_for_selector('select option, a[href*="fundCode"]',
+                                                 state='attached', timeout=10000)
+                except Exception:
+                    pass
+                try:
+                    diag['title'] = await page.title()
+                except Exception:
+                    pass
+
+                options = await _ezmoney_list_fund_options(page)
+                diag['options'] = options
+                discovered = _ezmoney_match_codes(options)
+                if discovered:
+                    EZMONEY_FUND_CODES.update(discovered)
+                    print(f"[PCF] 從選單探索到 {len(discovered)} 檔基金，{ticker} -> {discovered.get(ticker)}")
+
+                new_code = discovered.get(ticker)
+                if new_code and new_code != fund_code:
+                    await load_with_code(new_code)
+
             await browser.close()
-            
+
+            if not raw_data:
+                print(f"[PCF] {ticker} 抓取失敗。標題={diag['title']!r} "
+                      f"使用代碼={diag['used_code']!r} "
+                      f"攔到的相關請求={diag['urls_seen'][:8]}")
+                if diag['options'] is not None:
+                    preview = [f"{o.get('value')}={o.get('text')[:24]}" for o in diag['options'][:25]]
+                    print(f"[PCF] 頁面上的選項({len(diag['options'])}): {preview}")
+
             if raw_data:
                 pcf_items = {item.get('PCFCode'): item.get('Amount') for item in (raw_data.get('pcf') or []) if isinstance(item, dict)}
                 out_unit = float(pcf_items.get('OUT_UNIT') or 1)
@@ -822,6 +960,16 @@ async def fetch_ezmoney_pcf(ticker: str):
                 if not tran_date:
                     tran_date = str(fund_info.get('FundDate') or '')
 
+                # 身分檢查：確認回來的真的是我們要的那一檔。
+                # ezmoney 的 PCF 頁有下拉選單，如果 fundCode 沒生效就會回預設基金，
+                # 那會安靜地把別檔的淨值畫到這一檔上——寧可退回舊資料也不能顯示錯的。
+                got_no = str(fund_info.get('sStockNo') or '').strip().upper()
+                if got_no and got_no != ticker.upper():
+                    print(f"[PCF] !! 要 {ticker} 卻收到 {got_no} "
+                          f"({fund_info.get('sFundName')})，fundCode 未生效，放棄本次結果")
+                    raw_data = {}
+
+            if raw_data:
                 res_data = {
                     'PCF': {
                         'nav': nav,
@@ -889,7 +1037,9 @@ async def get_etf_pcf(ticker: str):
         res_data = await fetch_ezmoney_pcf(ticker)
         if res_data and "error" not in res_data:
             pcf = res_data.get("PCF") or {}
-            fresh = pcf.get("source") == "ezmoney" and (pcf.get("stale_days") or 99) <= 1
+            # 注意：stale_days 可能是 0（基準日就是今天），不能用 `or 99`
+            sd = pcf.get("stale_days")
+            fresh = pcf.get("source") == "ezmoney" and sd is not None and sd <= 1
             pcf_cache[ticker] = {"date": today_str, "fresh": fresh, "data": res_data}
             if not fresh:
                 print(f"[PCF] {ticker} 資料非最新 (source={pcf.get('source')}, "
