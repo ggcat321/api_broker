@@ -8,3 +8,11 @@ fubon-neo
 finlab
 beautifulsoup4
 lxml
+requests
+
+# 主動式 ETF (00981A / 00403A) 的 PCF 只能從 ezmoney 網頁抓，需要 Playwright。
+# 沒裝的話 main.py 會退回本地的 JSON 快取，畫面上的淨值會停在很久以前的日期。
+# 注意：pip 裝完之後還要再裝瀏覽器本體：
+#     python -m playwright install chromium
+# 兩個啟動腳本 (Launch_OrderBook.bat / .command) 已經會自動處理這一步。
+playwright

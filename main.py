@@ -1001,8 +1001,21 @@ async def fetch_ezmoney_pcf(ticker: str):
 
                 return res_data
 
+    except ImportError:
+        # 最常見的「換一台電腦就壞掉」原因：那台沒裝 playwright。
+        # 這個以前被通用的 except 吞掉，畫面只會安靜地顯示很久以前的淨值。
+        print(f"[PCF] !! 找不到 playwright，{ticker} 無法抓取即時 PCF，只能用本地快取。\n"
+              f"       修復方式：\n"
+              f"         python -m pip install playwright\n"
+              f"         python -m playwright install chromium")
     except Exception as e:
-        print(f"Ezmoney scraper error for {ticker}: {e}")
+        msg = str(e)
+        if 'Executable doesn' in msg or 'playwright install' in msg or 'BrowserType.launch' in msg:
+            # pip 套件有裝，但瀏覽器本體沒下載
+            print(f"[PCF] !! Playwright 瀏覽器本體未安裝，{ticker} 只能用本地快取。\n"
+                  f"       修復方式： python -m playwright install chromium")
+        else:
+            print(f"Ezmoney scraper error for {ticker}: {e}")
 
     # Fallback: Read local JSON backup if available.
     # 重要：這份備份可能是好幾天前的。用舊淨值搭配今天的昨收會讓 iNAV 整段偏掉，

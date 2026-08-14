@@ -76,8 +76,26 @@ echo [OK] Certificate (.pfx) ready
 :: Install dependencies
 echo.
 echo [INFO] Checking dependencies...
-python -m pip install -r requirements.txt --quiet 2>nul
-echo [OK] All packages ready
+python -m pip install -r requirements.txt --quiet
+if errorlevel 1 (
+    echo [WARN] Some packages failed to install. Continuing anyway...
+) else (
+    echo [OK] All packages ready
+)
+
+:: The Playwright browser is a SEPARATE download from the pip package.
+:: Without it, Active ETF (00981A / 00403A) NAV silently falls back to a stale
+:: local cache and the dashboard shows an old valuation date.
+echo [INFO] Checking Playwright browser (first run downloads ~150MB)...
+python -m playwright install chromium
+if errorlevel 1 (
+    echo [WARN] Playwright chromium NOT installed.
+    echo        Active ETF NAV will be stale. Fix manually with:
+    echo            python -m pip install playwright
+    echo            python -m playwright install chromium
+) else (
+    echo [OK] Playwright browser ready
+)
 
 echo.
 echo ============================================

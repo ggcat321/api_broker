@@ -85,11 +85,23 @@ echo -e "${GREEN}✓${NC} .pfx 憑證檔就緒"
 
 # 檢查並安裝依賴
 echo -e "${YELLOW}📦 檢查套件依賴...${NC}"
-$PYTHON -m pip install -r requirements.txt --quiet 2>/dev/null
+$PYTHON -m pip install -r requirements.txt --quiet
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓${NC} 所有套件就緒"
 else
     echo -e "${YELLOW}⚠️  部分套件安裝可能有問題，嘗試繼續啟動...${NC}"
+fi
+
+# Playwright 的瀏覽器本體要另外下載，跟 pip 套件是兩回事。
+# 少了它，主動式 ETF (00981A / 00403A) 會退回本地的過期快取，
+# 畫面上的淨值基準日會停在很久以前。
+echo -e "${YELLOW}🌐 檢查 Playwright 瀏覽器（首次執行會下載約 150MB）...${NC}"
+$PYTHON -m playwright install chromium
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓${NC} Playwright 瀏覽器就緒"
+else
+    echo -e "${YELLOW}⚠️  Playwright chromium 未安裝，主動式 ETF 淨值會是過期的。${NC}"
+    echo -e "${YELLOW}   手動修復：$PYTHON -m pip install playwright && $PYTHON -m playwright install chromium${NC}"
 fi
 
 echo ""
