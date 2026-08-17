@@ -547,7 +547,10 @@ function renderQuality(diag) {
 
     const warns = [];
     if (total > 0 && covPct < 99.5) {
-        warns.push(`有 ${fmt(diag.missingWeight, 2)}% 權重沒有即時報價，iNAV 會低估漲跌幅。`);
+        const bias = diag.missingWeight;
+        warns.push(`有 ${fmt(bias, 2)}% 權重沒有即時報價，iNAV 對漲跌的反應會少掉這一塊`
+            + `（大盤每漲 1%，iNAV 約少算 ${fmt(bias / 100, 3)}%）。`
+            + (backfillTimer ? ' 系統每 20 秒自動重試補抓中…' : ''));
     }
     if (diag.missingNames.length) {
         warns.push(`未報價：${diag.missingNames.join('、')}${diag.missingWeight > 0 && diag.missingNames.length >= 12 ? ' …' : ''}`);
@@ -720,6 +723,62 @@ function renderFutures() {
         </div>`;
     });
     list.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// 缺報價自動補抓
+// ═══════════════════════════════════════════════════════
+// 開頁那一次抓不到昨收的個股，以前就永遠是空的 —— iNAV 會整場少算它們的漲跌。
+// 這裡每隔一段時間只針對「還缺的」重抓，補到齊為止。
+let backfillTimer = null;
+let backfillRounds = 0;
+const BACKFILL_MAX_ROUNDS = 20;
+
+function missingQuoteSymbols() {
+    const out = [];
+    globalSymbols.forEach(s => {
+        if (!(stockPrevCloses[s] > 0)) out.push(s);
+    });
+    return out;
+}
+
+async function backfillQuotes() {
+    const missing = missingQuoteSymbols();
+    if (missing.length === 0 || backfillRounds >= BACKFILL_MAX_ROUNDS) {
+        if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
+        if (missing.length === 0) console.log('報價已補齊，停止補抓');
+        else console.warn(`補抓已達上限，仍缺 ${missing.length} 檔:`, missing);
+        return;
+    }
+    backfillRounds++;
+    try {
+        const r = await fetch(`/api/stock-quotes?symbols=${missing.join(',')}`);
+        const q = await r.json();
+        let filled = 0;
+        missing.forEach(s => {
+            if (q[s] && q[s].prev > 0) {
+                stockPrevCloses[s] = q[s].prev;
+                // 只在還沒收到任何即時成交時才用 REST 價，避免蓋掉較新的 WS 報價
+                if (!(stockPrices[s] > 0)) stockPrices[s] = q[s].price;
+                filled++;
+            }
+        });
+        if (filled) {
+            console.log(`補抓第 ${backfillRounds} 輪：補回 ${filled} 檔，還缺 ${missing.length - filled}`);
+            renderTable();
+            renderNAV();
+        }
+    } catch (e) {
+        console.warn('補抓報價失敗:', e);
+    }
+}
+
+function startBackfill() {
+    if (backfillTimer) clearInterval(backfillTimer);
+    backfillRounds = 0;
+    if (missingQuoteSymbols().length === 0) return;
+    backfillTimer = setInterval(backfillQuotes, 20000);
+    setTimeout(backfillQuotes, 3000);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -951,6 +1010,7 @@ async function globalLaunch() {
 
         connectGlobalWS();
         renderSpecificETF(activeTicker, activeTickerName);
+        startBackfill();
 
     } catch (e) {
         console.error("Global Launch error:", e);

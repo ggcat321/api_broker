@@ -1309,6 +1309,61 @@ async def get_etf_pcf(ticker: str):
     return {"error": f"Local PCF file {ticker}.json not found and no scraper available. Please create {ticker}.json manually."}
 
 
+def _mis_num(v):
+    """MIS 的數值欄位可能是 ''、'-' 或 '12.34'。"""
+    try:
+        if v in (None, "", "-"):
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_twse_mis_quotes(symbols):
+    """用證交所 MIS 補富邦 SDK 抓不到的個股報價（同步函式，請丟 executor 跑）。
+
+    不知道個股是上市還是上櫃，所以 tse_ 與 otc_ 兩個前綴都問，
+    存在的那個才會出現在 msgArray 裡。
+    回傳 { symbol: {"price": float, "prev": float} }。
+    """
+    stock_syms = [s for s in symbols if re.fullmatch(r"\d{4,6}[A-Z]?", s or "")]
+    if not stock_syms:
+        return {}
+
+    out = {}
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://mis.twse.com.tw/stock/fibest.jsp",
+    }
+    BATCH = 25          # 一次問太多會被打回票（tse+otc 等於兩倍通道數）
+    for i in range(0, len(stock_syms), BATCH):
+        chunk = stock_syms[i:i + BATCH]
+        ch = "|".join([f"tse_{s}.tw" for s in chunk] + [f"otc_{s}.tw" for s in chunk])
+        url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={ch}&json=1&delay=0"
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            payload = res.json()
+        except Exception:
+            continue
+        for item in (payload.get("msgArray") or []):
+            code = str(item.get("c") or "").strip()
+            if not code or code in out:
+                continue
+            prev = _mis_num(item.get("y"))          # y = 昨收
+            price = _mis_num(item.get("z"))         # z = 最新成交價（盤前/無成交會是 '-'）
+            if price is None:
+                # 沒有成交價就退而求其次：開盤價 → 最佳買價 → 昨收
+                price = _mis_num(item.get("o"))
+            if price is None:
+                bid = str(item.get("b") or "").split("_")[0]
+                price = _mis_num(bid)
+            if price is None:
+                price = prev
+            if prev and prev > 0 and price and price > 0:
+                out[code] = {"price": price, "prev": prev}
+    return out
+
+
 @app.get("/api/stock-quotes")
 async def get_stock_quotes(symbols: str):
     """
@@ -1380,10 +1435,25 @@ async def get_stock_quotes(symbols: str):
             if missing:
                 await asyncio.sleep(0.3)
                 await sweep(missing)
-                still_missing = [s for s in symbol_list if s not in quotes]
-                if still_missing:
-                    print(f"[QUOTES] {len(still_missing)}/{len(symbol_list)} 檔取不到報價: "
-                          f"{','.join(still_missing[:20])}{' …' if len(still_missing) > 20 else ''}")
+
+        # 第二來源：富邦 SDK 拿不到的個股，改問證交所 MIS。
+        # 少一檔報價 = iNAV 少算它的漲跌，所以值得多繞一圈。
+        still_missing = [s for s in symbol_list if s not in quotes]
+        if still_missing:
+            try:
+                ev_loop = asyncio.get_running_loop()
+                twse = await ev_loop.run_in_executor(None, fetch_twse_mis_quotes, still_missing)
+                if twse:
+                    quotes.update(twse)
+                    print(f"[QUOTES] 證交所 MIS 補回 {len(twse)} 檔: "
+                          f"{','.join(list(twse)[:15])}")
+            except Exception as e:
+                print(f"[QUOTES] MIS 備援失敗: {e}")
+
+        still_missing = [s for s in symbol_list if s not in quotes]
+        if still_missing:
+            print(f"[QUOTES] {len(still_missing)}/{len(symbol_list)} 檔仍取不到報價: "
+                  f"{','.join(still_missing[:20])}{' …' if len(still_missing) > 20 else ''}")
 
         return quotes
 
