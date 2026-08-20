@@ -121,6 +121,10 @@ app.add_middleware(
 class ConnectionManager:
     def __init__(self):
         self.active_connections = {}
+        # 記下每個商品「實際送出去的訂閱長什麼樣」。退訂時原樣照抄，
+        # 不要靠當下的時間重新推算 —— 13:50 用日盤訂、14:05 用夜盤退，
+        # 參數對不上，券商那邊的訂閱就永遠留著，白白佔用額度。
+        self.symbol_subs = {}       # symbol -> {"is_futopt": bool, "channels": set, "after_hours": bool}
         self.message_queue = asyncio.Queue()
 
     async def connect(self, websocket: WebSocket, symbol: str):
@@ -130,6 +134,15 @@ class ConnectionManager:
             is_first = True
         self.active_connections[symbol].append(websocket)
         return is_first
+
+    def record_sub(self, symbol, is_futopt, channel, after_hours):
+        rec = self.symbol_subs.setdefault(
+            symbol, {"is_futopt": is_futopt, "channels": set(), "after_hours": after_hours})
+        rec["channels"].add(channel)
+        return rec
+
+    def has_channel(self, symbol, channel):
+        return channel in (self.symbol_subs.get(symbol) or {}).get("channels", set())
 
     def disconnect(self, websocket: WebSocket, symbol: str):
         if symbol in self.active_connections:
@@ -226,6 +239,30 @@ def handle_fubon_message(message):
         print("Error parsing msg:", e)
 
 # ─── Fubon SDK Watchdog (auto-reconnect with backoff) ──────────────
+def resubscribe_all():
+    """把 manager 記錄過的訂閱全部重送一次（SDK 重連後使用）。
+
+    以 manager.symbol_subs 為準 —— 那裡存的是「當初實際送出去的參數」，
+    包含頻道與盤別，重送才會跟原本一致。
+    """
+    if not sdk:
+        return 0
+    count = 0
+    for symbol, rec in list(manager.symbol_subs.items()):
+        try:
+            target = (sdk.marketdata.websocket_client.futopt if rec["is_futopt"]
+                      else sdk.marketdata.websocket_client.stock)
+            for channel in rec["channels"]:
+                req = {"channel": channel, "symbol": symbol}
+                if rec["is_futopt"]:
+                    req["afterHours"] = rec["after_hours"]
+                target.subscribe(req)
+            count += 1
+        except Exception as e:
+            print(f"[SDK] 回補訂閱 {symbol} 失敗: {e}")
+    return count
+
+
 async def fubon_sdk_watchdog():
     global sdk_last_msg_time, sdk_retry_count
     """Periodically check Fubon SDK WS connectivity and reconnect if needed."""
@@ -239,9 +276,10 @@ async def fubon_sdk_watchdog():
         await asyncio.sleep(30)
         try:
             elapsed = time.time() - sdk_last_msg_time
-            # If no message received in 90 seconds during trading hours, reconnect
-            from datetime import datetime
-            h = datetime.now().hour
+            # If no message received in 90 seconds during trading hours, reconnect.
+            # 盤別用台北時間判斷。用機器本地時間的話，UTC 伺服器會把台北 13:00~17:00
+            # 當成非交易時段而不重連，卻把半夜當成盤中。
+            h = datetime_now_taipei().hour
             is_trading = (9 <= h < 14) or (15 <= h < 24) or (h < 5)  # Day + Night sessions
             
             if is_trading and elapsed > 90:
@@ -263,7 +301,11 @@ async def fubon_sdk_watchdog():
                     sdk.marketdata.websocket_client.stock.connect()
                     sdk.marketdata.websocket_client.futopt.connect()
                     sdk_last_msg_time = time.time()
-                    print("✅ Fubon SDK reconnected successfully")
+                    # 重連之後券商那邊的訂閱清單是空的，一定要把原本訂過的全部重送。
+                    # 少了這一步，重連會「成功」但一筆報價都不會再進來，
+                    # 畫面上的價格就停在斷線那一刻，而且沒有任何錯誤訊息。
+                    restored = resubscribe_all()
+                    print(f"✅ Fubon SDK reconnected successfully，已回補訂閱 {restored} 檔")
                 except Exception as e:
                     print(f"❌ Fubon SDK reconnect failed: {e}")
                 
@@ -335,20 +377,54 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
         if s and s not in symbol_list:      # 去重但保留順序
             symbol_list.append(s)
 
-    symbols_to_subscribe = []
+    # 大量訂閱時預設只要成交（trades），省頻寬。但有些頁面確實需要五檔（books），
+    # 例如 0050 頁的「目標套利價設算」要用台積電的買賣價來設算。
+    # 由前端用 ?books=2330,0050 明講它要哪些商品的五檔。
+    books_wanted = {s.strip() for s in (books or "").split(",") if s.strip()}
+    DEFAULT_BOOKS = {"0050", "006208", "00922", "00981A", "00403A", "00631L"}
+    is_bulk = len(symbol_list) > 10
+
+    def wants_books(symbol):
+        if trades_only:
+            return False
+        if not is_bulk:
+            return True
+        return symbol in books_wanted or symbol in DEFAULT_BOOKS
+
+    # 盤別要用台北時間判斷。用機器本地時間的話，伺服器跑在 UTC 時
+    # 台北 10:00 會被當成 02:00 → after_hours=True → 整個日盤訂到夜盤頻道，
+    # 期貨報價一整天都收不到，而且不會有任何錯誤訊息。
+    if night is not None:
+        after_hours = night
+    else:
+        h = datetime_now_taipei().hour
+        after_hours = (h >= 14 or h < 8)
+
+    symbols_to_subscribe = []       # 這次要新訂的
+    upgrade_books = []              # 別人訂過但只有 trades，我需要 books
     already_subscribed = []
     skipped = []
     for symbol in symbol_list:
         if symbol in manager.active_connections:
-            # 別人已經訂了，不佔新的額度
+            # 別人已經訂了，不佔新的額度。
+            # 但如果我要五檔而現有訂閱只有成交，還是得補訂 books ——
+            # 少了這一步，「已訂閱」這條路會把 ?books= 整個吃掉。
             await manager.connect(websocket, symbol)
             already_subscribed.append(symbol)
+            if wants_books(symbol) and not manager.has_channel(symbol, "books"):
+                upgrade_books.append(symbol)
             continue
-        if len(manager.active_connections) + len(symbols_to_subscribe) >= MAX_WS_SYMBOLS:
+        # 注意：manager.connect() 會立刻把 symbol 放進 active_connections，
+        # 所以額度只能看 len(active_connections)，再加上 symbols_to_subscribe
+        # 會把同一檔算兩次，實際上限直接砍半。
+        if len(manager.active_connections) >= MAX_WS_SYMBOLS:
             skipped.append(symbol)
             continue
         await manager.connect(websocket, symbol)
         symbols_to_subscribe.append(symbol)
+
+    # 這條連線真正持有的商品（skipped 的沒有 connect，不可以放進來）
+    my_symbols = already_subscribed + symbols_to_subscribe
 
     # Notify client immediately for symbols already subscribed by another session
     for symbol in already_subscribed:
@@ -369,59 +445,43 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
         except Exception:
             pass
 
-
     # Subscribe to books and/or trades
     try:
-        if sdk and symbols_to_subscribe:
-            from datetime import datetime
-            if night is not None:
-                after_hours = night
-            else:
-                h = datetime.now().hour
-                after_hours = (h >= 14 or h < 8)
-            
-            # Auto-optimize for large lists (> 10 symbols): use trades-only for constituents
-            is_bulk = len(symbol_list) > 10
+        if sdk and (symbols_to_subscribe or upgrade_books):
+            BATCH_SIZE = 20     # Batch to respect Fubon SDK rate limits
 
-            # 大量訂閱時預設只要成交（trades），省頻寬。但有些頁面確實需要五檔（books），
-            # 例如 0050 頁的「目標套利價設算」要用台積電的買賣價來設算。
-            # 以前只有一份寫死的白名單，2330 不在裡面 → 五檔永遠收不到 → 那個面板整片是 '--'。
-            # 現在由前端用 ?books=2330,0050 明講它要哪些商品的五檔。
-            books_wanted = {s.strip() for s in (books or "").split(",") if s.strip()}
-            DEFAULT_BOOKS = {"0050", "006208", "00922", "00981A", "00403A", "00631L"}
+            def do_subscribe(symbol, channel):
+                is_futopt = symbol[0].isalpha() and symbol != "IX0001"
+                target = (sdk.marketdata.websocket_client.futopt if is_futopt
+                          else sdk.marketdata.websocket_client.stock)
+                req = {"channel": channel, "symbol": symbol}
+                if is_futopt:
+                    req["afterHours"] = after_hours
+                target.subscribe(req)
+                manager.record_sub(symbol, is_futopt, channel, after_hours)
 
-            # Batch in chunks of 20 to respect Fubon SDK rate limits
-            BATCH_SIZE = 20
             for i in range(0, len(symbols_to_subscribe), BATCH_SIZE):
-                chunk = symbols_to_subscribe[i:i + BATCH_SIZE]
-                for symbol in chunk:
-                    is_futopt = symbol[0].isalpha() and symbol != "IX0001"
-                    target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
-                    
-                    # For bulk ETF constituents, use trades-only unless it is the main ticker
-                    wants_books = symbol in books_wanted or symbol in DEFAULT_BOOKS
-                    use_trades_only = trades_only or (is_bulk and not wants_books)
-                    
-                    if is_futopt:
-                        if not use_trades_only:
-                            target_client.subscribe({"channel": "books", "symbol": symbol, "afterHours": after_hours})
-                        target_client.subscribe({"channel": "trades", "symbol": symbol, "afterHours": after_hours})
-                    else:
-                        if not use_trades_only:
-                            target_client.subscribe({"channel": "books", "symbol": symbol})
-                        target_client.subscribe({"channel": "trades", "symbol": symbol})
-                
+                for symbol in symbols_to_subscribe[i:i + BATCH_SIZE]:
+                    if wants_books(symbol):
+                        do_subscribe(symbol, "books")
+                    do_subscribe(symbol, "trades")
                 await asyncio.sleep(0.02)
 
+            for symbol in upgrade_books:
+                try:
+                    do_subscribe(symbol, "books")
+                except Exception as e:
+                    print(f"[WS] 補訂 {symbol} 五檔失敗: {e}")
+
             mode = "trades-only (bulk optimized)" if (trades_only or is_bulk) else "books+trades"
-            book_syms = sorted(s for s in symbols_to_subscribe
-                               if s in books_wanted or s in DEFAULT_BOOKS)
+            book_syms = sorted(s for s in my_symbols if manager.has_channel(s, "books"))
             print(f"Subscribed SDK to {len(symbols_to_subscribe)} new symbols "
                   f"[{mode}, batch={BATCH_SIZE}]"
-                  + (f" 含五檔: {','.join(book_syms)}" if book_syms and not trades_only else ""))
+                  + (f" 含五檔: {','.join(book_syms)}" if book_syms else "")
+                  + (f" (補訂五檔 {len(upgrade_books)} 檔)" if upgrade_books else ""))
     except Exception as e:
         print("Subscription error:", e)
-        
+
     try:
         while True:
             # Use wait_for with timeout to create keepalive ping opportunities.
@@ -434,32 +494,32 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                     await websocket.send_json({"event": "ping"})
                 except Exception:
                     break  # Ping failed, connection is dead
-    except (WebSocketDisconnect, Exception):
-        if sdk:
-            from datetime import datetime
-            if night is not None:
-                after_hours = night
-            else:
-                h = datetime.now().hour
-                after_hours = (h >= 14 or h < 8)
-            
-            for symbol in symbol_list:
-                should_unsubscribe = manager.disconnect(websocket, symbol)
-                if should_unsubscribe:
-                    try:
-                        is_futopt = symbol[0].isalpha() and symbol != "IX0001"
-                        target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
-                        if is_futopt:
-                            if not trades_only:
-                                target_client.unsubscribe({"channel": "books", "symbol": symbol, "afterHours": after_hours})
-                            target_client.unsubscribe({"channel": "trades", "symbol": symbol, "afterHours": after_hours})
-                        else:
-                            if not trades_only:
-                                target_client.unsubscribe({"channel": "books", "symbol": symbol})
-                            target_client.unsubscribe({"channel": "trades", "symbol": symbol})
-                        print(f"Unsubscribed SDK from: {symbol}")
-                    except Exception as e:
-                        print(f"Unsubscribe error for {symbol}:", e)
+    except Exception:
+        pass
+    finally:
+        # 一定要用 finally。原本清理寫在 except 裡，但 ping 失敗是用 break 跳出的，
+        # try 正常結束 → except 不會執行 → 這條連線的訂閱永遠留在 manager 裡，
+        # 佔著額度不放、broadcast 還會一直對死掉的 socket 送資料。
+        # 筆電闔上、Wi-Fi 斷線這種沒有 TCP FIN 的情況正是走這條路。
+        for symbol in my_symbols:
+            should_unsubscribe = manager.disconnect(websocket, symbol)
+            if not should_unsubscribe:
+                continue
+            rec = manager.symbol_subs.pop(symbol, None)
+            if not sdk or not rec:
+                continue
+            try:
+                target = (sdk.marketdata.websocket_client.futopt if rec["is_futopt"]
+                          else sdk.marketdata.websocket_client.stock)
+                for channel in rec["channels"]:
+                    # 原樣照抄當初送出去的參數，不重新推算
+                    req = {"channel": channel, "symbol": symbol}
+                    if rec["is_futopt"]:
+                        req["afterHours"] = rec["after_hours"]
+                    target.unsubscribe(req)
+                print(f"Unsubscribed SDK from: {symbol} ({','.join(sorted(rec['channels']))})")
+            except Exception as e:
+                print(f"Unsubscribe error for {symbol}:", e)
 
 
 # Ensure static dir exists
@@ -760,6 +820,12 @@ def _taipei_tz():
         from datetime import timezone, timedelta
         TAIPEI_TZ = timezone(timedelta(hours=8))
     return TAIPEI_TZ
+
+
+def datetime_now_taipei():
+    """所有「現在幾點/今天幾號」的判斷都要用台北時間，伺服器時區不該影響盤別。"""
+    from datetime import datetime
+    return datetime.now(_taipei_tz())
 
 
 def parse_pcf_trandate(v):
@@ -1173,11 +1239,12 @@ async def get_etf_pcf(ticker: str, force: bool = False):
                       f"落後 {pcf.get('stale_days')} 個交易日)")
         return res_data
 
-    from datetime import datetime
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = taipei_today().isoformat()
     entry = pcf_cache.get(ticker)
     if entry and entry.get("date") == today_str and entry.get("fresh") and not force:
-        return entry["data"]
+        ttl = entry.get("ttl")
+        if ttl is None or (now - entry.get("ts", 0)) < ttl:
+            return entry["data"]
 
     if ticker == "00631L":
         import uuid
@@ -1204,8 +1271,13 @@ async def get_etf_pcf(ticker: str, force: bool = False):
             fw = raw_data.get('FundWeights', {})
 
             comp = []
-            out_unit = float(pcf.get('osunit') or 1)
-            baseunit = float(pcf.get('baseunit') or 500000)
+            # 不可以寫 `float(x or 1)` —— 那會讓下面的 `if out_unit > 0` 變成死碼，
+            # 欄位缺漏時每檔持股數量會放大 baseunit 倍（50 萬倍），
+            # 前端再除以 baseunit，就把整檔基金的資產總值當成每單位淨值印出來。
+            out_unit = _num(pcf.get('osunit'), 0)
+            baseunit = _num(pcf.get('baseunit'), 500000)
+            if out_unit <= 0:
+                raise ValueError(f"00631L osunit 無效: {pcf.get('osunit')!r}")
             for s in fw.get('StockWeights', []):
                 total_shares = float(s.get('qty') or 0)
                 qty_per_basket = (total_shares / out_unit) * baseunit if out_unit > 0 else 0
@@ -1268,7 +1340,12 @@ async def get_etf_pcf(ticker: str, force: bool = False):
             }
             if res_data:
                 annotate_pcf(res_data, 'yuanta')
-                pcf_cache[ticker] = {"date": today_str, "fresh": True, "data": res_data}
+                # 這份資料裡的 official_inav 是元大的「即時」淨值 (NOW_NAV)。
+                # 跟其他 PCF 不一樣，它盤中一直在動 —— 鎖一整天的話，
+                # 09:05 抓到的淨值會被拿去跟 13:00 的市價比，
+                # 憑空生出一個幾個百分點的假折價。給它短 TTL。
+                pcf_cache[ticker] = {"date": today_str, "fresh": True,
+                                     "ts": now, "ttl": 60, "data": res_data}
             return res_data
         except Exception as e:
             return {"error": str(e)}
@@ -1310,6 +1387,7 @@ async def get_etf_pcf(ticker: str, force: bool = False):
             tables = soup.find_all("table")
             table = tables[1] if len(tables) > 1 else None
             comp = []
+            dropped_rows = []
             if table:
                 for tr in table.find_all("tr")[1:]:
                     cols = tr.find_all("td")
@@ -1317,48 +1395,78 @@ async def get_etf_pcf(ticker: str, force: bool = False):
                         stkcd = cols[0].text.strip()
                         name = cols[1].text.strip()
                         if not stkcd: continue
-                        try:
-                            qty = float(cols[2].text.strip().replace(",", ""))
-                            comp.append({"stkcd": stkcd, "name": name, "qty": qty})
-                        except:
-                            pass
+                        qty = _num(cols[2].text, -1)
+                        if qty < 0:
+                            dropped_rows.append(f"{stkcd}({cols[2].text.strip()!r})")
+                            continue
+                        comp.append({"stkcd": stkcd, "name": name, "qty": qty})
+            if dropped_rows:
+                # 部分成分股解析失敗比全部失敗更危險：畫面看起來正常，
+                # iNAV 卻少算了那幾檔。整批放棄，改用本地 JSON。
+                raise ValueError(f"006208 有 {len(dropped_rows)} 列數量解析失敗: {dropped_rows[:5]}")
             
-            # Scrape futures for 006208
+            # Scrape futures for 006208.
+            # 以前所有含「期貨」的列都被加總成同一個代號、統一乘 200。
+            # 小台是 50、電子期 4000、金融期 1000，混在一起會直接算錯；
+            # 不同到期月也會被壓成最後解析到的那一個月。改成依
+            # (商品, 月份) 分開累計，並用各自的乘數。
+            FUT_ROOTS = [("小型臺指", "MXF", 50), ("小型台指", "MXF", 50),
+                         ("電子", "TEF", 4000), ("金融", "TFF", 1000),
+                         ("臺股期貨", "TXF", 200), ("台股期貨", "TXF", 200),
+                         ("臺指", "TXF", 200), ("台指", "TXF", 200)]
             if tables:
-                tx_qty = 0
-                futures_symbol = "TXFR1"
-                futures_name = "台指期"
+                fut_acc = {}
                 for tr in tables[0].find_all("tr"):
                     cols = [c.text.strip() for c in tr.find_all("td")]
-                    if len(cols) >= 5 and "期貨" in cols[1]:
-                        import re
-                        m = re.search(r"(\d{4})/(\d{2})", cols[1])
-                        if m:
-                            y = m.group(1)[-1]
-                            mo = int(m.group(2))
-                            month_letter = chr(ord("A") + mo - 1)
-                            futures_symbol = f"TXF{month_letter}{y}"
-                            futures_name = f"{m.group(1)}/{m.group(2)} 台指期"
-                        try:
-                            tx_qty += float(cols[2].replace(",", ""))
-                        except:
-                            pass
-                if tx_qty > 0:
-                    comp.append({"stkcd": futures_symbol, "name": futures_name, "qty": tx_qty * 200})
+                    if len(cols) < 5 or "期貨" not in cols[1]:
+                        continue
+                    label = cols[1]
+                    root, mult = None, None
+                    for kw, r, mv in FUT_ROOTS:
+                        if kw in label:
+                            root, mult = r, mv
+                            break
+                    if not root:
+                        print(f"[006208] 未知的期貨商品，未計入: {label!r}")
+                        continue
+                    m = re.search(r"(\d{4})/(\d{2})", label)
+                    if not m:
+                        print(f"[006208] 期貨列找不到契約月份，未計入: {label!r}")
+                        continue
+                    sym = f"{root}{chr(ord('A') + int(m.group(2)) - 1)}{m.group(1)[-1]}"
+                    qty = _num(cols[2], 0)
+                    if qty <= 0:
+                        continue
+                    acc = fut_acc.setdefault(sym, {"qty": 0.0, "mult": mult,
+                                                   "name": f"{m.group(1)}/{m.group(2)} {label[:8]}"})
+                    acc["qty"] += qty
+                for sym, acc in fut_acc.items():
+                    comp.append({"stkcd": sym, "name": acc["name"],
+                                 "qty": acc["qty"] * acc["mult"]})
 
-            # Extract units, nav, cash
-            units = 1
+            # Extract units, nav, cash.
+            # 這裡最危險：解析失敗時 units 會停在初始值 1，`units or 1` 又讓它看起來
+            # 合法，於是前端算出 Σ(price×qty) / 1 —— 淨值會變成幾百億而不是一百出頭，
+            # 而且被當成成功結果快取一整天。一定要驗證後才放行。
+            units = 0
             nav_val = 0
-            for d in soup.find_all(["div", "span", "td"]):
-                if "基金在外流通單位數(單位)" in d.text:
-                    try:
-                        parts = d.text.split("基金在外流通單位數(單位)")
-                        units = float(parts[1].split()[0].replace(",", ""))
-                        nav_val = float(parts[1].split("基金每單位淨值(新台幣)")[1].strip().split()[0].replace(",", ""))
-                    except: pass
+            page_text = soup.get_text(" ", strip=True)
+            m = re.search(r"基金在外流通單位數\(單位\)\s*([\d,\.]+)", page_text)
+            if m:
+                units = _num(m.group(1), 0)
+            m = re.search(r"基金每單位淨值\(新臺?台?幣\)\s*([\d,\.]+)", page_text)
+            if m:
+                nav_val = _num(m.group(1), 0)
+
+            if units <= 0 or nav_val <= 0:
+                raise ValueError(
+                    f"006208 流通單位數/淨值解析失敗 (units={units}, nav={nav_val})，"
+                    f"頁面結構可能已改版")
+            if not comp:
+                raise ValueError("006208 成分股清單是空的，頁面結構可能已改版")
 
             res_data = {
-                "PCF": {"estdvalue": 0, "baseunit": units or 1, "is_total_fund": False, "nav": nav_val},
+                "PCF": {"estdvalue": 0, "baseunit": units, "is_total_fund": False, "nav": nav_val},
                 "InKind": {"FundComposition": comp}
             }
             pcf_cache[ticker] = {"date": today_str, "fresh": True, "data": res_data}
@@ -1389,23 +1497,29 @@ async def get_etf_pcf(ticker: str, force: bool = False):
             )
             data = res_list.json()
             meta = res_meta.json().get("result", {})
-            try:
-                estdvalue = float(meta.get("bm", "0").replace(",", ""))
-                basket_unit = float(meta.get("basketUnit", "500000").replace(",", ""))
-            except:
-                estdvalue = 0
+            # 兩個欄位各自解析。以前共用一個 try，早盤 bm(現金差異額) 還沒公告時
+            # 會連帶把 API 給的 basketUnit 一起丟掉、退回寫死的 500000，
+            # 申購基數若實際是 1,000,000 就會讓 iNAV 整整差兩倍。
+            estdvalue = _num(meta.get("bm"), 0)
+            basket_unit = _num(meta.get("basketUnit"), 500000)
+            if basket_unit <= 0:
                 basket_unit = 500000
 
             comp = []
+            dropped = []
             for item in data.get("result", []):
                 stkcd = item.get("prod")
                 name = item.get("prodName")
-                try:
-                    qty = float(item.get("basketShares", "0").replace(",", ""))
-                    if stkcd and name:
-                        comp.append({"stkcd": stkcd, "name": name, "qty": qty})
-                except:
-                    pass
+                raw = item.get("basketShares")
+                qty = _num(raw, -1)
+                if not stkcd or not name or qty < 0:
+                    dropped.append(f"{stkcd or '?'}({raw!r})")
+                    continue
+                comp.append({"stkcd": stkcd, "name": name, "qty": qty})
+            if dropped:
+                # 靜默少一檔成分股 = iNAV 少算那一檔的權重，而且畫面上看不出來。
+                # 寧可整批放棄改用本地 JSON，也不要送出一份缺角的清單。
+                raise ValueError(f"00922 有 {len(dropped)} 檔成分股解析失敗: {dropped[:5]}")
             if comp:
                 res_data = {
                     "PCF": {"estdvalue": estdvalue, "baseunit": basket_unit, "is_total_fund": False},
@@ -1427,6 +1541,26 @@ async def get_etf_pcf(ticker: str, force: bool = False):
             return {"error": f"Failed to read {ticker}.json: {str(e)}"}
     
     return {"error": f"Local PCF file {ticker}.json not found and no scraper available. Please create {ticker}.json manually."}
+
+
+def _num(v, default=0.0):
+    """把各家 API 的數值欄位轉成 float。
+
+    它們可能是 '1,234,567'、'-'、''、None，甚至已經是數字（此時 .replace 會爆）。
+    以前各處直接 `float(x.replace(",", ""))` 包在一個大 try 裡，
+    一個欄位壞掉會連帶把同一個 try 內的其他欄位一起打回預設值。
+    """
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return float(v)
+    t = str(v).strip().replace(",", "")
+    if t in ("", "-", "--", "N/A"):
+        return default
+    try:
+        return float(t)
+    except ValueError:
+        return default
 
 
 def _mis_num(v):
@@ -1516,9 +1650,10 @@ async def get_stock_quotes(symbols: str):
         ev_loop = asyncio.get_running_loop()
 
         def get_current_txf_symbol():
-            from datetime import datetime
             import calendar
-            now = datetime.now()
+            # 結算日的 13:30 換月要用台北時間判斷；UTC 主機上台北 13:30 是 05:30，
+            # 會導致結算後仍然回報已到期的合約。
+            now = datetime_now_taipei()
             month_letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
             m_idx = now.month - 1
             cal = calendar.monthcalendar(now.year, now.month)
@@ -1533,22 +1668,30 @@ async def get_stock_quotes(symbols: str):
         quotes = {}
 
         if sdk:
+            CONT_FUT_ALIAS = {"TXFR1": "TXF", "TXF": "TXF", "TX": "TXF",
+                              "MXFR1": "MXF", "TEFR1": "TEF", "TFFR1": "TFF"}
+
             def fetch_via_sdk(sym):
                 try:
-                    if sym in ["TXFR1", "TXF", "TX", "MXFR1", "TEFR1", "TFFR1"]:
-                        root = {"MXFR1": "MXF", "TEFR1": "TEF", "TFFR1": "TFF"}.get(sym)
-                        tx_sym = get_current_txf_symbol()
-                        if root:
-                            tx_sym = root + tx_sym[3:]
+                    root = CONT_FUT_ALIAS.get(sym)
+                    if root:
+                        # 連續月代號 → 換算成當下的近月合約
+                        tx_sym = root + get_current_txf_symbol()[3:]
                         q = sdk.marketdata.rest_client.futopt.intraday.quote(symbol=tx_sym)
                         p_val = float(q.get("lastPrice") or q.get("closePrice") or q.get("previousClose") or 0)
                         pr_val = float(q.get("previousClose") or p_val)
                         return (sym, {"price": p_val, "prev": pr_val} if p_val else None)
-                    else:
-                        q = sdk.marketdata.rest_client.stock.intraday.quote(symbol=sym)
-                        price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
-                        prev = q.get("previousClose") or price
-                        return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+
+                    # 具體的期貨合約代號（例如 006208 成分裡的 TXFI6）也要走期貨 client。
+                    # 以前只認上面那份別名清單，其他一律送去現貨 client，
+                    # 於是期貨腿永遠拿不到價，iNAV 就少掉那一整塊曝險。
+                    is_futopt = sym[0].isalpha() and sym != "IX0001"
+                    client = (sdk.marketdata.rest_client.futopt if is_futopt
+                              else sdk.marketdata.rest_client.stock)
+                    q = client.intraday.quote(symbol=sym)
+                    price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
+                    prev = q.get("previousClose") or price
+                    return (sym, {"price": float(price), "prev": float(prev)} if price else None)
                 except Exception:
                     return (sym, None)
 
@@ -1726,13 +1869,18 @@ def get_momentum_5m():
     # Find the oldest price and accumulate volumes
     # Iterate from oldest bucket to newest to find the first valid price
     
-    # Combine all historical buckets and current
-    all_buckets = list(MOMENTUM_BUCKETS) + [CURRENT_BUCKET]
-    
+    # Combine all historical buckets and current.
+    # 這個 endpoint 是同步函式，FastAPI 會丟到 worker thread 跑，跟 SDK 的回呼
+    # 執行緒真的同時在動。直接把 CURRENT_BUCKET 這個「活的」dict 掛上去迭代，
+    # 開盤爆量時只要有新商品第一次成交插入 key，就會炸
+    # RuntimeError: dictionary changed size during iteration（HTTP 500，動能面板空白）。
+    # 先做淺拷貝快照再算。
+    all_buckets = list(MOMENTUM_BUCKETS) + [dict(CURRENT_BUCKET)]
+
     # We want to iterate through all symbols that we have data for
     all_symbols = set()
     for b in all_buckets:
-        all_symbols.update(b.keys())
+        all_symbols.update(list(b.keys()))
         
     for sym in all_symbols:
         oldest_price = None
