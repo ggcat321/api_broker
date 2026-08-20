@@ -18,6 +18,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 批次抓報價時的並發上限。太高會被富邦 API 限流，漏掉的個股會讓 iNAV 少算。
 SDK_QUOTE_CONCURRENCY = int(os.getenv("SDK_QUOTE_CONCURRENCY", "8"))
+
+# 同時掛在券商 WS 上的商品數上限。前端送來的順序即優先順序，
+# 超過的從尾巴砍掉並回報給前端。富邦實測上限約 200，若主控台出現
+# 「[SDK WARN] 訂閱被拒」代表還是太高，用環境變數往下調。
+MAX_WS_SYMBOLS = int(os.getenv("MAX_WS_SYMBOLS", "200"))
+
+# 主動型 ETF 的 PCF 快取秒數，見 get_etf_pcf() 的說明
+PCF_TTL_TODAY = int(os.getenv("PCF_TTL_TODAY", "1800"))     # 已拿到今日公告版
+PCF_TTL_WAITING = int(os.getenv("PCF_TTL_WAITING", "180"))  # 還在等今日公告
+PCF_TTL_FAILED = int(os.getenv("PCF_TTL_FAILED", "60"))     # 抓取失敗、暫時吃備份
+
+# 報價優先順序：越前面越優先拿到 API 額度。
+# 0050 排第一（它同時是 00631L iNAV 的代理標的），接著主動型，再來 00631L。
+QUOTE_PRIORITY_TICKERS = ["0050", "00981A", "00403A", "00631L"]
 os.chdir(BASE_DIR)
 
 # Load env variables
@@ -309,26 +323,53 @@ async def message_processor():
 
 
 @app.websocket("/ws/{symbols}")
-async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None, trades_only: bool = False):
+async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None,
+                             trades_only: bool = False, books: str = ""):
     await websocket.accept()
-    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-    
+    # 前端傳來的順序 = 優先順序（越前面越重要）。券商的訂閱數有上限，
+    # 超額的部分一定要從「最不重要的尾巴」砍，而不是隨機掉幾檔，
+    # 否則掉到權重大的成分股，iNAV 會偏得很難看。
+    symbol_list = []
+    for s in symbols.split(","):
+        s = s.strip()
+        if s and s not in symbol_list:      # 去重但保留順序
+            symbol_list.append(s)
+
     symbols_to_subscribe = []
     already_subscribed = []
+    skipped = []
     for symbol in symbol_list:
-        is_first = await manager.connect(websocket, symbol)
-        if is_first:
-            symbols_to_subscribe.append(symbol)
-        else:
+        if symbol in manager.active_connections:
+            # 別人已經訂了，不佔新的額度
+            await manager.connect(websocket, symbol)
             already_subscribed.append(symbol)
-    
+            continue
+        if len(manager.active_connections) + len(symbols_to_subscribe) >= MAX_WS_SYMBOLS:
+            skipped.append(symbol)
+            continue
+        await manager.connect(websocket, symbol)
+        symbols_to_subscribe.append(symbol)
+
     # Notify client immediately for symbols already subscribed by another session
     for symbol in already_subscribed:
         try:
             await websocket.send_json({"event": "subscribed", "data": {"symbol": symbol}})
         except Exception:
             pass
-    
+
+    if skipped:
+        # 明講被砍掉哪些，前端才能把它們算進「未報價權重」而不是假裝沒漲跌
+        print(f"[WS] 訂閱額度用盡 ({MAX_WS_SYMBOLS})，跳過 {len(skipped)} 檔: "
+              f"{','.join(skipped[:20])}{' …' if len(skipped) > 20 else ''}")
+        try:
+            await websocket.send_json({
+                "event": "quota_skipped",
+                "data": {"symbols": skipped, "limit": MAX_WS_SYMBOLS},
+            })
+        except Exception:
+            pass
+
+
     # Subscribe to books and/or trades
     try:
         if sdk and symbols_to_subscribe:
@@ -342,6 +383,13 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
             # Auto-optimize for large lists (> 10 symbols): use trades-only for constituents
             is_bulk = len(symbol_list) > 10
 
+            # 大量訂閱時預設只要成交（trades），省頻寬。但有些頁面確實需要五檔（books），
+            # 例如 0050 頁的「目標套利價設算」要用台積電的買賣價來設算。
+            # 以前只有一份寫死的白名單，2330 不在裡面 → 五檔永遠收不到 → 那個面板整片是 '--'。
+            # 現在由前端用 ?books=2330,0050 明講它要哪些商品的五檔。
+            books_wanted = {s.strip() for s in (books or "").split(",") if s.strip()}
+            DEFAULT_BOOKS = {"0050", "006208", "00922", "00981A", "00403A", "00631L"}
+
             # Batch in chunks of 20 to respect Fubon SDK rate limits
             BATCH_SIZE = 20
             for i in range(0, len(symbols_to_subscribe), BATCH_SIZE):
@@ -351,7 +399,8 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                     target_client = sdk.marketdata.websocket_client.futopt if is_futopt else sdk.marketdata.websocket_client.stock
                     
                     # For bulk ETF constituents, use trades-only unless it is the main ticker
-                    use_trades_only = trades_only or (is_bulk and symbol not in ["0050", "006208", "00922", "00981A", "00403A", "00631L"])
+                    wants_books = symbol in books_wanted or symbol in DEFAULT_BOOKS
+                    use_trades_only = trades_only or (is_bulk and not wants_books)
                     
                     if is_futopt:
                         if not use_trades_only:
@@ -365,7 +414,11 @@ async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = N
                 await asyncio.sleep(0.02)
 
             mode = "trades-only (bulk optimized)" if (trades_only or is_bulk) else "books+trades"
-            print(f"Subscribed SDK to {len(symbols_to_subscribe)} new symbols [{mode}, batch={BATCH_SIZE}]")
+            book_syms = sorted(s for s in symbols_to_subscribe
+                               if s in books_wanted or s in DEFAULT_BOOKS)
+            print(f"Subscribed SDK to {len(symbols_to_subscribe)} new symbols "
+                  f"[{mode}, batch={BATCH_SIZE}]"
+                  + (f" 含五檔: {','.join(book_syms)}" if book_syms and not trades_only else ""))
     except Exception as e:
         print("Subscription error:", e)
         
@@ -743,24 +796,59 @@ def parse_pcf_trandate(v):
     return None
 
 
+def _business_days_between(d_from, d_to):
+    """d_from(不含) 到 d_to(含) 之間有幾個工作日。不含國定假日，只用於提示。
+
+    以前用 `weeks*5 + min(rem,5)` 近似，星期五的資料到了星期一會被算成落後 3 天，
+    於是每個星期一都誤判成過期 —— 一定要真的數。
+    """
+    from datetime import timedelta
+    if not d_from or not d_to or d_to <= d_from:
+        return 0
+    days = 0
+    cur = d_from
+    while cur < d_to:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:       # 0=一 … 4=五
+            days += 1
+    return days
+
+
+def taipei_today():
+    from datetime import datetime
+    return datetime.now(_taipei_tz()).date()
+
+
+def last_trading_day(d=None):
+    """最近一個交易日（只避開週末，不含國定假日）。
+
+    週末時最新的公告本來就是週五那一份，不加這層的話整個週末都會
+    以為「還沒等到今天的公告」，每 3 分鐘白開一次 Chromium。
+    """
+    from datetime import timedelta
+    d = d or taipei_today()
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
 def annotate_pcf(res_data: dict, source: str):
-    """在 PCF 上補齊 trandate_iso / source / stale_days，讓前端能判斷資料新不新。"""
+    """在 PCF 上補齊 trandate_iso / postdate_iso / source / stale_days。"""
     if not isinstance(res_data, dict) or "error" in res_data:
         return res_data
-    from datetime import datetime
     pcf = res_data.setdefault("PCF", {})
     d = parse_pcf_trandate(pcf.get("trandate_iso") or pcf.get("trandate"))
     pcf["trandate_iso"] = d.isoformat() if d else None
+
+    # PostDate = 這份申贖清單的「公告日」。它等於今天，就代表我們拿到的
+    # 確實是今天這一版（基金一天只公告一次），不必再去猜日期差。
+    pd = parse_pcf_trandate(pcf.get("postdate_iso") or pcf.get("postdate"))
+    pcf["postdate_iso"] = pd.isoformat() if pd else None
+
     pcf["source"] = source
-    if d:
-        # 粗略的交易日落差（不含國定假日），只用於提示。
-        # 一律以台北日期為準，伺服器時區不影響判斷。
-        today_tpe = datetime.now(_taipei_tz()).date()
-        delta = (today_tpe - d).days
-        weeks, rem = divmod(max(delta, 0), 7)
-        pcf["stale_days"] = weeks * 5 + min(rem, 5)
-    else:
-        pcf["stale_days"] = None
+    today_tpe = taipei_today()
+    pcf["is_today_release"] = bool(pd and pd >= last_trading_day(today_tpe))
+    pcf["stale_days"] = _business_days_between(d, today_tpe) if d else None
     return res_data
 
 
@@ -955,8 +1043,10 @@ async def fetch_ezmoney_pcf(ticker: str):
                 fund_info = raw_data.get('fund') or {}
                 pcf_list = raw_data.get('pcf') or []
                 tran_date = ""
+                post_date = ""
                 if pcf_list and isinstance(pcf_list[0], dict):
                     tran_date = str(pcf_list[0].get('TranDate') or pcf_list[0].get('PostDate') or '')
+                    post_date = str(pcf_list[0].get('PostDate') or '')
                 if not tran_date:
                     tran_date = str(fund_info.get('FundDate') or '')
 
@@ -980,6 +1070,7 @@ async def fetch_ezmoney_pcf(ticker: str):
                         'baseunit': baseunit,
                         'estdvalue': cash_diff,
                         'trandate': tran_date,
+                        'postdate': post_date,
                         'is_total_fund': False
                     },
                     'InKind': {
@@ -1035,29 +1126,58 @@ async def fetch_ezmoney_pcf(ticker: str):
     return {"error": f"Failed to receive GetPCF response for {ticker} from ezmoney"}
 
 @app.get("/api/etf-pcf/{ticker}")
-async def get_etf_pcf(ticker: str):
-    """Proxy endpoint to fetch PCF data for different ETFs."""
-    from datetime import datetime
-    today_str = datetime.now().strftime("%Y-%m-%d")
+async def get_etf_pcf(ticker: str, force: bool = False):
+    """Proxy endpoint to fetch PCF data for different ETFs.
 
-    # 只有「今天抓到、而且 PCF 基準日確實是今天發布的那一份」才可以整天快取。
-    # 舊寫法用抓取日當 key，早上在新 PCF 發布前抓到 T-2 的資料就會被鎖一整天。
-    entry = pcf_cache.get(ticker)
-    if entry and entry.get("date") == today_str and entry.get("fresh"):
-        return entry["data"]
+    快取策略（主動型 ETF）：判斷「是不是最新」不靠日期推算，而是看 PostDate ——
+    那是這份申贖清單的公告日，基金一天只公告一次，PostDate == 今天就代表
+    我們手上的確實是今天這一版，沒有更新的可以拿了。
+
+    - 拿到今天公告的那一版  → 快取 30 分鐘（它就是最新，重抓也是同一份）
+    - 還沒等到今天的公告    → 只快取 3 分鐘，持續回頭確認（早盤開站常遇到）
+    - 抓取失敗吃本地備份    → 只擋 60 秒，避免每個 request 都重開 Chromium
+    - `?force=1`            → 完全跳過快取（前端「重新載入 PCF」按鈕用）
+    """
+    now = time.time()
 
     if ticker in ["00981A", "00403A"]:
+        entry = pcf_cache.get(ticker)
+        if entry and not force:
+            age = now - entry.get("ts", 0)
+            ttl = (PCF_TTL_TODAY if entry.get("is_today_release")
+                   else PCF_TTL_WAITING if entry.get("live")
+                   else PCF_TTL_FAILED)
+            if age < ttl:
+                return entry["data"]
+
         res_data = await fetch_ezmoney_pcf(ticker)
         if res_data and "error" not in res_data:
             pcf = res_data.get("PCF") or {}
-            # 注意：stale_days 可能是 0（基準日就是今天），不能用 `or 99`
-            sd = pcf.get("stale_days")
-            fresh = pcf.get("source") == "ezmoney" and sd is not None and sd <= 1
-            pcf_cache[ticker] = {"date": today_str, "fresh": fresh, "data": res_data}
-            if not fresh:
-                print(f"[PCF] {ticker} 資料非最新 (source={pcf.get('source')}, "
-                      f"基準日={pcf.get('trandate_iso')})，稍後會重新抓取")
+            live = pcf.get("source") == "ezmoney"
+            is_today = bool(pcf.get("is_today_release"))
+            pcf_cache[ticker] = {
+                "ts": now,
+                "live": live,
+                "is_today_release": is_today,
+                "data": res_data,
+            }
+            if live and is_today:
+                print(f"[PCF] {ticker} 已是今日公告版本 "
+                      f"(公告日 {pcf.get('postdate_iso')}, 基準日 {pcf.get('trandate_iso')})")
+            elif live:
+                print(f"[PCF] {ticker} 尚未取得今日公告 "
+                      f"(公告日 {pcf.get('postdate_iso')}, 基準日 {pcf.get('trandate_iso')})，"
+                      f"{PCF_TTL_WAITING} 秒後會再確認")
+            else:
+                print(f"[PCF] {ticker} 使用本地備份 (基準日 {pcf.get('trandate_iso')}, "
+                      f"落後 {pcf.get('stale_days')} 個交易日)")
         return res_data
+
+    from datetime import datetime
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    entry = pcf_cache.get(ticker)
+    if entry and entry.get("date") == today_str and entry.get("fresh") and not force:
+        return entry["data"]
 
     if ticker == "00631L":
         import uuid
@@ -1369,10 +1489,28 @@ async def get_stock_quotes(symbols: str):
     """
     Fetch latest prices and previous closes for a comma-separated list of stock symbols.
     Returns: { "symbol": {"price": float, "prev": float}, ... }
+
+    呼叫端傳來的順序就是優先順序 —— API 有額度限制，被限流時先掉的一定是最後面那些。
+    另外會把 QUOTE_PRIORITY_TICKERS（0050 → 主動型 → 00631L）穩定地提到最前面，
+    這樣就算呼叫端沒排序，關鍵標的也不會排在一百檔成分股後面。
     """
-    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    seen = set()
+    symbol_list = []
+    for s in symbols.split(","):
+        s = s.strip()
+        if s and s not in seen:
+            seen.add(s)
+            symbol_list.append(s)
     if not symbol_list:
         return {}
+
+    def _rank(sym):
+        try:
+            return QUOTE_PRIORITY_TICKERS.index(sym)
+        except ValueError:
+            return len(QUOTE_PRIORITY_TICKERS)
+
+    symbol_list.sort(key=_rank)     # 穩定排序，同級維持呼叫端給的順序
 
     try:
         ev_loop = asyncio.get_running_loop()

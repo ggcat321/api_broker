@@ -338,7 +338,17 @@ const FUTURES_SPEC = {
     'TF':  { mult: 1000, proxy: ['TFFR1'], label: '金融期貨' }
 };
 
-let globalSymbols = new Set();
+// 報價額度有限，所以訂閱順序 = 優先順序。使用者指定的大方向：
+//   0050 > 主動型 (00981A/00403A) > 00631L > 其他
+// 再疊上兩條實務規則：
+//   1. ETF 自己的代號永遠排在它的成分股前面（沒有市價就算不出折溢價）
+//   2. 「目前正在看的那一檔」的成分股，優先於其他 ETF 的成分股
+//   3. 同一檔 ETF 內，成分股依權重由大到小（掉的一定是影響最小的）
+const TICKER_RANK = { '0050': 0, '00981A': 1, '00403A': 2, '00631L': 3 };
+
+let globalSymbols = new Set();      // 仍保留給既有邏輯查詢用
+let orderedSymbols = [];            // 真正送去訂閱的順序
+let quotaSkipped = new Set();       // 被券商額度砍掉、確定不會有即時報價的
 let subscribedSet = new Set();
 let ws = null;
 let wsGeneration = 0;
@@ -558,6 +568,9 @@ function renderQuality(diag) {
     if (diag.futuresSkipped.length) {
         warns.push(`期貨未計入：${diag.futuresSkipped.join('、')}（乘數未定義或無報價）`);
     }
+    if (quotaSkipped.size) {
+        warns.push(`券商訂閱額度用盡，${quotaSkipped.size} 檔未訂閱（已依 0050 → 主動型 → 00631L → 其他 的順序保留重要標的）。`);
+    }
     if (staleDays != null && staleDays > 1) {
         warns.push(`PCF 基準日為 ${fmtDate(pcfTranDate)}，已落後 ${staleDays} 個交易日，官方淨值與昨收基準不一致，折溢價不可用。`);
     }
@@ -726,6 +739,50 @@ function renderFutures() {
 }
 
 // ═══════════════════════════════════════════════════════
+// 訂閱優先順序
+// ═══════════════════════════════════════════════════════
+function buildOrderedSymbols(viewTicker) {
+    const out = [];
+    const push = s => { if (s && !out.includes(s)) out.push(s); };
+
+    // 1. 0050 —— 使用者指定的最高優先，同時是 00631L iNAV 的代理標的
+    push('0050');
+
+    // 2. 正在看的那一檔 ETF 本身 + 它的期貨代理
+    push(viewTicker);
+    const viewData = allPcfCache[viewTicker];
+    const futProxies = d => {
+        const r = [];
+        (d?.Futures || []).forEach(f => {
+            const spec = FUTURES_SPEC[(f.code || '').toUpperCase()];
+            if (spec) spec.proxy.forEach(p => r.push(p));
+        });
+        if (d === allPcfCache['00631L']) r.push('TXFR1');
+        return r;
+    };
+    futProxies(viewData).forEach(push);
+
+    // 3. 正在看的那一檔的成分股，權重由大到小
+    const byWeight = d => (d?.InKind?.FundComposition || [])
+        .slice()
+        .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+        .map(s => s.stkcd);
+    byWeight(viewData).forEach(push);
+
+    // 4. 其他 ETF 的代號（先讓切換過去時至少有市價），依全域優先序
+    const others = ACTIVE_TICKERS
+        .filter(t => t !== viewTicker)
+        .sort((a, b) => (TICKER_RANK[a] ?? 99) - (TICKER_RANK[b] ?? 99));
+    others.forEach(push);
+
+    // 5. 其他 ETF 的期貨代理與成分股，一樣依優先序、權重降冪
+    others.forEach(t => futProxies(allPcfCache[t]).forEach(push));
+    others.forEach(t => byWeight(allPcfCache[t]).forEach(push));
+
+    return out;
+}
+
+// ═══════════════════════════════════════════════════════
 // 缺報價自動補抓
 // ═══════════════════════════════════════════════════════
 // 開頁那一次抓不到昨收的個股，以前就永遠是空的 —— iNAV 會整場少算它們的漲跌。
@@ -806,8 +863,11 @@ function connectGlobalWS() {
         ws = null;
     }
     subscribedSet.clear();
+    quotaSkipped.clear();
 
-    const allArr = Array.from(globalSymbols);
+    // 依優先順序送出：後端額度不足時會從尾巴砍，砍掉的是影響最小的
+    orderedSymbols = buildOrderedSymbols(activeTicker);
+    const allArr = orderedSymbols;
     if (allArr.length === 0) return;
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -848,6 +908,13 @@ function connectGlobalWS() {
         if (msg.event === 'subscribed' && msg.data?.symbol) {
             subscribedSet.add(msg.data.symbol);
             updateSubCounter();
+        }
+
+        // 後端訂閱額度用盡，明確告訴我們哪些商品不會有即時報價
+        if (msg.event === 'quota_skipped' && Array.isArray(msg.data?.symbols)) {
+            msg.data.symbols.forEach(s => quotaSkipped.add(s));
+            console.warn(`訂閱額度上限 ${msg.data.limit}，以下商品無即時報價：`, msg.data.symbols);
+            renderNAV();
         }
 
         if (msg.event === 'data' && msg.data) {
@@ -949,7 +1016,7 @@ function renderSpecificETF(ticker, name) {
     updateSubCounter();
 }
 
-async function globalLaunch() {
+async function globalLaunch(forcePcf = false) {
     const refreshBtn = document.getElementById('refreshBtn');
     const refreshIcon = document.getElementById('refreshIcon');
     if (refreshIcon) refreshIcon.classList.add('spin');
@@ -966,8 +1033,10 @@ async function globalLaunch() {
     stockPrevCloses = {};
 
     try {
+        // forcePcf: 使用者按「重新載入 PCF」時完全跳過後端快取，強制重抓一次
+        const q = forcePcf ? '?force=1' : '';
         const psts = ACTIVE_TICKERS.map(async t => {
-            const r = await fetch(`/api/etf-pcf/${t}`);
+            const r = await fetch(`/api/etf-pcf/${t}${q}`);
             const data = await r.json();
             if (!data.error) {
                 allPcfCache[t] = data;
@@ -988,13 +1057,16 @@ async function globalLaunch() {
             globalSymbols.add('TXFR1');
         }
 
-        const syms = Array.from(globalSymbols).join(',');
-        if (syms) {
+        // REST 這一輪也照優先順序送，被限流時掉的才會是最不重要的那些
+        orderedSymbols = buildOrderedSymbols(activeTicker);
+        orderedSymbols.forEach(s => globalSymbols.add(s));
+
+        if (orderedSymbols.length) {
             try {
-                const qr = await fetch(`/api/stock-quotes?symbols=${syms}`);
+                const qr = await fetch(`/api/stock-quotes?symbols=${orderedSymbols.join(',')}`);
                 const qdata = await qr.json();
                 let got = 0;
-                globalSymbols.forEach(stkcd => {
+                orderedSymbols.forEach(stkcd => {
                     const q = qdata[stkcd];
                     if (q && q.prev > 0) {
                         stockPrices[stkcd] = q.price;
@@ -1002,7 +1074,7 @@ async function globalLaunch() {
                         got++;
                     }
                 });
-                console.log(`Initial quotes: ${got}/${globalSymbols.size} symbols`);
+                console.log(`Initial quotes: ${got}/${orderedSymbols.length} symbols`);
             } catch(e) {
                 console.warn("Fetch initial quotes error:", e);
             }
@@ -1024,19 +1096,29 @@ async function globalLaunch() {
 
 function switchETF(ticker, name) {
     if (activeTicker === ticker && allPcfCache[ticker]) return;
+    const prev = activeTicker;
     activeTicker = ticker;
     if (name) activeTickerName = name;
 
-    if (allPcfCache[ticker]) {
-        renderSpecificETF(ticker, name);
-    } else {
+    if (!allPcfCache[ticker]) {
         globalLaunch();
+        return;
+    }
+
+    renderSpecificETF(ticker, name);
+
+    // 額度不夠時，切換標的要重新排優先序：現在看的這一檔的成分股必須升到前面，
+    // 否則你正在看的 ETF 反而是被砍掉的那一批。額度夠的話就不折騰連線。
+    if (quotaSkipped.size > 0 && prev !== ticker) {
+        console.log('訂閱額度不足，依新的檢視標的重新排序訂閱…');
+        connectGlobalWS();
+        startBackfill();
     }
 }
 
 document.getElementById('refreshBtn').addEventListener('click', () => {
     allPcfCache = {};
-    globalLaunch();
+    globalLaunch(true);      // 手動重新載入 = 強制重抓，跳過後端快取
 });
 
 // 跨日自動重載：留著頁面過夜時，官方淨值與昨收基準都會換，必須整組重抓。
@@ -1046,7 +1128,7 @@ setInterval(() => {
     if (d !== lastLoadDay) {
         lastLoadDay = d;
         allPcfCache = {};
-        globalLaunch();
+        globalLaunch(true);   // 跨日一定要強制重抓，官方淨值與昨收基準都換了
     }
 }, 60000);
 

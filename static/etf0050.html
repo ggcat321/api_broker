@@ -290,6 +290,7 @@
         <div class="flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span class="text-xs font-bold text-white uppercase tracking-widest">目標套利價設算 (Spread Target)</span>
+            <span id="spreadStatus" class="text-[10px]"></span>
         </div>
         <div class="flex items-center gap-2">
             <span class="text-[10px] text-slate-500 font-bold">目標價差 (bps)</span>
@@ -982,7 +983,27 @@ function renderNAV() {
 
     // Pseudo iNAV (TSMC Focus)
     const tsmc = composition.find(s => s.stkcd === '2330');
-    if (tsmc && nav > 0 && etfPrice > 0) {
+    const spreadStatus = document.getElementById('spreadStatus');
+    if (!tsmc || !(nav > 0) || !(etfPrice > 0)) {
+        // 缺基本資料就別假裝有算，直接說缺什麼
+        if (spreadStatus) {
+            const why = !tsmc ? '成分股裡找不到 2330'
+                      : !(nav > 0) ? '等待 PCF 淨值'
+                      : '等待 0050 市價';
+            spreadStatus.textContent = `⏳ ${why}`;
+            spreadStatus.className = 'text-[10px] text-amber-400/80 font-bold';
+        }
+    } else if (!(bid2330 > 0) || !(ask2330 > 0)) {
+        // 這一格是靠台積電的五檔在算的。沒有 books 就是沒有，不用別的價硬代
+        if (spreadStatus) {
+            spreadStatus.textContent = '⏳ 等待 2330 五檔報價（本設算需要委買/委賣價，非成交價）';
+            spreadStatus.className = 'text-[10px] text-amber-400/80 font-bold';
+        }
+    } else {
+        if (spreadStatus) {
+            spreadStatus.textContent = '';
+            spreadStatus.className = 'text-[10px]';
+        }
         const targetSpreadBps = parseFloat(document.getElementById('targetSpreadInput').value) || 0;
         const currentTsmcPx = stockPrices['2330'] || 0;
         const baseStocksVal = stocksTotal - (currentTsmcPx * tsmc.qty);
@@ -1261,7 +1282,10 @@ function connectGlobalWS() {
     const allArr = Array.from(globalSymbols);
     if(allArr.length === 0) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${location.host}/ws/${allArr.join(',')}`;
+    // 明講這一頁需要哪些商品的五檔。訂閱數量一多，後端預設只給成交價 (trades)，
+    // 而「目標套利價設算」是靠台積電的委買/委賣價在算的 —— 少了 books 整片會是 '--'。
+    const booksNeeded = ['2330', activeTicker].filter(Boolean).join(',');
+    const url = `${proto}//${location.host}/ws/${allArr.join(',')}?books=${encodeURIComponent(booksNeeded)}`;
 
     setWsStatus('connecting');
     ws = new WebSocket(url);
@@ -1530,6 +1554,12 @@ function switchETF(ticker, name) {
 // ═══════════════════════════════════════════════════════
 document.getElementById('refreshBtn').addEventListener('click', () => {
     globalLaunch();
+});
+
+// 改了目標價差要立刻重算。以前只有在收到新報價時才會重跑，
+// 非交易時段調整那個數字完全沒反應，看起來就像壞掉。
+document.getElementById('targetSpreadInput').addEventListener('input', () => {
+    renderNAV();
 });
 
 document.getElementById('searchInput').addEventListener('input', e => {
