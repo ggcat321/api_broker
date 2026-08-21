@@ -253,16 +253,24 @@ async def active_pcf_refresher():
     """
     await asyncio.sleep(5)      # 讓 SDK 先連上，不要開機就一起搶資源
     while True:
+        now_tpe = datetime_now_taipei()
+        # 只有在「今天的申贖清單有可能已經公告」的時段才密集重試。
+        # 午夜過後 is_today_release 就會變 False，若不設這道閘，
+        # 整個凌晨會每 3 分鐘啟動一次 Chromium（一晚上百次），純粹浪費。
+        publish_window = now_tpe.weekday() < 5 and 7 <= now_tpe.hour < 15
+
         wait = PCF_TTL_TODAY
         for ticker in ACTIVE_PCF_TICKERS:
             try:
                 data = await get_etf_pcf(ticker)
                 pcf = (data or {}).get("PCF") or {}
-                if not (pcf.get("source") == "ezmoney" and pcf.get("is_today_release")):
+                got_today = pcf.get("source") == "ezmoney" and pcf.get("is_today_release")
+                if not got_today and publish_window:
                     wait = min(wait, PCF_TTL_WAITING)
             except Exception as e:
                 print(f"[PCF] 背景更新 {ticker} 失敗: {e}")
-                wait = min(wait, PCF_TTL_FAILED)
+                if publish_window:
+                    wait = min(wait, PCF_TTL_FAILED)
         await asyncio.sleep(max(wait, 60))
 
 
