@@ -1,264 +1,274 @@
 {
   "PCF": {
-    "nav": 30.075939773705336,
-    "p_unit": 30.08,
-    "official_inav": 30.08,
-    "nav_total": 311593021927.0,
-    "out_unit": 10360209000.0,
+    "nav": 29.336207109188816,
+    "p_unit": 29.34,
+    "official_inav": 29.34,
+    "nav_total": 287544965248.0,
+    "out_unit": 9801709000.0,
     "baseunit": 500000.0,
-    "estdvalue": -1174992.0,
-    "trandate": "/Date(1786550400000)/",
+    "estdvalue": -1385228.0,
+    "trandate": "/Date(1787155200000)/",
+    "postdate": "/Date(1787241600000)/",
     "is_total_fund": false,
-    "trandate_iso": "2026-08-13",
+    "trandate_iso": "2026-08-20",
+    "postdate_iso": "2026-08-21",
     "source": "ezmoney",
+    "is_today_release": true,
     "stale_days": 1
   },
   "InKind": {
     "FundComposition": [
       {
-        "stkcd": "2330",
-        "name": "台積電",
-        "qty": 585.61,
-        "total_shares": 12134000.0,
-        "weight": 9.48
-      },
-      {
         "stkcd": "2383",
         "name": "台光電",
-        "qty": 234.7,
-        "total_shares": 4863000.0,
-        "weight": 8.88
+        "qty": 247.05,
+        "total_shares": 4843000.0,
+        "weight": 10.08
       },
       {
-        "stkcd": "2454",
-        "name": "聯發科",
-        "qty": 262.93,
-        "total_shares": 5448000.0,
-        "weight": 7.39
+        "stkcd": "2330",
+        "name": "台積電",
+        "qty": 606.22,
+        "total_shares": 11884000.0,
+        "weight": 9.82
       },
       {
         "stkcd": "3037",
         "name": "欣興",
-        "qty": 975.37,
-        "total_shares": 20210000.0,
-        "weight": 6.49
+        "qty": 1035.53,
+        "total_shares": 20300000.0,
+        "weight": 8.05
+      },
+      {
+        "stkcd": "2454",
+        "name": "聯發科",
+        "qty": 262.61,
+        "total_shares": 5148000.0,
+        "weight": 6.62
       },
       {
         "stkcd": "3017",
         "name": "奇鋐",
-        "qty": 284.74,
-        "total_shares": 5900000.0,
-        "weight": 6.06
+        "qty": 300.92,
+        "total_shares": 5899000.0,
+        "weight": 6.12
       },
       {
         "stkcd": "2327",
         "name": "國巨*",
-        "qty": 1227.63,
-        "total_shares": 25437000.0,
-        "weight": 5.4
-      },
-      {
-        "stkcd": "6223",
-        "name": "旺矽",
-        "qty": 117.9,
-        "total_shares": 2443000.0,
-        "weight": 5.09
+        "qty": 1295.03,
+        "total_shares": 25387000.0,
+        "weight": 4.96
       },
       {
         "stkcd": "6669",
         "name": "緯穎",
-        "qty": 120.46,
-        "total_shares": 2496000.0,
-        "weight": 4.86
+        "qty": 113.55,
+        "total_shares": 2226000.0,
+        "weight": 4.9
+      },
+      {
+        "stkcd": "6223",
+        "name": "旺矽",
+        "qty": 126.81,
+        "total_shares": 2486000.0,
+        "weight": 4.88
       },
       {
         "stkcd": "2345",
         "name": "智邦",
-        "qty": 318.24,
-        "total_shares": 6594000.0,
-        "weight": 4.8
-      },
-      {
-        "stkcd": "2308",
-        "name": "台達電",
-        "qty": 341.21,
-        "total_shares": 7070000.0,
-        "weight": 4.28
-      },
-      {
-        "stkcd": "3711",
-        "name": "日月光投控",
-        "qty": 942.5,
-        "total_shares": 19529000.0,
-        "weight": 3.92
-      },
-      {
-        "stkcd": "8046",
-        "name": "南電",
-        "qty": 464.95,
-        "total_shares": 9634000.0,
-        "weight": 3.76
+        "qty": 334.84,
+        "total_shares": 6564000.0,
+        "weight": 4.81
       },
       {
         "stkcd": "3653",
         "name": "健策",
-        "qty": 114.62,
-        "total_shares": 2375000.0,
-        "weight": 3.53
+        "qty": 122.17,
+        "total_shares": 2395000.0,
+        "weight": 4.66
       },
       {
-        "stkcd": "2303",
-        "name": "聯電",
-        "qty": 4233.41,
-        "total_shares": 87718000.0,
-        "weight": 3.5
+        "stkcd": "2308",
+        "name": "台達電",
+        "qty": 359.12,
+        "total_shares": 7040000.0,
+        "weight": 4.27
+      },
+      {
+        "stkcd": "8046",
+        "name": "南電",
+        "qty": 490.93,
+        "total_shares": 9624000.0,
+        "weight": 4.0
+      },
+      {
+        "stkcd": "3711",
+        "name": "日月光投控",
+        "qty": 993.65,
+        "total_shares": 19479000.0,
+        "weight": 4.0
       },
       {
         "stkcd": "3665",
         "name": "貿聯-KY",
-        "qty": 222.82,
-        "total_shares": 4616848.0,
-        "weight": 3.27
+        "qty": 238.32,
+        "total_shares": 4671848.0,
+        "weight": 3.66
+      },
+      {
+        "stkcd": "2303",
+        "name": "聯電",
+        "qty": 4464.43,
+        "total_shares": 87518000.0,
+        "weight": 3.52
       },
       {
         "stkcd": "6274",
         "name": "台燿",
-        "qty": 265.39,
-        "total_shares": 5499000.0,
-        "weight": 2.82
+        "qty": 280.46,
+        "total_shares": 5498000.0,
+        "weight": 3.01
       },
       {
         "stkcd": "5274",
         "name": "信驊",
-        "qty": 23.4,
-        "total_shares": 484900.0,
-        "weight": 2.72
+        "qty": 20.96,
+        "total_shares": 410900.0,
+        "weight": 2.25
       },
       {
         "stkcd": "6805",
         "name": "富世達",
-        "qty": 109.31,
-        "total_shares": 2265000.0,
-        "weight": 1.33
-      },
-      {
-        "stkcd": "2368",
-        "name": "金像電",
-        "qty": 193.05,
-        "total_shares": 4000000.0,
-        "weight": 1.3
+        "qty": 115.49,
+        "total_shares": 2264000.0,
+        "weight": 1.46
       },
       {
         "stkcd": "2449",
         "name": "京元電子",
-        "qty": 545.14,
-        "total_shares": 11295450.0,
+        "qty": 575.18,
+        "total_shares": 11275450.0,
         "weight": 0.92
       },
       {
         "stkcd": "8210",
         "name": "勤誠",
-        "qty": 120.51,
-        "total_shares": 2497000.0,
-        "weight": 0.79
+        "qty": 126.36,
+        "total_shares": 2477000.0,
+        "weight": 0.83
       },
       {
-        "stkcd": "6187",
-        "name": "萬潤",
-        "qty": 64.38,
-        "total_shares": 1334000.0,
-        "weight": 0.54
+        "stkcd": "2368",
+        "name": "金像電",
+        "qty": 102.02,
+        "total_shares": 2000000.0,
+        "weight": 0.71
       },
       {
-        "stkcd": "2360",
-        "name": "致茂",
-        "qty": 30.02,
-        "total_shares": 622000.0,
+        "stkcd": "4979",
+        "name": "華星光",
+        "qty": 123.65,
+        "total_shares": 2424000.0,
+        "weight": 0.48
+      },
+      {
+        "stkcd": "6510",
+        "name": "精測",
+        "qty": 24.33,
+        "total_shares": 477000.0,
         "weight": 0.46
       },
       {
         "stkcd": "3264",
         "name": "欣銓",
-        "qty": 285.61,
-        "total_shares": 5918000.0,
-        "weight": 0.44
-      },
-      {
-        "stkcd": "4979",
-        "name": "華星光",
-        "qty": 116.99,
-        "total_shares": 2424000.0,
-        "weight": 0.44
-      },
-      {
-        "stkcd": "6510",
-        "name": "精測",
-        "qty": 23.07,
-        "total_shares": 478000.0,
+        "qty": 301.84,
+        "total_shares": 5917000.0,
         "weight": 0.43
       },
       {
         "stkcd": "8996",
         "name": "高力",
-        "qty": 38.71,
-        "total_shares": 802000.0,
-        "weight": 0.33
+        "qty": 56.16,
+        "total_shares": 1101000.0,
+        "weight": 0.43
+      },
+      {
+        "stkcd": "3443",
+        "name": "創意",
+        "qty": 7.24,
+        "total_shares": 142000.0,
+        "weight": 0.28
       },
       {
         "stkcd": "4958",
         "name": "臻鼎-KY",
-        "qty": 81.18,
-        "total_shares": 1682000.0,
+        "qty": 83.91,
+        "total_shares": 1645000.0,
         "weight": 0.26
+      },
+      {
+        "stkcd": "2360",
+        "name": "致茂",
+        "qty": 15.0,
+        "total_shares": 294000.0,
+        "weight": 0.22
+      },
+      {
+        "stkcd": "6187",
+        "name": "萬潤",
+        "qty": 24.64,
+        "total_shares": 483000.0,
+        "weight": 0.21
       },
       {
         "stkcd": "6278",
         "name": "台表科",
-        "qty": 156.85,
-        "total_shares": 3250000.0,
-        "weight": 0.18
+        "qty": 165.74,
+        "total_shares": 3249000.0,
+        "weight": 0.2
       },
       {
         "stkcd": "6271",
         "name": "同欣電",
-        "qty": 107.33,
-        "total_shares": 2224000.0,
-        "weight": 0.14
+        "qty": 113.4,
+        "total_shares": 2223000.0,
+        "weight": 0.15
       },
       {
         "stkcd": "6191",
         "name": "精成科",
-        "qty": 192.47,
+        "qty": 203.43,
         "total_shares": 3988000.0,
         "weight": 0.11
       },
       {
         "stkcd": "3376",
         "name": "新日興",
-        "qty": 84.02,
+        "qty": 88.81,
         "total_shares": 1741000.0,
         "weight": 0.11
       },
       {
-        "stkcd": "6515",
-        "name": "穎崴",
-        "qty": 0.63,
-        "total_shares": 13000.0,
-        "weight": 0.03
-      },
-      {
         "stkcd": "4966",
         "name": "譜瑞-KY",
-        "qty": 6.76,
+        "qty": 7.14,
         "total_shares": 140000.0,
         "weight": 0.03
       },
       {
         "stkcd": "2002",
         "name": "中鋼",
-        "qty": 249.17,
+        "qty": 263.37,
         "total_shares": 5163000.0,
         "weight": 0.03
+      },
+      {
+        "stkcd": "2637",
+        "name": "慧洋-KY",
+        "qty": 10.2,
+        "total_shares": 200000.0,
+        "weight": 0.01
       },
       {
         "stkcd": "8358",
@@ -270,13 +280,6 @@
       {
         "stkcd": "3661",
         "name": "世芯-KY",
-        "qty": 0.05,
-        "total_shares": 1000.0,
-        "weight": 0.0
-      },
-      {
-        "stkcd": "3443",
-        "name": "創意",
         "qty": 0.05,
         "total_shares": 1000.0,
         "weight": 0.0
@@ -310,15 +313,15 @@
         "weight": 0.0
       },
       {
-        "stkcd": "3533",
-        "name": "嘉澤",
+        "stkcd": "2408",
+        "name": "南亞科",
         "qty": 0.05,
         "total_shares": 1000.0,
         "weight": 0.0
       },
       {
-        "stkcd": "2408",
-        "name": "南亞科",
+        "stkcd": "6515",
+        "name": "穎崴",
         "qty": 0.05,
         "total_shares": 1000.0,
         "weight": 0.0
@@ -361,7 +364,7 @@
       {
         "stkcd": "2481",
         "name": "強茂",
-        "qty": 0.24,
+        "qty": 0.26,
         "total_shares": 5000.0,
         "weight": 0.0
       }
@@ -370,10 +373,10 @@
   "Futures": [
     {
       "code": "TX",
-      "name": "台指期貨",
+      "name": "台指期貨(B)",
       "qty": 679.0,
-      "weight": 2.01,
-      "mth": "2026/08"
+      "weight": 2.12,
+      "mth": "2026/09"
     }
   ],
   "FundName": "統一台股增長主動式ETF基金",

@@ -3,6 +3,7 @@ import re
 import time
 import json
 import asyncio
+import threading
 import requests
 import urllib3
 from contextlib import asynccontextmanager
@@ -93,7 +94,8 @@ async def lifespan(app):
     asyncio.create_task(vix_scraper())
     asyncio.create_task(fubon_sdk_watchdog())
     asyncio.create_task(momentum_snapshot_task())
-    
+    asyncio.create_task(active_pcf_refresher())
+
     yield  # ← Server is running
     
     # Shutdown
@@ -239,6 +241,31 @@ def handle_fubon_message(message):
         print("Error parsing msg:", e)
 
 # ─── Fubon SDK Watchdog (auto-reconnect with backoff) ──────────────
+ACTIVE_PCF_TICKERS = ["00981A", "00403A"]
+
+
+async def active_pcf_refresher():
+    """在背景把主動型 ETF 的 PCF 抓到最新，不要等使用者開頁面才抓。
+
+    以前是「開頁 → 現場啟動 Chromium → 等 10 秒」，只要那一次失敗，
+    畫面就直接吃本地備份，而且要等下一次開頁才會再試。
+    改成背景輪詢：拿到今日公告版就放慢，還沒拿到就持續重試。
+    """
+    await asyncio.sleep(5)      # 讓 SDK 先連上，不要開機就一起搶資源
+    while True:
+        wait = PCF_TTL_TODAY
+        for ticker in ACTIVE_PCF_TICKERS:
+            try:
+                data = await get_etf_pcf(ticker)
+                pcf = (data or {}).get("PCF") or {}
+                if not (pcf.get("source") == "ezmoney" and pcf.get("is_today_release")):
+                    wait = min(wait, PCF_TTL_WAITING)
+            except Exception as e:
+                print(f"[PCF] 背景更新 {ticker} 失敗: {e}")
+                wait = min(wait, PCF_TTL_FAILED)
+        await asyncio.sleep(max(wait, 60))
+
+
 def resubscribe_all():
     """把 manager 記錄過的訂閱全部重送一次（SDK 重連後使用）。
 
@@ -960,7 +987,7 @@ def _ezmoney_match_codes(options):
     return found
 
 
-async def fetch_ezmoney_pcf(ticker: str):
+async def _scrape_ezmoney_pcf(ticker: str):
     """Scrape PCF and Asset holdings for Active ETFs from ezmoney using Playwright.
 
     實測（2026-08-14）結論：
@@ -974,204 +1001,253 @@ async def fetch_ezmoney_pcf(ticker: str):
     local_json_path = os.path.join(BASE_DIR, f"{ticker}.json")
     diag = {'urls_seen': [], 'options': None, 'used_code': None, 'title': None}
 
+    # 例外一律往外拋，由 fetch_ezmoney_pcf() 分類並決定要不要退回本地備份
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+
+        raw_data = {}
+
+        async def handle_response(response):
+            url = response.url
+            low = url.lower()
+            if any(k in low for k in ('pcf', 'fund', 'asset', 'nav')):
+                if url not in diag['urls_seen']:
+                    diag['urls_seen'].append(url)
+            if 'getpcf' in low:
+                try:
+                    payload = await response.json()
+                except Exception:
+                    return
+                # 只接受「確實是這一檔、而且淨值不是 0」的回應。
+                # 頁面預設會先帶出另一檔（且欄位全為 0），不擋掉就會覆蓋掉正確結果。
+                if not isinstance(payload, dict) or not payload:
+                    return
+                finfo = payload.get('fund') or {}
+                got = str(finfo.get('sStockNo') or '').strip().upper()
+                if got and got != ticker.upper():
+                    return
+                items = {i.get('PCFCode'): i.get('Amount')
+                         for i in (payload.get('pcf') or []) if isinstance(i, dict)}
+                try:
+                    if float(items.get('NAV') or 0) <= 0:
+                        return
+                except (TypeError, ValueError):
+                    return
+                raw_data.clear()
+                raw_data.update(payload)
+        page.on('response', handle_response)
+
+        async def wait_for_data(seconds=12):
+            for _ in range(int(seconds * 2)):
+                if raw_data:
+                    return True
+                await asyncio.sleep(0.5)
+            return bool(raw_data)
+
+        async def load_with_code(code):
+            diag['used_code'] = code
+            await page.goto(f'{EZMONEY_PCF_URL}?fundCode={code}',
+                            wait_until='domcontentloaded', timeout=30000)
+            return await wait_for_data()
+
+        # 1) 快路徑：用已知的 fundCode 直接開
+        fund_code = EZMONEY_FUND_CODES.get(ticker)
+        if fund_code:
+            await load_with_code(fund_code)
+
+        # 2) 沒拿到 → 回清單頁，從選單「讀出」新的 fundCode 對照表再試一次。
+        #    （只讀取，不點選 —— option 是隱藏的，選了不會觸發載入）
+        if not raw_data:
+            print(f"[PCF] {ticker} 以 fundCode={fund_code} 未取得資料，改從基金選單探索…")
+            await page.goto(EZMONEY_PCF_URL, wait_until='domcontentloaded', timeout=30000)
+            try:
+                await page.wait_for_selector('select option, a[href*="fundCode"]',
+                                             state='attached', timeout=10000)
+            except Exception:
+                pass
+            try:
+                diag['title'] = await page.title()
+            except Exception:
+                pass
+
+            options = await _ezmoney_list_fund_options(page)
+            diag['options'] = options
+            discovered = _ezmoney_match_codes(options)
+            if discovered:
+                EZMONEY_FUND_CODES.update(discovered)
+                print(f"[PCF] 從選單探索到 {len(discovered)} 檔基金，{ticker} -> {discovered.get(ticker)}")
+
+            new_code = discovered.get(ticker)
+            if new_code and new_code != fund_code:
+                await load_with_code(new_code)
+
+        await browser.close()
+
+        if not raw_data:
+            print(f"[PCF] {ticker} 抓取失敗。標題={diag['title']!r} "
+                  f"使用代碼={diag['used_code']!r} "
+                  f"攔到的相關請求={diag['urls_seen'][:8]}")
+            if diag['options'] is not None:
+                preview = [f"{o.get('value')}={o.get('text')[:24]}" for o in diag['options'][:25]]
+                print(f"[PCF] 頁面上的選項({len(diag['options'])}): {preview}")
+
+        if raw_data:
+            pcf_items = {item.get('PCFCode'): item.get('Amount') for item in (raw_data.get('pcf') or []) if isinstance(item, dict)}
+            out_unit = float(pcf_items.get('OUT_UNIT') or 1)
+            baseunit = float(pcf_items.get('FUND_BASEUNIT') or 500000)
+            nav_total = float(pcf_items.get('NAV') or 0)
+            p_unit = float(pcf_items.get('P_UNIT') or 0)
+
+            # High-precision NAV: NAV / OUT_UNIT (e.g. 28.58232345...)
+            nav = (nav_total / out_unit) if (nav_total > 0 and out_unit > 0) else (p_unit or 0)
+            cash_diff = float(pcf_items.get('DIFF_ACT_AMT') or 0)
+
+            comp = []
+            futures = []
+            for asset_grp in (raw_data.get('asset') or []):
+                if not isinstance(asset_grp, dict): continue
+                asset_code = asset_grp.get('AssetCode')
+                for d in (asset_grp.get('Details') or []):
+                    if not isinstance(d, dict): continue
+                    code = str(d.get('DetailCode') or '').strip()
+                    name = str(d.get('DetailName') or '').strip()
+                    share = float(d.get('Share') or 0)
+                    weight = float(d.get('NavRate') or 0)
+                    if asset_code == 'ST' or d.get('Type') == '1' or not d.get('MTH'):
+                        qty_per_basket = (share / out_unit) * baseunit if out_unit > 0 else share
+                        comp.append({
+                            'stkcd': code,
+                            'name': name,
+                            'qty': round(qty_per_basket, 2),
+                            'total_shares': share,
+                            'weight': weight
+                        })
+                    elif asset_code == 'GD' or d.get('Type') == '2' or d.get('MTH'):
+                        futures.append({
+                            'code': code,
+                            'name': name,
+                            'qty': share,
+                            'weight': weight,
+                            'mth': str(d.get('MTH') or '')
+                        })
+
+            fund_info = raw_data.get('fund') or {}
+            pcf_list = raw_data.get('pcf') or []
+            tran_date = ""
+            post_date = ""
+            if pcf_list and isinstance(pcf_list[0], dict):
+                tran_date = str(pcf_list[0].get('TranDate') or pcf_list[0].get('PostDate') or '')
+                post_date = str(pcf_list[0].get('PostDate') or '')
+            if not tran_date:
+                tran_date = str(fund_info.get('FundDate') or '')
+
+            # 身分檢查：確認回來的真的是我們要的那一檔。
+            # ezmoney 的 PCF 頁有下拉選單，如果 fundCode 沒生效就會回預設基金，
+            # 那會安靜地把別檔的淨值畫到這一檔上——寧可退回舊資料也不能顯示錯的。
+            got_no = str(fund_info.get('sStockNo') or '').strip().upper()
+            if got_no and got_no != ticker.upper():
+                print(f"[PCF] !! 要 {ticker} 卻收到 {got_no} "
+                      f"({fund_info.get('sFundName')})，fundCode 未生效，放棄本次結果")
+                raw_data = {}
+
+        if raw_data:
+            res_data = {
+                'PCF': {
+                    'nav': nav,
+                    'p_unit': p_unit,
+                    'official_inav': p_unit if p_unit > 0 else nav,
+                    'nav_total': nav_total,
+                    'out_unit': out_unit,
+                    'baseunit': baseunit,
+                    'estdvalue': cash_diff,
+                    'trandate': tran_date,
+                    'postdate': post_date,
+                    'is_total_fund': False
+                },
+                'InKind': {
+                    'FundComposition': comp
+                },
+                'Futures': futures,
+                'FundName': str(fund_info.get('sFundName') or ticker),
+                'StockNo': str(fund_info.get('sStockNo') or ticker)
+            }
+
+            annotate_pcf(res_data, 'ezmoney')
+
+            # Save local JSON backup
+            try:
+                with open(local_json_path, 'w', encoding='utf-8') as f:
+                    json.dump(res_data, f, ensure_ascii=False, indent=2)
+            except Exception as save_err:
+                print(f"Warning: Could not save local backup for {ticker}: {save_err}")
+
+            return res_data
+
+
+    return None
+
+
+# 最近一次抓取的診斷資訊，給 /api/etf-pcf-debug 用
+PCF_LAST_ATTEMPT = {}
+
+
+def _run_coro_in_thread(coro_factory, timeout=120):
+    """在獨立執行緒的獨立 event loop 裡跑一個 coroutine。
+
+    Playwright 不能跟行情主迴圈搶同一個 event loop：盤中每秒有上百則報價要處理，
+    迴圈被佔滿時 page.goto / wait_for_selector 的計時器會延遲觸發而 timeout，
+    於是「半夜測試都好、盤中一定失敗」。丟到自己的執行緒就不受影響。
+    """
+    box = {}
+
+    def target():
+        try:
+            box["value"] = asyncio.run(coro_factory())
+        except BaseException as e:      # noqa: BLE001 - 帶回主執行緒再分類
+            box["error"] = e
+
+    t = threading.Thread(target=target, name="pcf-scraper", daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(f"PCF 抓取超過 {timeout}s 未完成")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
+async def fetch_ezmoney_pcf(ticker: str):
+    """對外介面：在背景執行緒抓 PCF，失敗才退回本地備份。"""
+    local_json_path = os.path.join(BASE_DIR, f"{ticker}.json")
+    attempt = {"ts": time.time(), "ok": False, "error": None, "source": None}
+    PCF_LAST_ATTEMPT[ticker] = attempt
+
     try:
-        from playwright.async_api import async_playwright
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-
-            raw_data = {}
-
-            async def handle_response(response):
-                url = response.url
-                low = url.lower()
-                if any(k in low for k in ('pcf', 'fund', 'asset', 'nav')):
-                    if url not in diag['urls_seen']:
-                        diag['urls_seen'].append(url)
-                if 'getpcf' in low:
-                    try:
-                        payload = await response.json()
-                    except Exception:
-                        return
-                    # 只接受「確實是這一檔、而且淨值不是 0」的回應。
-                    # 頁面預設會先帶出另一檔（且欄位全為 0），不擋掉就會覆蓋掉正確結果。
-                    if not isinstance(payload, dict) or not payload:
-                        return
-                    finfo = payload.get('fund') or {}
-                    got = str(finfo.get('sStockNo') or '').strip().upper()
-                    if got and got != ticker.upper():
-                        return
-                    items = {i.get('PCFCode'): i.get('Amount')
-                             for i in (payload.get('pcf') or []) if isinstance(i, dict)}
-                    try:
-                        if float(items.get('NAV') or 0) <= 0:
-                            return
-                    except (TypeError, ValueError):
-                        return
-                    raw_data.clear()
-                    raw_data.update(payload)
-            page.on('response', handle_response)
-
-            async def wait_for_data(seconds=12):
-                for _ in range(int(seconds * 2)):
-                    if raw_data:
-                        return True
-                    await asyncio.sleep(0.5)
-                return bool(raw_data)
-
-            async def load_with_code(code):
-                diag['used_code'] = code
-                await page.goto(f'{EZMONEY_PCF_URL}?fundCode={code}',
-                                wait_until='domcontentloaded', timeout=30000)
-                return await wait_for_data()
-
-            # 1) 快路徑：用已知的 fundCode 直接開
-            fund_code = EZMONEY_FUND_CODES.get(ticker)
-            if fund_code:
-                await load_with_code(fund_code)
-
-            # 2) 沒拿到 → 回清單頁，從選單「讀出」新的 fundCode 對照表再試一次。
-            #    （只讀取，不點選 —— option 是隱藏的，選了不會觸發載入）
-            if not raw_data:
-                print(f"[PCF] {ticker} 以 fundCode={fund_code} 未取得資料，改從基金選單探索…")
-                await page.goto(EZMONEY_PCF_URL, wait_until='domcontentloaded', timeout=30000)
-                try:
-                    await page.wait_for_selector('select option, a[href*="fundCode"]',
-                                                 state='attached', timeout=10000)
-                except Exception:
-                    pass
-                try:
-                    diag['title'] = await page.title()
-                except Exception:
-                    pass
-
-                options = await _ezmoney_list_fund_options(page)
-                diag['options'] = options
-                discovered = _ezmoney_match_codes(options)
-                if discovered:
-                    EZMONEY_FUND_CODES.update(discovered)
-                    print(f"[PCF] 從選單探索到 {len(discovered)} 檔基金，{ticker} -> {discovered.get(ticker)}")
-
-                new_code = discovered.get(ticker)
-                if new_code and new_code != fund_code:
-                    await load_with_code(new_code)
-
-            await browser.close()
-
-            if not raw_data:
-                print(f"[PCF] {ticker} 抓取失敗。標題={diag['title']!r} "
-                      f"使用代碼={diag['used_code']!r} "
-                      f"攔到的相關請求={diag['urls_seen'][:8]}")
-                if diag['options'] is not None:
-                    preview = [f"{o.get('value')}={o.get('text')[:24]}" for o in diag['options'][:25]]
-                    print(f"[PCF] 頁面上的選項({len(diag['options'])}): {preview}")
-
-            if raw_data:
-                pcf_items = {item.get('PCFCode'): item.get('Amount') for item in (raw_data.get('pcf') or []) if isinstance(item, dict)}
-                out_unit = float(pcf_items.get('OUT_UNIT') or 1)
-                baseunit = float(pcf_items.get('FUND_BASEUNIT') or 500000)
-                nav_total = float(pcf_items.get('NAV') or 0)
-                p_unit = float(pcf_items.get('P_UNIT') or 0)
-                
-                # High-precision NAV: NAV / OUT_UNIT (e.g. 28.58232345...)
-                nav = (nav_total / out_unit) if (nav_total > 0 and out_unit > 0) else (p_unit or 0)
-                cash_diff = float(pcf_items.get('DIFF_ACT_AMT') or 0)
-                
-                comp = []
-                futures = []
-                for asset_grp in (raw_data.get('asset') or []):
-                    if not isinstance(asset_grp, dict): continue
-                    asset_code = asset_grp.get('AssetCode')
-                    for d in (asset_grp.get('Details') or []):
-                        if not isinstance(d, dict): continue
-                        code = str(d.get('DetailCode') or '').strip()
-                        name = str(d.get('DetailName') or '').strip()
-                        share = float(d.get('Share') or 0)
-                        weight = float(d.get('NavRate') or 0)
-                        if asset_code == 'ST' or d.get('Type') == '1' or not d.get('MTH'):
-                            qty_per_basket = (share / out_unit) * baseunit if out_unit > 0 else share
-                            comp.append({
-                                'stkcd': code,
-                                'name': name,
-                                'qty': round(qty_per_basket, 2),
-                                'total_shares': share,
-                                'weight': weight
-                            })
-                        elif asset_code == 'GD' or d.get('Type') == '2' or d.get('MTH'):
-                            futures.append({
-                                'code': code,
-                                'name': name,
-                                'qty': share,
-                                'weight': weight,
-                                'mth': str(d.get('MTH') or '')
-                            })
-                            
-                fund_info = raw_data.get('fund') or {}
-                pcf_list = raw_data.get('pcf') or []
-                tran_date = ""
-                post_date = ""
-                if pcf_list and isinstance(pcf_list[0], dict):
-                    tran_date = str(pcf_list[0].get('TranDate') or pcf_list[0].get('PostDate') or '')
-                    post_date = str(pcf_list[0].get('PostDate') or '')
-                if not tran_date:
-                    tran_date = str(fund_info.get('FundDate') or '')
-
-                # 身分檢查：確認回來的真的是我們要的那一檔。
-                # ezmoney 的 PCF 頁有下拉選單，如果 fundCode 沒生效就會回預設基金，
-                # 那會安靜地把別檔的淨值畫到這一檔上——寧可退回舊資料也不能顯示錯的。
-                got_no = str(fund_info.get('sStockNo') or '').strip().upper()
-                if got_no and got_no != ticker.upper():
-                    print(f"[PCF] !! 要 {ticker} 卻收到 {got_no} "
-                          f"({fund_info.get('sFundName')})，fundCode 未生效，放棄本次結果")
-                    raw_data = {}
-
-            if raw_data:
-                res_data = {
-                    'PCF': {
-                        'nav': nav,
-                        'p_unit': p_unit,
-                        'official_inav': p_unit if p_unit > 0 else nav,
-                        'nav_total': nav_total,
-                        'out_unit': out_unit,
-                        'baseunit': baseunit,
-                        'estdvalue': cash_diff,
-                        'trandate': tran_date,
-                        'postdate': post_date,
-                        'is_total_fund': False
-                    },
-                    'InKind': {
-                        'FundComposition': comp
-                    },
-                    'Futures': futures,
-                    'FundName': str(fund_info.get('sFundName') or ticker),
-                    'StockNo': str(fund_info.get('sStockNo') or ticker)
-                }
-                
-                annotate_pcf(res_data, 'ezmoney')
-
-                # Save local JSON backup
-                try:
-                    with open(local_json_path, 'w', encoding='utf-8') as f:
-                        json.dump(res_data, f, ensure_ascii=False, indent=2)
-                except Exception as save_err:
-                    print(f"Warning: Could not save local backup for {ticker}: {save_err}")
-
-                return res_data
-
+        ev_loop = asyncio.get_running_loop()
+        res_data = await ev_loop.run_in_executor(
+            None, lambda: _run_coro_in_thread(lambda: _scrape_ezmoney_pcf(ticker)))
+        if res_data:
+            attempt.update(ok=True, source="ezmoney",
+                           trandate=(res_data.get("PCF") or {}).get("trandate_iso"),
+                           postdate=(res_data.get("PCF") or {}).get("postdate_iso"))
+            return res_data
+        attempt["error"] = "GetPCF 沒有回應（詳見主控台的 [PCF] 訊息）"
     except ImportError:
-        # 最常見的「換一台電腦就壞掉」原因：那台沒裝 playwright。
-        # 這個以前被通用的 except 吞掉，畫面只會安靜地顯示很久以前的淨值。
+        attempt["error"] = "playwright 未安裝"
         print(f"[PCF] !! 找不到 playwright，{ticker} 無法抓取即時 PCF，只能用本地快取。\n"
               f"       修復方式：\n"
               f"         python -m pip install playwright\n"
               f"         python -m playwright install chromium")
     except Exception as e:
         msg = str(e)
-        if 'Executable doesn' in msg or 'playwright install' in msg or 'BrowserType.launch' in msg:
-            # pip 套件有裝，但瀏覽器本體沒下載
+        if "Executable doesn" in msg or "playwright install" in msg or "BrowserType.launch" in msg:
+            attempt["error"] = "playwright 瀏覽器本體未安裝"
             print(f"[PCF] !! Playwright 瀏覽器本體未安裝，{ticker} 只能用本地快取。\n"
                   f"       修復方式： python -m playwright install chromium")
         else:
+            attempt["error"] = f"{type(e).__name__}: {msg[:200]}"
             print(f"Ezmoney scraper error for {ticker}: {e}")
 
     # Fallback: Read local JSON backup if available.
@@ -1182,14 +1258,89 @@ async def fetch_ezmoney_pcf(ticker: str):
             with open(local_json_path, 'r', encoding='utf-8') as f:
                 cached = json.load(f)
             annotate_pcf(cached, 'local-backup')
-            stale = (cached.get('PCF') or {}).get('stale_days')
+            pcf = cached.get('PCF') or {}
+            attempt.update(source="local-backup", trandate=pcf.get("trandate_iso"))
             print(f"Loading local fallback PCF for {ticker} from {local_json_path} "
-                  f"(基準日 {(cached.get('PCF') or {}).get('trandate_iso')}, 落後約 {stale} 個交易日)")
+                  f"(基準日 {pcf.get('trandate_iso')}, 落後約 {pcf.get('stale_days')} 個交易日)")
             return cached
         except Exception as f_err:
             print(f"Failed to read local fallback for {ticker}: {f_err}")
 
     return {"error": f"Failed to receive GetPCF response for {ticker} from ezmoney"}
+
+@app.get("/api/etf-pcf-debug/{ticker}")
+async def etf_pcf_debug(ticker: str):
+    """一鍵診斷主動型 ETF 的 PCF 抓取狀況。
+
+    直接用瀏覽器開 http://127.0.0.1:8000/api/etf-pcf-debug/00981A 就看得到，
+    不必去終端機翻 log。
+    """
+    info = {"ticker": ticker, "now_taipei": datetime_now_taipei().isoformat()}
+
+    # 1. 環境：playwright 套件與瀏覽器本體是不是都在
+    try:
+        import playwright
+        info["playwright_version"] = getattr(playwright, "__version__", "unknown")
+        try:
+            from playwright.async_api import async_playwright
+            info["playwright_import"] = "ok"
+        except Exception as e:
+            info["playwright_import"] = f"FAILED: {e}"
+    except ImportError:
+        info["playwright_version"] = None
+        info["playwright_import"] = "NOT INSTALLED — pip install playwright"
+
+    # 2. 本地備份檔的狀態
+    path = os.path.join(BASE_DIR, f"{ticker}.json")
+    if os.path.exists(path):
+        import datetime as _dt
+        st = os.stat(path)
+        info["local_backup"] = {
+            "path": path,
+            "mtime": _dt.datetime.fromtimestamp(st.st_mtime, _taipei_tz()).isoformat(),
+            "bytes": st.st_size,
+        }
+    else:
+        info["local_backup"] = None
+
+    # 3. 記憶體快取狀態
+    entry = pcf_cache.get(ticker)
+    info["cache"] = None if not entry else {
+        "age_seconds": round(time.time() - entry.get("ts", 0), 1),
+        "live": entry.get("live"),
+        "is_today_release": entry.get("is_today_release"),
+    }
+
+    # 4. 真的抓一次（強制，不吃快取）
+    started = time.time()
+    data = await fetch_ezmoney_pcf(ticker)
+    info["fetch_seconds"] = round(time.time() - started, 1)
+    info["last_attempt"] = PCF_LAST_ATTEMPT.get(ticker)
+
+    pcf = (data or {}).get("PCF") or {}
+    info["result"] = {
+        "error": (data or {}).get("error"),
+        "source": pcf.get("source"),
+        "fund_name": (data or {}).get("FundName"),
+        "stock_no": (data or {}).get("StockNo"),
+        "trandate": pcf.get("trandate_iso"),
+        "postdate": pcf.get("postdate_iso"),
+        "is_today_release": pcf.get("is_today_release"),
+        "stale_days": pcf.get("stale_days"),
+        "nav_per_unit": pcf.get("nav"),
+        "n_holdings": len(((data or {}).get("InKind") or {}).get("FundComposition") or []),
+    }
+
+    src = pcf.get("source")
+    if src == "ezmoney":
+        info["verdict"] = "OK — 這是剛從 ezmoney 抓回來的即時資料"
+    elif src == "local-backup":
+        info["verdict"] = ("爬蟲失敗，畫面上看到的是本地備份。原因見 last_attempt.error，"
+                           "以及主控台的 [PCF] 訊息")
+    else:
+        info["verdict"] = "抓取失敗且沒有可用的本地備份"
+    return info
+
 
 @app.get("/api/etf-pcf/{ticker}")
 async def get_etf_pcf(ticker: str, force: bool = False):
