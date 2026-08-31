@@ -953,6 +953,20 @@ def annotate_pcf(res_data: dict, source: str):
     return res_data
 
 
+# PCF 本地備份放在專用目錄，不要放在專案根目錄。
+# 放根目錄很容易被 commit 進版控（實際發生過）：某台機器抓到的淨值被推上 git，
+# 另一台 clone 下來就算爬蟲整個壞掉，也永遠有一份「看起來正常」的化石資料墊底，
+# 故障因此跨機器偽裝成正常。這個目錄天生就在版控之外。
+PCF_CACHE_DIR = os.path.join(BASE_DIR, ".pcf_cache")
+
+
+def pcf_backup_paths(ticker):
+    """回傳 (寫入路徑, [讀取候選路徑...])。舊版寫在專案根目錄，仍可讀但不再寫入。"""
+    primary = os.path.join(PCF_CACHE_DIR, f"{ticker}.json")
+    legacy = os.path.join(BASE_DIR, f"{ticker}.json")
+    return primary, [primary, legacy]
+
+
 EZMONEY_PCF_URL = 'https://www.ezmoney.com.tw/ETF/Transaction/PCF'
 # 已知的 fundCode。若網站改碼，會自動從頁面上的基金下拉選單重新探索並覆寫這裡。
 EZMONEY_FUND_CODES = {'00981A': '49YTW', '00403A': '63YTW'}
@@ -1006,7 +1020,6 @@ async def _scrape_ezmoney_pcf(ticker: str):
     - **不要**攔截/中止任何請求。原本用 route.abort() 擋 google/analytics，
       是這支爬蟲最可能的失效點，而且拿掉之後頁面照樣秒開。
     """
-    local_json_path = os.path.join(BASE_DIR, f"{ticker}.json")
     diag = {'urls_seen': [], 'options': None, 'used_code': None, 'title': None}
 
     # 例外一律往外拋，由 fetch_ezmoney_pcf() 分類並決定要不要退回本地備份
@@ -1184,9 +1197,10 @@ async def _scrape_ezmoney_pcf(ticker: str):
 
             annotate_pcf(res_data, 'ezmoney')
 
-            # Save local JSON backup
+            # Save local JSON backup（寫到 .pcf_cache/，不會進版控）
             try:
-                with open(local_json_path, 'w', encoding='utf-8') as f:
+                os.makedirs(PCF_CACHE_DIR, exist_ok=True)
+                with open(pcf_backup_paths(ticker)[0], 'w', encoding='utf-8') as f:
                     json.dump(res_data, f, ensure_ascii=False, indent=2)
             except Exception as save_err:
                 print(f"Warning: Could not save local backup for {ticker}: {save_err}")
@@ -1228,7 +1242,6 @@ def _run_coro_in_thread(coro_factory, timeout=120):
 
 async def fetch_ezmoney_pcf(ticker: str):
     """對外介面：在背景執行緒抓 PCF，失敗才退回本地備份。"""
-    local_json_path = os.path.join(BASE_DIR, f"{ticker}.json")
     attempt = {"ts": time.time(), "ok": False, "error": None, "source": None}
     PCF_LAST_ATTEMPT[ticker] = attempt
 
@@ -1261,18 +1274,21 @@ async def fetch_ezmoney_pcf(ticker: str):
     # Fallback: Read local JSON backup if available.
     # 重要：這份備份可能是好幾天前的。用舊淨值搭配今天的昨收會讓 iNAV 整段偏掉，
     # 所以一定要把基準日與過期天數標出來給前端。
-    if os.path.exists(local_json_path):
+    for candidate in pcf_backup_paths(ticker)[1]:
+        if not os.path.exists(candidate):
+            continue
         try:
-            with open(local_json_path, 'r', encoding='utf-8') as f:
+            with open(candidate, 'r', encoding='utf-8') as f:
                 cached = json.load(f)
             annotate_pcf(cached, 'local-backup')
             pcf = cached.get('PCF') or {}
-            attempt.update(source="local-backup", trandate=pcf.get("trandate_iso"))
-            print(f"Loading local fallback PCF for {ticker} from {local_json_path} "
+            attempt.update(source="local-backup", trandate=pcf.get("trandate_iso"),
+                           backup_path=candidate)
+            print(f"Loading local fallback PCF for {ticker} from {candidate} "
                   f"(基準日 {pcf.get('trandate_iso')}, 落後約 {pcf.get('stale_days')} 個交易日)")
             return cached
         except Exception as f_err:
-            print(f"Failed to read local fallback for {ticker}: {f_err}")
+            print(f"Failed to read local fallback {candidate} for {ticker}: {f_err}")
 
     return {"error": f"Failed to receive GetPCF response for {ticker} from ezmoney"}
 
@@ -1299,17 +1315,16 @@ async def etf_pcf_debug(ticker: str):
         info["playwright_import"] = "NOT INSTALLED — pip install playwright"
 
     # 2. 本地備份檔的狀態
-    path = os.path.join(BASE_DIR, f"{ticker}.json")
-    if os.path.exists(path):
-        import datetime as _dt
-        st = os.stat(path)
-        info["local_backup"] = {
-            "path": path,
-            "mtime": _dt.datetime.fromtimestamp(st.st_mtime, _taipei_tz()).isoformat(),
-            "bytes": st.st_size,
-        }
-    else:
-        info["local_backup"] = None
+    import datetime as _dt
+    info["local_backup"] = []
+    for path in pcf_backup_paths(ticker)[1]:
+        if os.path.exists(path):
+            st = os.stat(path)
+            info["local_backup"].append({
+                "path": path,
+                "mtime": _dt.datetime.fromtimestamp(st.st_mtime, _taipei_tz()).isoformat(),
+                "bytes": st.st_size,
+            })
 
     # 3. 記憶體快取狀態
     entry = pcf_cache.get(ticker)

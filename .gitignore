@@ -16,3 +16,6 @@ __pycache__/
 # 已用 `git rm --cached 00981A.json 00403A.json` 從索引移除。
 00981A.json
 00403A.json
+
+# PCF 本地備份的新家（每台機器自己的執行期快取）
+.pcf_cache/
