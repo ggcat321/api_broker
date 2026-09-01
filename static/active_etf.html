@@ -319,6 +319,7 @@ let allPcfCache = {};
 let stockPrices = {};
 let stockPrevCloses = {};
 let composition = [];
+let compByCode = new Map();     // stkcd -> 成分股，避免每筆報價都線性搜尋
 let futuresList = [];
 let etfPrice = null;
 let officialNav = 0;
@@ -592,6 +593,18 @@ function renderQuality(diag) {
     } else {
         detail.classList.add('hidden');
     }
+}
+
+let navRenderQueued = false;
+
+// 把同一個影格內的多筆報價合併成一次重算。價格欄位不受影響——
+// 它們在收到訊息當下就已經更新，這裡只延後比較重的 iNAV 計算。
+function scheduleNavRender() {
+    if (navRenderQueued) return;
+    navRenderQueued = true;
+    const run = () => { navRenderQueued = false; renderNAV(); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 16);
 }
 
 let lastQualityRender = 0;
@@ -959,7 +972,7 @@ function connectGlobalWS() {
                 
                 const contribEl = document.getElementById(`contrib-${sym}`);
                 if (contribEl && baseunit) {
-                    const s = composition.find(item => item.stkcd === sym);
+                    const s = compByCode.get(sym);
                     if (s) {
                         const contrib = (price * s.qty / baseunit);
                         contribEl.textContent = fmt(contrib, 3) + ' 元';
@@ -967,7 +980,10 @@ function connectGlobalWS() {
                 }
             }
 
-            renderNAV();
+            // 價格本身已經直接寫進 DOM（上面幾行），這裡只是重算 iNAV。
+            // 每一筆成交都跑一次完整重算，尖峰時每秒上百次 × 50 檔成分股，
+            // 會把 UI thread 佔滿，反而讓畫面看起來卡卡的。用 rAF 合併。
+            scheduleNavRender();
         }
     };
 }
@@ -991,6 +1007,7 @@ function renderSpecificETF(ticker, name) {
 
     const pcf = data.PCF || {};
     composition = data.InKind?.FundComposition || [];
+    compByCode = new Map(composition.map(s => [s.stkcd, s]));
     futuresList = data.Futures || [];
     officialNav = (pcf.nav_total && pcf.out_unit) ? (pcf.nav_total / pcf.out_unit) : (pcf.nav || 0);
     baseunit = pcf.baseunit || 500000;

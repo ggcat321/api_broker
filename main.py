@@ -6,6 +6,8 @@ import asyncio
 import threading
 import requests
 import urllib3
+from collections import deque, defaultdict
+import copy
 from contextlib import asynccontextmanager
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from concurrent.futures import ThreadPoolExecutor
@@ -156,19 +158,41 @@ class ConnectionManager:
         return False
 
     async def broadcast(self, symbol: str, data: dict):
-        if symbol in self.active_connections:
-            for connection in list(self.active_connections[symbol]):
-                try:
-                    await connection.send_json(data)
-                except Exception:
-                    pass
+        conns = self.active_connections.get(symbol)
+        if not conns:
+            return
+        # 平行送出。原本是逐一 await，只要有一個 client 的 socket 塞住，
+        # 後面所有訊息都會排在它後面 —— 整個看板的報價就會愈拖愈慢。
+        if len(conns) == 1:
+            try:
+                await conns[0].send_json(data)
+            except Exception:
+                pass
+            return
+        await asyncio.gather(*[self._send(c, data) for c in list(conns)],
+                             return_exceptions=True)
+
+    @staticmethod
+    async def _send(connection, data):
+        try:
+            await connection.send_json(data)
+        except Exception:
+            pass
 
 manager = ConnectionManager()
+
+# 報價流量統計，給 /api/ws-stats 用。判斷「不即時」是卡在券商端、
+# 伺服器端、還是瀏覽器端 —— 沒有數字就只能猜。
+WS_STATS = {
+    "received": 0,      # 從券商收到的訊息總數
+    "dequeued": 0,      # 已轉發給前端的訊息總數
+    "last_tick": {},    # symbol -> 最後一次成交的時間
+    "recent": deque(maxlen=600),   # 最近的收訊時間戳，用來算每秒訊息數
+}
+
 sdk = None
 loop = None
 
-from collections import deque, defaultdict
-import copy
 
 # Momentum tracking
 LATEST_QUOTES = {}
@@ -189,6 +213,8 @@ def handle_fubon_message(message):
     try:
         sdk_last_msg_time = time.time()
         sdk_retry_count = 0
+        WS_STATS["received"] += 1
+        WS_STATS["recent"].append(sdk_last_msg_time)
         msg = json.loads(message)
         event = msg.get("event")
         data = msg.get("data")
@@ -252,6 +278,7 @@ async def active_pcf_refresher():
     改成背景輪詢：拿到今日公告版就放慢，還沒拿到就持續重試。
     """
     await asyncio.sleep(5)      # 讓 SDK 先連上，不要開機就一起搶資源
+    fails = 0
     while True:
         now_tpe = datetime_now_taipei()
         # 只有在「今天的申贖清單有可能已經公告」的時段才密集重試。
@@ -260,17 +287,31 @@ async def active_pcf_refresher():
         publish_window = now_tpe.weekday() < 5 and 7 <= now_tpe.hour < 15
 
         wait = PCF_TTL_TODAY
+        failed_this_round = False
         for ticker in ACTIVE_PCF_TICKERS:
             try:
                 data = await get_etf_pcf(ticker)
                 pcf = (data or {}).get("PCF") or {}
                 got_today = pcf.get("source") == "ezmoney" and pcf.get("is_today_release")
-                if not got_today and publish_window:
-                    wait = min(wait, PCF_TTL_WAITING)
+                if not got_today:
+                    failed_this_round = True
+                    if publish_window:
+                        wait = min(wait, PCF_TTL_WAITING)
             except Exception as e:
                 print(f"[PCF] 背景更新 {ticker} 失敗: {e}")
+                failed_this_round = True
                 if publish_window:
                     wait = min(wait, PCF_TTL_FAILED)
+
+        # 指數退避。每抓一次就是啟動一整個 Chromium，抓不到還每分鐘重試的話，
+        # 盤中會一直跟行情處理搶 CPU —— 報價因此變得一頓一頓的。
+        if failed_this_round:
+            fails += 1
+            wait = min(max(wait, PCF_TTL_FAILED * (2 ** min(fails - 1, 5))), PCF_TTL_TODAY)
+            if fails > 1:
+                print(f"[PCF] 連續 {fails} 輪未取得今日版本，{int(wait)}s 後再試")
+        else:
+            fails = 0
         await asyncio.sleep(max(wait, 60))
 
 
@@ -385,10 +426,14 @@ async def message_processor():
     while True:
         try:
             msg = await manager.message_queue.get()
+            WS_STATS["dequeued"] += 1
             event = msg.get("event")
-            data = msg.get("data", {})
-            symbol = data.get("symbol")
+            # 注意：key 存在但值是 None 時，get(k, {}) 不會用預設值，
+            # 直接 .get 會 AttributeError，整則訊息（含真正的錯誤）就被吞掉。
+            data = msg.get("data") or {}
+            symbol = data.get("symbol") if isinstance(data, dict) else None
             if symbol:
+                WS_STATS["last_tick"][symbol] = time.time()
                 await manager.broadcast(symbol, msg)
             elif event == "error":
                 # Fubon error responses might not contain the symbol precisely mapped
@@ -1291,6 +1336,46 @@ async def fetch_ezmoney_pcf(ticker: str):
             print(f"Failed to read local fallback {candidate} for {ticker}: {f_err}")
 
     return {"error": f"Failed to receive GetPCF response for {ticker} from ezmoney"}
+
+@app.get("/api/ws-stats")
+async def ws_stats():
+    """報價即時性診斷：分辨延遲是卡在券商端、伺服器端還是瀏覽器端。
+
+    直接用瀏覽器開 http://127.0.0.1:8000/api/ws-stats
+
+    怎麼看：
+    - msgs_per_sec 幾乎是 0 → 券商根本沒在推，跟前端無關（檢查訂閱／盤別／連線）
+    - msgs_per_sec 正常但 queue_depth 一直很大 → 伺服器轉發跟不上
+    - 兩者都正常但畫面不動 → 問題在瀏覽器端（分頁太多、渲染卡住）
+    """
+    now = time.time()
+    recent = list(WS_STATS["recent"])
+
+    def rate(sec):
+        n = sum(1 for t in recent if now - t <= sec)
+        return round(n / sec, 1)
+
+    last_tick = dict(WS_STATS["last_tick"])
+    ages = sorted(((round(now - t, 1), sym) for sym, t in last_tick.items()))
+    subscribed = sorted(manager.active_connections.keys())
+    silent = [s for s in subscribed if s not in last_tick]
+
+    return {
+        "now_taipei": datetime_now_taipei().isoformat(),
+        "sdk_connected": sdk is not None,
+        "seconds_since_last_broker_message": round(now - sdk_last_msg_time, 1),
+        "msgs_per_sec": {"last_1s": rate(1), "last_5s": rate(5), "last_30s": rate(30)},
+        "total_received": WS_STATS["received"],
+        "total_forwarded": WS_STATS["dequeued"],
+        "queue_depth": manager.message_queue.qsize(),
+        "subscribed_symbols": len(subscribed),
+        "symbols_with_ticks": len(last_tick),
+        "symbols_never_ticked": silent[:30],
+        "freshest": [{"symbol": s, "age_sec": a} for a, s in ages[:5]],
+        "stalest": [{"symbol": s, "age_sec": a} for a, s in ages[-10:]][::-1],
+        "subscribe_rejections": len(SUBSCRIBE_FAILURES),
+    }
+
 
 @app.get("/api/etf-pcf-debug/{ticker}")
 async def etf_pcf_debug(ticker: str):

@@ -430,8 +430,115 @@
                 </div>
             </div>
         </div>
+    <style>
+        /* 強勢／弱勢榜固定左右並排，方便直接對照兩端。
+           原本用 auto-fit + minmax(320px)，容器一窄就掉成上下堆疊。 */
+        .leaderboard-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin: 14px 0;
+            align-items: start;
+        }
+        @media (max-width: 680px) {
+            .leaderboard-row { grid-template-columns: 1fr; }
+        }
+        .leaderboard-row table { table-layout: fixed; }
+        .leaderboard-row td:first-child {
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+    </style>
+    <style>
+        /* ═══ 分析視圖 ═══
+           配色沿用看板既有的台股慣例：紅=漲、綠=跌。
+           這一組在深色底上通過對比檢查，但紅綠對紅綠色盲的分離度只有 ΔE 7.9
+           （下限帶 6–8），所以每個數字都一定要搭配 +/− 號與 ▲▼ 方向符號，
+           絕不可以只靠顏色表達漲跌。 */
+        .analysis-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 14px 16px 10px;
+            margin: 14px 0;
+        }
+        .analysis-head {
+            display: flex; flex-wrap: wrap; align-items: center;
+            justify-content: space-between; gap: 10px; margin-bottom: 12px;
+        }
+        .analysis-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+        .an-tab {
+            background: rgba(255,255,255,0.04); color: #94a3b8;
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+            padding: 5px 12px; font-size: 0.78rem; font-weight: 600;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .an-tab:hover { color: #e2e8f0; background: rgba(255,255,255,0.08); }
+        .an-tab.active { color: #f1f5f9; background: rgba(56,189,248,0.14); border-color: rgba(56,189,248,0.45); }
+        .an-caption { font-size: 0.72rem; color: #94a3b8; }
+        .an-chart { width: 100%; overflow-x: auto; }
+        .an-chart svg { display: block; max-width: 100%; height: auto; }
+        .an-legend {
+            display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+            font-size: 0.72rem; color: #cbd5e1; margin-top: 8px;
+            padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .an-muted { color: #64748b; }
+        .lg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .lg-dot.up { background: #f87171; }
+        .lg-dot.down { background: #4ade80; }
+        .an-trail-ctl { display: inline-flex; align-items: center; gap: 5px; color: #94a3b8; }
+        .an-trail-ctl select {
+            background: rgba(255,255,255,0.06); color: #e2e8f0;
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+            padding: 2px 6px; font-size: 0.72rem; cursor: pointer;
+        }
+
+        .breadth-hero {
+            display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
+            margin-bottom: 10px; padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .bh-num { font-family: 'JetBrains Mono', monospace; font-size: 1.9rem; font-weight: 800; line-height: 1; }
+        .bh-label { font-size: 0.72rem; color: #94a3b8; }
+        .bh-flag {
+            font-size: 0.74rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+            border: 1px solid; display: inline-flex; align-items: center; gap: 5px;
+        }
+
+        .an-table-wrap { margin-top: 10px; }
+        .an-table-wrap summary {
+            cursor: pointer; font-size: 0.72rem; color: #64748b;
+            padding: 4px 0; list-style: none;
+        }
+        .an-table-wrap summary::-webkit-details-marker { display: none; }
+        .an-table-wrap summary::before { content: '▸ '; }
+        .an-table-wrap[open] summary::before { content: '▾ '; }
+        .an-table table { width: 100%; border-collapse: collapse; font-size: 0.74rem; margin-top: 6px; }
+        .an-table th {
+            text-align: right; color: #94a3b8; font-weight: 600; padding: 4px 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0;
+            background: #0f172a;
+        }
+        .an-table th:first-child, .an-table td:first-child { text-align: left; }
+        .an-table td {
+            text-align: right; padding: 3px 6px; color: #e2e8f0;
+            font-family: 'JetBrains Mono', monospace;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .an-table td:first-child { font-family: inherit; }
+
+        .an-tip {
+            position: fixed; z-index: 9999; pointer-events: none;
+            background: rgba(2, 6, 23, 0.96); border: 1px solid rgba(255,255,255,0.14);
+            border-radius: 8px; padding: 7px 10px; font-size: 0.74rem; color: #f1f5f9;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-width: 260px; line-height: 1.5;
+        }
+        .an-tip b { color: #fff; }
+        .an-tip .k { color: #94a3b8; }
+    </style>
     <!-- Top 5 & Bottom 5 Leaderboard Summary Cards -->
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 14px; margin-bottom: 14px;">
+    <div class="leaderboard-row">
         <!-- Top 5 Card (Strongest) -->
         <div style="background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 12px 16px;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
@@ -457,6 +564,57 @@
                 </tbody>
             </table>
         </div>
+    </div>
+
+    <!-- ═══ 分析視圖（輪動 / 廣度 / 大單）═══ -->
+    <div class="analysis-panel">
+        <div class="analysis-head">
+            <div class="analysis-tabs">
+                <button class="an-tab active" data-view="rotation" onclick="setAnalysisView('rotation')">🔄 產業輪動</button>
+                <button class="an-tab" data-view="breadth" onclick="setAnalysisView('breadth')">📊 市場廣度</button>
+                <button class="an-tab" data-view="large" onclick="setAnalysisView('large')">💰 大單集中度</button>
+            </div>
+            <div class="an-caption" id="anCaption"></div>
+        </div>
+
+        <div id="anView-rotation" class="an-view">
+            <div id="rotationChart" class="an-chart"></div>
+            <div class="an-legend">
+                <span><i class="lg-dot up"></i>▲ 日線上漲</span>
+                <span><i class="lg-dot down"></i>▼ 日線下跌</span>
+                <span class="an-muted">圓點大小 = 對大盤的點數影響力</span>
+                <span class="an-muted">拖尾 = 走過的路徑，越淡越舊</span>
+                <label class="an-trail-ctl">軌跡
+                    <select id="trailSel" onchange="setTrailSeconds(this.value)">
+                        <option value="120" selected>2 分鐘</option>
+                        <option value="300">5 分鐘</option>
+                        <option value="0">關閉</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+
+        <div id="anView-breadth" class="an-view" hidden>
+            <div id="breadthHero" class="breadth-hero"></div>
+            <div id="breadthChart" class="an-chart"></div>
+            <div class="an-legend">
+                <span><i class="lg-dot up"></i>▲ 上漲家數</span>
+                <span><i class="lg-dot down"></i>▼ 下跌家數</span>
+                <span class="an-muted">中線左右對稱，長度即家數</span>
+            </div>
+        </div>
+
+        <div id="anView-large" class="an-view" hidden>
+            <div id="largeChart" class="an-chart"></div>
+            <div class="an-legend">
+                <span class="an-muted">大單 = 單筆 ≥ 50 張成交。比例越高代表該產業的量越集中在大單。</span>
+            </div>
+        </div>
+
+        <details class="an-table-wrap">
+            <summary>顯示數據表格</summary>
+            <div id="anTable" class="an-table"></div>
+        </details>
     </div>
 
     <div id="heatmapContainer" class="heatmap-container">
@@ -771,13 +929,14 @@
     }
 
     async function updateSectors() {
-        if (viewMode === '5m') {
-            try {
-                const res = await fetch('/api/momentum-5m');
-                if (res.ok) momentumData = await res.json();
-            } catch(e) {}
-        }
+        // 一律抓動能資料：輪動象限圖需要「日線」與「5 分鐘」同時存在，
+        // 不能只在 5m 模式下才有。這是本機端點，成本很低。
+        try {
+            const res = await fetch('/api/momentum-5m');
+            if (res.ok) momentumData = await res.json();
+        } catch(e) {}
         let sectorAverages = [];
+        analysisStats = [];
 
         for (const [sector, tickers] of Object.entries(sectorsData)) {
             if (tickers.length === 0) continue;
@@ -839,7 +998,55 @@
             });
             
             const avgPct = sumWeight > 0 ? (sumWeightedPct / sumWeight) : 0;
-            sectorAverages.push({ sector, avgPct, totalVol: sectorVol, totalLargeVol: sectorLargeVol });
+            // sectorPts 上面一路累加了，但以前沒放進來 —— 於是榜單那欄
+            // 「大盤點數」永遠顯示 0.00 點（item.pts 是 undefined）。
+            sectorAverages.push({ sector, avgPct, pts: sectorPts,
+                                  totalVol: sectorVol, totalLargeVol: sectorLargeVol });
+
+            // ── 分析視圖用的統計：不受 viewMode 影響，日線與 5 分鐘都算 ──
+            let dW = 0, dSum = 0, mW = 0, mSum = 0;
+            let up = 0, down = 0, flat = 0, aVol = 0, aLarge = 0, aPts = 0;
+            tickers.forEach(sym => {
+                const q = quotes[sym];
+                const sInfo = sharesData[sym] || { shares: 1, market: '上市' };
+                const shares = typeof sInfo === 'number' ? sInfo : (sInfo.shares || 1);
+                const divisor = (sInfo.market || 'sii') === 'otc' ? otc_divisor : tse_divisor;
+
+                // 日線
+                if (q && q.price > 0 && q.prev > 0) {
+                    const p = (q.price - q.prev) / q.prev * 100;
+                    const mcap = q.price * shares;
+                    dSum += p * mcap; dW += mcap;
+                    aPts += ((q.price - q.prev) * shares) / divisor;
+                    if (p > 0) up++; else if (p < 0) down++; else flat++;
+                } else {
+                    flat++;
+                }
+                // 5 分鐘動能
+                const m = momentumData[sym];
+                if (m && m.price > 0) {
+                    const prev = m.oldest_price || m.price;
+                    if (prev > 0) {
+                        const p5 = (m.price - prev) / prev * 100;
+                        const mcap5 = m.price * shares;
+                        mSum += p5 * mcap5; mW += mcap5;
+                    }
+                    aVol += (m.vol || 0);
+                    aLarge += (m.large_vol || 0);
+                }
+            });
+            const dayPct = dW > 0 ? dSum / dW : 0;
+            const momPct = mW > 0 ? mSum / mW : 0;
+            analysisStats.push({
+                sector,
+                dayPct, momPct, pts: aPts,
+                up, down, flat,
+                vol: aVol, largeVol: aLarge,
+                largeRatio: aVol > 0 ? aLarge / aVol : 0,
+                quadrant: dayPct >= 0
+                    ? (momPct >= 0 ? '強者恆強' : '開始轉弱')
+                    : (momPct >= 0 ? '落底反彈' : '弱者恆弱'),
+            });
 
             const avgBadge = document.getElementById(`sector-avg-${sector}`);
             const sCard = document.getElementById(`sector-card-${sector}`);
@@ -912,6 +1119,7 @@
 
         // Update Top 5 & Bottom 5 Leaderboard Cards
         renderTopBottomSummary(sectorAverages);
+        renderAnalysis();
     }
 
     function renderTopBottomSummary(sectorAverages) {
@@ -969,6 +1177,401 @@
                 </tr>`;
         });
         bottomBody.innerHTML = bottomHtml;
+    }
+
+
+    // ═══════════════════════════════════════════════════════
+    // 分析視圖：產業輪動 / 市場廣度 / 大單集中度
+    // ═══════════════════════════════════════════════════════
+    // 共用色。台股慣例紅漲綠跌，跟看板其他頁一致。
+    // 紅綠對紅綠色盲的分離度只有 ΔE 7.9（下限帶），所以每處都必須額外
+    // 用 +/− 號、▲▼ 方向符號與「相對中線的位置」表達漲跌，不能只靠顏色。
+    const AN_UP = '#f87171';
+    const AN_DOWN = '#4ade80';
+    const AN_FLAT = '#94a3b8';
+    const AN_ACCENT = '#fbbf24';          // 大單（單一色相、深淺表大小）
+    const AN_INK = '#e2e8f0';
+    const AN_INK_MUTED = '#94a3b8';
+    const AN_GRID = 'rgba(255,255,255,0.07)';
+
+    let analysisView = 'rotation';
+    let analysisStats = [];               // 每個產業一筆，含日線/5分鐘/家數/大單
+    let anTip = null;
+
+    // ── 輪動軌跡 ──
+    // 畫面每 3 秒重繪一次，但軌跡改用「時間取樣」：每 TRAIL_SAMPLE_MS 才記一點。
+    // 直接每次重繪都記的話，2 分鐘就有 40 個點，線會抖成鋸齒還看不出方向。
+    const TRAIL_SAMPLE_MS = 15000;
+    const TRAIL_OPTIONS = { 0: '關閉', 120: '2 分鐘', 300: '5 分鐘' };
+    let trailSeconds = 120;               // 預設短軌跡
+    const rotationTrail = new Map();      // sector -> [{x, y, t}]
+
+    function recordTrail(stats) {
+        const now = Date.now();
+        const keep = Math.max(2, Math.round(trailSeconds * 1000 / TRAIL_SAMPLE_MS) + 1);
+        stats.forEach(d => {
+            let arr = rotationTrail.get(d.sector);
+            if (!arr) { arr = []; rotationTrail.set(d.sector, arr); }
+            const last = arr[arr.length - 1];
+            if (!last || now - last.t >= TRAIL_SAMPLE_MS) {
+                arr.push({ x: d.dayPct, y: d.momPct, t: now });
+                if (arr.length > keep) arr.splice(0, arr.length - keep);
+            } else {
+                // 還沒到取樣點：更新最後一點，讓線頭跟著圓點走，不會脫節
+                last.x = d.dayPct; last.y = d.momPct;
+            }
+        });
+        // 清掉已經不在清單上的產業，避免無限長大
+        const live = new Set(stats.map(d => d.sector));
+        [...rotationTrail.keys()].forEach(k => { if (!live.has(k)) rotationTrail.delete(k); });
+    }
+
+    function setTrailSeconds(v) {
+        trailSeconds = parseInt(v, 10) || 0;
+        if (!trailSeconds) rotationTrail.clear();
+        renderAnalysis();
+    }
+
+    const anSign = v => (v > 0 ? '+' : '');
+    const anArrow = v => (v > 0 ? '▲' : v < 0 ? '▼' : '·');
+    const anColor = v => (v > 0 ? AN_UP : v < 0 ? AN_DOWN : AN_FLAT);
+    const anEsc = t => String(t).replace(/[&<>"]/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    function setAnalysisView(v) {
+        analysisView = v;
+        document.querySelectorAll('.an-tab').forEach(b =>
+            b.classList.toggle('active', b.dataset.view === v));
+        ['rotation', 'breadth', 'large'].forEach(k => {
+            const el = document.getElementById(`anView-${k}`);
+            if (el) el.hidden = (k !== v);
+        });
+        renderAnalysis();
+    }
+
+    // ── tooltip ────────────────────────────────────────────
+    function anShowTip(evt, html) {
+        if (!anTip) {
+            anTip = document.createElement('div');
+            anTip.className = 'an-tip';
+            document.body.appendChild(anTip);
+        }
+        anTip.innerHTML = html;
+        anTip.style.display = 'block';
+        const pad = 14;
+        let x = evt.clientX + pad, y = evt.clientY + pad;
+        const r = anTip.getBoundingClientRect();
+        if (x + r.width > window.innerWidth - 8) x = evt.clientX - r.width - pad;
+        if (y + r.height > window.innerHeight - 8) y = evt.clientY - r.height - pad;
+        anTip.style.left = x + 'px';
+        anTip.style.top = y + 'px';
+    }
+    function anHideTip() { if (anTip) anTip.style.display = 'none'; }
+
+    function anBind(el, html) {
+        el.addEventListener('mousemove', e => anShowTip(e, html));
+        el.addEventListener('mouseleave', anHideTip);
+    }
+
+    // ── 主入口：三個視圖共用 analysisStats ──────────────────
+    function renderAnalysis() {
+        const cap = document.getElementById('anCaption');
+        if (!analysisStats.length) {
+            if (cap) cap.textContent = '等待資料…';
+            return;
+        }
+        recordTrail(analysisStats);   // 不論在哪個分頁都要持續記，切回來才有軌跡
+        if (analysisView === 'rotation') {
+            if (cap) cap.textContent = '橫軸=今日漲跌，縱軸=近 5 分鐘動能。右上=強者恆強，左上=落底反彈。';
+            renderRotation();
+        } else if (analysisView === 'breadth') {
+            if (cap) cap.textContent = '看漲跌家數，而不是看指數。指數漲但廣度負 = 少數權值股在撐。';
+            renderBreadth();
+        } else {
+            if (cap) cap.textContent = '大單量佔該產業總量的比例，越高代表籌碼越集中在大單。';
+            renderLarge();
+        }
+        renderAnalysisTable();
+    }
+
+    // ── 1. 產業輪動象限圖 ──────────────────────────────────
+    function renderRotation() {
+        const host = document.getElementById('rotationChart');
+        if (!host) return;
+        const data = analysisStats.filter(d => isFinite(d.dayPct) && isFinite(d.momPct));
+        if (!data.length) { host.innerHTML = '<div class="an-muted">無資料</div>'; return; }
+
+        const W = 900, H = 460, M = { t: 22, r: 22, b: 40, l: 52 };
+        const iw = W - M.l - M.r, ih = H - M.t - M.b;
+
+        // 對稱範圍，讓零點永遠在正中央 —— 象限才讀得準
+        // 範圍要連軌跡上的歷史點一起算，不然剛才走過的線會被畫到框外
+        const allX = data.map(d => Math.abs(d.dayPct));
+        const allY = data.map(d => Math.abs(d.momPct));
+        if (trailSeconds > 0) {
+            rotationTrail.forEach(pts => pts.forEach(pt => {
+                allX.push(Math.abs(pt.x)); allY.push(Math.abs(pt.y));
+            }));
+        }
+        const xMax = Math.max(0.5, ...allX) * 1.15;
+        const yMax = Math.max(0.2, ...allY) * 1.15;
+        const X = v => M.l + (v / xMax + 1) / 2 * iw;
+        const Y = v => M.t + (1 - (v / yMax + 1) / 2) * ih;
+
+        const maxPts = Math.max(1, ...data.map(d => Math.abs(d.pts)));
+        const R = d => 5 + Math.sqrt(Math.abs(d.pts) / maxPts) * 13;
+
+        const cx = X(0), cy = Y(0);
+        let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="產業輪動象限圖">`;
+        svg += `<defs><clipPath id="rotClip">`
+            + `<rect x="${M.l}" y="${M.t}" width="${iw}" height="${ih}"/></clipPath></defs>`;
+
+        // 象限底色，極淡，只做分區暗示
+        // 左右對稱的極淡底色，只對應橫軸（今日漲跌）的方向。
+        // 四格用四種不同深淺會讓人以為深淺有含意，其實沒有。
+        const quads = [
+            [M.l, M.t, cx - M.l, ih, 'rgba(74,222,128,0.05)'],
+            [cx, M.t, W - M.r - cx, ih, 'rgba(248,113,113,0.05)'],
+        ];
+        quads.forEach(([x, y, w, h, f]) => {
+            if (w > 0 && h > 0) svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${f}"/>`;
+        });
+
+        const qLab = [
+            [cx - 10, M.t + 16, 'end', '落底反彈 ↗'],
+            [cx + 10, M.t + 16, 'start', '強者恆強 ↗↗'],
+            [cx - 10, M.t + ih - 8, 'end', '弱者恆弱 ↘↘'],
+            [cx + 10, M.t + ih - 8, 'start', '開始轉弱 ↘'],
+        ];
+        qLab.forEach(([x, y, a, t]) =>
+            svg += `<text x="${x}" y="${y}" text-anchor="${a}" font-size="11" fill="#64748b" font-weight="600">${t}</text>`);
+
+        // 軸線（零線用實線、較亮；其餘不畫格線以免干擾散點）
+        svg += `<line x1="${M.l}" y1="${cy}" x2="${W - M.r}" y2="${cy}" stroke="${AN_GRID}" stroke-width="2"/>`;
+        svg += `<line x1="${cx}" y1="${M.t}" x2="${cx}" y2="${M.t + ih}" stroke="${AN_GRID}" stroke-width="2"/>`;
+
+        [-xMax / 2, xMax / 2].forEach(v =>
+            svg += `<text x="${X(v)}" y="${M.t + ih + 16}" text-anchor="middle" font-size="10" fill="#64748b">${anSign(v)}${v.toFixed(1)}%</text>`);
+        [-yMax / 2, yMax / 2].forEach(v =>
+            svg += `<text x="${M.l - 8}" y="${Y(v) + 3}" text-anchor="end" font-size="10" fill="#64748b">${anSign(v)}${v.toFixed(2)}%</text>`);
+        svg += `<text x="${W - M.r}" y="${M.t + ih + 32}" text-anchor="end" font-size="10" fill="#94a3b8">今日漲跌 % →</text>`;
+        svg += `<text x="${M.l - 40}" y="${M.t + 10}" font-size="10" fill="#94a3b8">↑ 5分動能 %</text>`;
+
+        // 只給影響力前 6 名直接標名字，其餘靠 hover，避免糊成一團
+        const labelSet = new Set([...data].sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts))
+            .slice(0, 6).map(d => d.sector));
+
+        const sorted = [...data].sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts));
+
+        // 軌跡先畫，圓點後畫 —— 圓點才會壓在自己的軌跡線頭上面。
+        // 逐段畫而不是一條 polyline，是為了讓透明度由舊到新遞增：
+        // 尾巴淡、頭部實，方向感才出得來（不用箭頭就看得懂在往哪走）。
+        if (trailSeconds > 0) {
+            svg += `<g clip-path="url(#rotClip)">`;
+            sorted.forEach(d => {
+                const pts = rotationTrail.get(d.sector);
+                if (!pts || pts.length < 2) return;
+                // 幾乎沒動的就不要畫。真實資料有二十幾個產業，全部都拖一條線
+                // 會糊成一團毛球，反而看不出來誰真的在移動。
+                const p0 = pts[0], pn = pts[pts.length - 1];
+                const travel = Math.hypot(X(pn.x) - X(p0.x), Y(pn.y) - Y(p0.y));
+                if (travel < 6) return;
+                const col = anColor(d.dayPct);
+                for (let i = 1; i < pts.length; i++) {
+                    const a = pts[i - 1], b = pts[i];
+                    const op = 0.10 + 0.42 * (i / (pts.length - 1));
+                    svg += `<line x1="${X(a.x).toFixed(1)}" y1="${Y(a.y).toFixed(1)}" `
+                        + `x2="${X(b.x).toFixed(1)}" y2="${Y(b.y).toFixed(1)}" `
+                        + `stroke="${col}" stroke-width="2" stroke-linecap="round" `
+                        + `stroke-opacity="${op.toFixed(2)}" pointer-events="none"/>`;
+                }
+            });
+            svg += `</g>`;
+        }
+
+        sorted.forEach(d => {
+            const x = X(d.dayPct), y = Y(d.momPct), r = R(d);
+            // 2px 底色描邊，重疊時仍分得開
+            svg += `<circle class="an-dot" data-sector="${anEsc(d.sector)}" cx="${x}" cy="${y}" r="${r}" `
+                + `fill="${anColor(d.dayPct)}" fill-opacity="0.75" stroke="#0f172a" stroke-width="2" style="cursor:pointer"/>`;
+            if (labelSet.has(d.sector)) {
+                svg += `<text x="${x}" y="${y - r - 5}" text-anchor="middle" font-size="11" `
+                    + `font-weight="700" fill="${AN_INK}" pointer-events="none">${anEsc(d.sector)}</text>`;
+            }
+        });
+        svg += `</svg>`;
+        host.innerHTML = svg;
+
+        host.querySelectorAll('.an-dot').forEach(el => {
+            const d = data.find(v => v.sector === el.dataset.sector);
+            if (!d) return;
+            anBind(el, `<b>${anEsc(d.sector)}</b><br>`
+                + `<span class="k">今日</span> ${anArrow(d.dayPct)} ${anSign(d.dayPct)}${d.dayPct.toFixed(2)}%<br>`
+                + `<span class="k">5分動能</span> ${anArrow(d.momPct)} ${anSign(d.momPct)}${d.momPct.toFixed(2)}%<br>`
+                + `<span class="k">大盤點數</span> ${anSign(d.pts)}${d.pts.toFixed(2)} 點<br>`
+                + `<span class="k">象限</span> ${d.quadrant}`);
+            el.addEventListener('click', () => scrollToSector(d.sector));
+        });
+    }
+
+    // ── 2. 市場廣度 ────────────────────────────────────────
+    function renderBreadth() {
+        const host = document.getElementById('breadthChart');
+        const hero = document.getElementById('breadthHero');
+        if (!host) return;
+        const data = [...analysisStats].filter(d => (d.up + d.down) > 0)
+            .sort((a, b) => (b.up - b.down) - (a.up - a.down));
+        if (!data.length) { host.innerHTML = '<div class="an-muted">無資料</div>'; return; }
+
+        const totUp = data.reduce((s, d) => s + d.up, 0);
+        const totDown = data.reduce((s, d) => s + d.down, 0);
+        const net = totUp - totDown;
+        const idxPts = data.reduce((s, d) => s + d.pts, 0);
+
+        // 這裡就是重點：指數方向與廣度方向不一致時要明講
+        let flag = '', fcol = AN_FLAT, fbg = 'rgba(148,163,184,0.12)';
+        if (idxPts > 0 && net < 0) {
+            flag = '⚠ 指數上漲但下跌家數較多 — 少數權值股在撐盤';
+            fcol = AN_ACCENT; fbg = 'rgba(251,191,36,0.12)';
+        } else if (idxPts < 0 && net > 0) {
+            flag = '⚠ 指數下跌但上漲家數較多 — 權值股拖累，多數個股其實在漲';
+            fcol = AN_ACCENT; fbg = 'rgba(251,191,36,0.12)';
+        } else if (net !== 0) {
+            flag = net > 0 ? '✓ 指數與廣度方向一致（偏多）' : '✓ 指數與廣度方向一致（偏空）';
+            fcol = net > 0 ? AN_UP : AN_DOWN;
+            fbg = net > 0 ? 'rgba(248,113,113,0.12)' : 'rgba(74,222,128,0.12)';
+        }
+        if (hero) {
+            hero.innerHTML =
+                `<div><div class="bh-num" style="color:${AN_UP}">▲ ${totUp}</div><div class="bh-label">上漲家數</div></div>`
+                + `<div><div class="bh-num" style="color:${AN_DOWN}">▼ ${totDown}</div><div class="bh-label">下跌家數</div></div>`
+                + `<div><div class="bh-num" style="color:${anColor(net)}">${anSign(net)}${net}</div><div class="bh-label">淨家數</div></div>`
+                + `<div><div class="bh-num" style="color:${anColor(idxPts)}">${anSign(idxPts)}${idxPts.toFixed(0)}</div><div class="bh-label">大盤點數</div></div>`
+                + (flag ? `<div class="bh-flag" style="color:${fcol};border-color:${fcol}55;background:${fbg}">${flag}</div>` : '');
+        }
+
+        const rowH = 22, gap = 5, labelW = 96, numW = 42;
+        // 左右各留 34px 給家數數字（放長條外側，深色字壓在色塊上很難讀）
+        const W = 900, M = { t: 10, r: 40, b: 24, l: labelW + numW + 8 + 34 };
+        const H = M.t + data.length * (rowH + gap) + M.b;
+        const iw = W - M.l - M.r;
+        const half = iw / 2;
+        const maxSide = Math.max(1, ...data.map(d => Math.max(d.up, d.down)));
+        const cx = M.l + half;
+
+        let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="各產業漲跌家數">`;
+        svg += `<line x1="${cx}" y1="${M.t - 4}" x2="${cx}" y2="${H - M.b + 4}" stroke="${AN_GRID}" stroke-width="2"/>`;
+
+        data.forEach((d, i) => {
+            const y = M.t + i * (rowH + gap);
+            const wUp = d.up / maxSide * (half - 6);
+            const wDn = d.down / maxSide * (half - 6);
+            const netN = d.up - d.down;
+
+            svg += `<text x="${labelW}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="11.5" fill="${AN_INK}">${anEsc(d.sector)}</text>`;
+            svg += `<text x="${labelW + numW}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="11" `
+                + `font-family="'JetBrains Mono',monospace" fill="${anColor(netN)}">${anSign(netN)}${netN}</text>`;
+
+            // 下跌往左、上漲往右：位置本身就帶方向，不必只靠顏色
+            if (d.down > 0) svg += `<rect class="an-bar" data-sector="${anEsc(d.sector)}" x="${cx - 2 - wDn}" y="${y}" `
+                + `width="${wDn}" height="${rowH}" rx="4" fill="${AN_DOWN}" fill-opacity="0.85" style="cursor:pointer"/>`;
+            if (d.up > 0) svg += `<rect class="an-bar" data-sector="${anEsc(d.sector)}" x="${cx + 2}" y="${y}" `
+                + `width="${wUp}" height="${rowH}" rx="4" fill="${AN_UP}" fill-opacity="0.85" style="cursor:pointer"/>`;
+
+            if (d.down > 0) svg += `<text x="${cx - 8 - wDn}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="10.5" `
+                + `font-family="'JetBrains Mono',monospace" fill="${AN_INK_MUTED}">${d.down}</text>`;
+            if (d.up > 0) svg += `<text x="${cx + 8 + wUp}" y="${y + rowH / 2 + 4}" text-anchor="start" font-size="10.5" `
+                + `font-family="'JetBrains Mono',monospace" fill="${AN_INK_MUTED}">${d.up}</text>`;
+        });
+        svg += `<text x="${cx - 6}" y="${H - 8}" text-anchor="end" font-size="10" fill="#64748b">◀ 下跌家數</text>`;
+        svg += `<text x="${cx + 6}" y="${H - 8}" text-anchor="start" font-size="10" fill="#64748b">上漲家數 ▶</text>`;
+        svg += `</svg>`;
+        host.innerHTML = svg;
+
+        host.querySelectorAll('.an-bar').forEach(el => {
+            const d = data.find(v => v.sector === el.dataset.sector);
+            if (!d) return;
+            const tot = d.up + d.down + d.flat;
+            anBind(el, `<b>${anEsc(d.sector)}</b><br>`
+                + `<span class="k">上漲</span> ▲ ${d.up} 檔<br>`
+                + `<span class="k">下跌</span> ▼ ${d.down} 檔<br>`
+                + `<span class="k">平盤/無量</span> ${d.flat} 檔<br>`
+                + `<span class="k">上漲佔比</span> ${tot ? (d.up / tot * 100).toFixed(0) : 0}%`);
+            el.addEventListener('click', () => scrollToSector(d.sector));
+        });
+    }
+
+    // ── 3. 大單集中度 ──────────────────────────────────────
+    function renderLarge() {
+        const host = document.getElementById('largeChart');
+        if (!host) return;
+        const data = [...analysisStats].filter(d => d.vol > 0)
+            .sort((a, b) => b.largeRatio - a.largeRatio);
+        if (!data.length) {
+            host.innerHTML = '<div class="an-muted">目前沒有量能資料（大單統計需要盤中即時成交，或先切到 5 分鐘模式累積）。</div>';
+            return;
+        }
+
+        // 右邊要放 "34.0%  L:17680 / V:52000" 這種長字串，留白不足會被裁掉
+        const rowH = 20, gap = 5, labelW = 96, M = { t: 10, r: 215, b: 24, l: labelW + 10 };
+        const W = 900, H = M.t + data.length * (rowH + gap) + M.b;
+        const iw = W - M.l - M.r;
+        const maxR = Math.max(0.05, ...data.map(d => d.largeRatio));
+
+        let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="各產業大單集中度">`;
+        [0.25, 0.5, 0.75, 1].forEach(f => {
+            const x = M.l + iw * f;
+            svg += `<line x1="${x}" y1="${M.t - 4}" x2="${x}" y2="${H - M.b}" stroke="${AN_GRID}" stroke-width="1"/>`;
+            svg += `<text x="${x}" y="${H - 10}" text-anchor="middle" font-size="10" fill="#64748b">${(maxR * f * 100).toFixed(0)}%</text>`;
+        });
+
+        data.forEach((d, i) => {
+            const y = M.t + i * (rowH + gap);
+            const w = Math.max(2, d.largeRatio / maxR * iw);
+            // 單一色相、以深淺表大小（sequential），不用第二個色相
+            const op = 0.35 + 0.55 * (d.largeRatio / maxR);
+            svg += `<text x="${labelW}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="11.5" fill="${AN_INK}">${anEsc(d.sector)}</text>`;
+            svg += `<rect class="an-lbar" data-sector="${anEsc(d.sector)}" x="${M.l}" y="${y}" width="${w}" height="${rowH}" `
+                + `rx="4" fill="${AN_ACCENT}" fill-opacity="${op.toFixed(2)}" style="cursor:pointer"/>`;
+            svg += `<text x="${M.l + w + 8}" y="${y + rowH / 2 + 4}" font-size="10.5" `
+                + `font-family="'JetBrains Mono',monospace" fill="${AN_INK_MUTED}">`
+                + `${(d.largeRatio * 100).toFixed(1)}%</text>`;
+            svg += `<text x="${W - 8}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="9.5" `
+                + `font-family="'JetBrains Mono',monospace" fill="#475569">L:${d.largeVol} / V:${d.vol}</text>`;
+        });
+        svg += `</svg>`;
+        host.innerHTML = svg;
+
+        host.querySelectorAll('.an-lbar').forEach(el => {
+            const d = data.find(v => v.sector === el.dataset.sector);
+            if (!d) return;
+            anBind(el, `<b>${anEsc(d.sector)}</b><br>`
+                + `<span class="k">大單佔比</span> ${(d.largeRatio * 100).toFixed(1)}%<br>`
+                + `<span class="k">大單量</span> ${d.largeVol} 張<br>`
+                + `<span class="k">總量</span> ${d.vol} 張<br>`
+                + `<span class="k">今日</span> ${anArrow(d.dayPct)} ${anSign(d.dayPct)}${d.dayPct.toFixed(2)}%`);
+            el.addEventListener('click', () => scrollToSector(d.sector));
+        });
+    }
+
+    // ── 表格檢視（顏色之外的第二條路）────────────────────────
+    function renderAnalysisTable() {
+        const host = document.getElementById('anTable');
+        if (!host) return;
+        const rows = [...analysisStats].sort((a, b) => b.pts - a.pts);
+        let h = '<table><thead><tr><th>產業</th><th>今日%</th><th>5分%</th><th>點數</th>'
+            + '<th>▲</th><th>▼</th><th>大單%</th><th style="text-align:left">象限</th></tr></thead><tbody>';
+        rows.forEach(d => {
+            h += `<tr><td>${anEsc(d.sector)}</td>`
+                + `<td style="color:${anColor(d.dayPct)}">${anArrow(d.dayPct)}${anSign(d.dayPct)}${d.dayPct.toFixed(2)}</td>`
+                + `<td style="color:${anColor(d.momPct)}">${anArrow(d.momPct)}${anSign(d.momPct)}${d.momPct.toFixed(2)}</td>`
+                + `<td style="color:${anColor(d.pts)}">${anSign(d.pts)}${d.pts.toFixed(2)}</td>`
+                + `<td>${d.up}</td><td>${d.down}</td>`
+                + `<td>${d.vol > 0 ? (d.largeRatio * 100).toFixed(1) : '–'}</td>`
+                + `<td style="text-align:left;color:#94a3b8">${d.quadrant}</td></tr>`;
+        });
+        h += '</tbody></table>';
+        host.innerHTML = h;
     }
 
     function scrollToSector(sectorName) {
