@@ -487,6 +487,35 @@
         .lg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; }
         .lg-dot.up { background: #f87171; }
         .lg-dot.down { background: #4ade80; }
+        /* 突顯狀態全部由 class 決定，hover 不需要重建 SVG。
+           transition 讓「自動換榜」是淡入淡出而不是瞬間跳掉。 */
+        .rot-trail { display: none; }
+        .rot-trail.is-focus { display: inline; }
+        .rot-node .rot-dot { fill-opacity: 0.22; transition: fill-opacity 0.45s ease; }
+        .rot-node .rot-label { opacity: 0; transition: opacity 0.45s ease; }
+        .rot-node .rot-ring { stroke-opacity: 0.9; }
+        .rot-node.is-focus .rot-dot { fill-opacity: 0.8; }
+        .rot-node.is-focus .rot-label { opacity: 1; }
+        /* 有人被滑到時：只留那一檔，其餘壓得更暗 */
+        svg.is-hovering .rot-trail.is-focus { display: none; }
+        svg.is-hovering .rot-trail.is-hover { display: inline; }
+        svg.is-hovering .rot-node .rot-dot { fill-opacity: 0.12; }
+        svg.is-hovering .rot-node .rot-label { opacity: 0; }
+        svg.is-hovering .rot-node.is-hover .rot-dot { fill-opacity: 0.95; }
+        svg.is-hovering .rot-node.is-hover .rot-label { opacity: 1; }
+
+        .rot-controls {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+            margin-bottom: 8px; font-size: 0.72rem;
+        }
+        .rot-pins { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+        .pin-chip {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 999px; padding: 2px 9px; font-size: 0.7rem; font-weight: 600;
+            cursor: pointer; color: #cbd5e1; transition: all 0.15s;
+        }
+        .pin-chip:hover { background: rgba(255,255,255,0.12); }
+        .pin-chip.clear { color: #64748b; border-style: dashed; }
         .an-trail-ctl { display: inline-flex; align-items: center; gap: 5px; color: #94a3b8; }
         .an-trail-ctl select {
             background: rgba(255,255,255,0.06); color: #e2e8f0;
@@ -578,12 +607,31 @@
         </div>
 
         <div id="anView-rotation" class="an-view">
+            <div class="rot-controls">
+                <label class="an-trail-ctl">重點顯示
+                    <select id="focusSel" onchange="setFocusTopN(this.value)">
+                        <option value="3">前 3 檔</option>
+                        <option value="5" selected>前 5 檔</option>
+                        <option value="8">前 8 檔</option>
+                        <option value="99">全部</option>
+                    </select>
+                </label>
+                <label class="an-trail-ctl">依據
+                    <select id="focusModeSel" onchange="setFocusMode(this.value)">
+                        <option value="weight" selected>大盤影響力（穩定）</option>
+                        <option value="movement">近期移動（會輪替）</option>
+                    </select>
+                </label>
+                <button class="pin-chip" onclick="pinCurrent()" title="把目前這幾檔固定住，不再自動輪替">🔒 鎖定目前</button>
+                <div id="rotPins" class="rot-pins"></div>
+            </div>
             <div id="rotationChart" class="an-chart"></div>
             <div class="an-legend">
                 <span><i class="lg-dot up"></i>▲ 日線上漲</span>
                 <span><i class="lg-dot down"></i>▼ 日線下跌</span>
                 <span class="an-muted">圓點大小 = 對大盤的點數影響力</span>
                 <span class="an-muted">拖尾 = 走過的路徑，越淡越舊</span>
+                <span class="an-muted">淡色小點 = 未突顯的產業，滑過即可單獨檢視（移開自動還原）</span>
                 <label class="an-trail-ctl">軌跡
                     <select id="trailSel" onchange="setTrailSeconds(this.value)">
                         <option value="120" selected>2 分鐘</option>
@@ -1206,6 +1254,103 @@
     let trailSeconds = 120;               // 預設短軌跡
     const rotationTrail = new Map();      // sector -> [{x, y, t}]
 
+    // ── 突顯（emphasis）──
+    // 二十幾個產業不可能靠色相分辨，加色相只會讓相鄰色在色盲與縮圖下糊成一片。
+    // 正解是「只讓少數幾檔完整顯示，其餘退成背景」：
+    //   focusTopN  自動挑最近移動最多的前 N 檔（給它們軌跡＋名稱）
+    //   pinnedSectors 使用者手動釘選，釘了就以釘選為準
+    //   hoverSector   滑過任一點時單獨突顯它，其餘全部壓暗
+    let focusTopN = 5;
+    const pinnedSectors = new Set();
+    let hoverSector = null;
+
+    // 分數用 EMA 平滑，成員用「遲滯 + 最短停留」決定。
+    // 直接每次重排前 N 名的話，第 5、6 名分數本來就咬得很近，
+    // 每 3 秒就互換一次，畫面會一直閃 —— 那不是資訊，是雜訊。
+    const scoreEMA = new Map();
+    const focusSince = new Map();
+    let currentFocus = new Set();
+    const FOCUS_DWELL_MS = 90000;      // 進榜後至少待 90 秒
+    const FOCUS_EXIT_SLACK = 4;        // 要掉到 N+4 名之後才換掉
+
+    function updateFocusSet(data) {
+        const now = Date.now();
+        // EMA：新值權重 0.3，短期抖動會被吸收，趨勢仍跟得上
+        data.forEach(d => {
+            const raw = focusScore(d);
+            const prev = scoreEMA.get(d.sector);
+            scoreEMA.set(d.sector, prev == null ? raw : prev * 0.85 + raw * 0.15);
+        });
+        const N = Math.max(0, focusTopN);
+        const ranked = [...data].sort((a, b) =>
+            (scoreEMA.get(b.sector) || 0) - (scoreEMA.get(a.sector) || 0));
+        const rank = new Map(ranked.map((d, i) => [d.sector, i]));
+
+        const next = new Set();
+        // 先讓現有成員續留：名次還在 N+slack 以內，或還沒待滿最短時間
+        currentFocus.forEach(sec => {
+            if (next.size >= N) return;
+            const r = rank.get(sec);
+            if (r == null) return;
+            const dwell = now - (focusSince.get(sec) || 0);
+            if (r < N + FOCUS_EXIT_SLACK || dwell < FOCUS_DWELL_MS) next.add(sec);
+        });
+        // 剩下的空位再從名次最前面的補進來
+        for (const d of ranked) {
+            if (next.size >= N) break;
+            if (!next.has(d.sector)) { next.add(d.sector); }
+        }
+        next.forEach(sec => { if (!focusSince.has(sec)) focusSince.set(sec, now); });
+        [...focusSince.keys()].forEach(sec => { if (!next.has(sec)) focusSince.delete(sec); });
+        currentFocus = next;
+        return next;
+    }
+
+    function setFocusTopN(v) {
+        focusTopN = parseInt(v, 10) || 0;
+        currentFocus = new Set();      // 換檔數就重新挑，不要沿用舊成員
+        focusSince.clear();
+        renderAnalysis();
+    }
+
+    // 一鍵把「目前自動顯示的這幾檔」變成釘選，畫面就完全不動了
+    function pinCurrent() {
+        currentFocus.forEach(sec => pinnedSectors.add(sec));
+        renderAnalysis();
+    }
+    function togglePin(sector) {
+        if (pinnedSectors.has(sector)) pinnedSectors.delete(sector);
+        else pinnedSectors.add(sector);
+        renderAnalysis();
+    }
+    function clearPins() { pinnedSectors.clear(); renderAnalysis(); }
+
+    // 挑選重點的依據。預設用「大盤影響力」而不是「近期移動」——
+    // 移動量本質上就是抖的，第 5、6 名每分鐘都在換手，畫面自然跳；
+    // 而權值影響力一整天幾乎不變，看板穩定，要看誰在動就看軌跡。
+    let focusMode = 'weight';        // 'weight' | 'movement'
+    function setFocusMode(v) {
+        focusMode = v;
+        currentFocus = new Set(); focusSince.clear();
+        renderAnalysis();
+    }
+    function focusScore(d) {
+        return focusMode === 'weight' ? Math.abs(d.pts) : movementScore(d);
+    }
+
+    // 「最近移動最多」＝軌跡在圖上走過的距離；還沒有軌跡時退回用 5 分鐘動能
+    function movementScore(d) {
+        const pts = rotationTrail.get(d.sector);
+        if (pts && pts.length >= 2) {
+            let acc = 0;
+            for (let i = 1; i < pts.length; i++) {
+                acc += Math.hypot(pts[i].x - pts[i - 1].x, (pts[i].y - pts[i - 1].y) * 4);
+            }
+            return acc;
+        }
+        return Math.abs(d.momPct) * 4;
+    }
+
     function recordTrail(stats) {
         const now = Date.now();
         const keep = Math.max(2, Math.round(trailSeconds * 1000 / TRAIL_SAMPLE_MS) + 1);
@@ -1357,11 +1502,20 @@
         svg += `<text x="${W - M.r}" y="${M.t + ih + 32}" text-anchor="end" font-size="10" fill="#94a3b8">今日漲跌 % →</text>`;
         svg += `<text x="${M.l - 40}" y="${M.t + 10}" font-size="10" fill="#94a3b8">↑ 5分動能 %</text>`;
 
-        // 只給影響力前 6 名直接標名字，其餘靠 hover，避免糊成一團
-        const labelSet = new Set([...data].sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts))
-            .slice(0, 6).map(d => d.sector));
+        // ── 決定「重點」是哪幾檔 ──
+        // 有釘選就完全以釘選為準；否則自動挑最近移動最多的前 N 檔。
+        // 滑鼠移到任一點時，改成只突顯那一檔（即使它不在前 N 名）。
+        const autoTop = updateFocusSet(data);
+        const focusSet = pinnedSectors.size ? new Set(pinnedSectors) : autoTop;
+        const isFocus = d => focusSet.has(d.sector);
+        const anyFocus = focusSet.size > 0;
 
-        const sorted = [...data].sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts));
+        // 重點的畫在後面（疊在上層）；背景點先畫
+        const sorted = [...data].sort((a, b) => {
+            const fa = isFocus(a) ? 1 : 0, fb = isFocus(b) ? 1 : 0;
+            if (fa !== fb) return fa - fb;
+            return Math.abs(a.pts) - Math.abs(b.pts);
+        });
 
         // 軌跡先畫，圓點後畫 —— 圓點才會壓在自己的軌跡線頭上面。
         // 逐段畫而不是一條 polyline，是為了讓透明度由舊到新遞增：
@@ -1369,49 +1523,135 @@
         if (trailSeconds > 0) {
             svg += `<g clip-path="url(#rotClip)">`;
             sorted.forEach(d => {
+                // 每一檔的軌跡都放進 DOM，但用 CSS class 控制顯不顯示。
+                // 這樣 hover 時只要換 class，不必重建 SVG ——
+                // 重建會把滑鼠底下的元素銷毀，mouseleave 就永遠不會觸發（原本的 bug）。
                 const pts = rotationTrail.get(d.sector);
                 if (!pts || pts.length < 2) return;
-                // 幾乎沒動的就不要畫。真實資料有二十幾個產業，全部都拖一條線
-                // 會糊成一團毛球，反而看不出來誰真的在移動。
                 const p0 = pts[0], pn = pts[pts.length - 1];
                 const travel = Math.hypot(X(pn.x) - X(p0.x), Y(pn.y) - Y(p0.y));
                 if (travel < 6) return;
                 const col = anColor(d.dayPct);
+                svg += `<g class="rot-trail${isFocus(d) ? ' is-focus' : ''}" data-trail="${anEsc(d.sector)}">`;
                 for (let i = 1; i < pts.length; i++) {
                     const a = pts[i - 1], b = pts[i];
-                    const op = 0.10 + 0.42 * (i / (pts.length - 1));
+                    const f = i / (pts.length - 1);
+                    // 透明度和「線寬」一起由舊到新遞增。兩條同色軌跡交叉時，
+                    // 粗的那一端一定指向它自己的圓點 —— 光靠顏色分不出來，靠粗細可以。
+                    const op = 0.10 + 0.42 * f;
+                    const wid = (0.8 + 1.9 * f).toFixed(2);
                     svg += `<line x1="${X(a.x).toFixed(1)}" y1="${Y(a.y).toFixed(1)}" `
                         + `x2="${X(b.x).toFixed(1)}" y2="${Y(b.y).toFixed(1)}" `
-                        + `stroke="${col}" stroke-width="2" stroke-linecap="round" `
+                        + `stroke="${col}" stroke-width="${wid}" stroke-linecap="round" `
                         + `stroke-opacity="${op.toFixed(2)}" pointer-events="none"/>`;
                 }
+                svg += `</g>`;
             });
             svg += `</g>`;
         }
 
         sorted.forEach(d => {
-            const x = X(d.dayPct), y = Y(d.momPct), r = R(d);
-            // 2px 底色描邊，重疊時仍分得開
-            svg += `<circle class="an-dot" data-sector="${anEsc(d.sector)}" cx="${x}" cy="${y}" r="${r}" `
-                + `fill="${anColor(d.dayPct)}" fill-opacity="0.75" stroke="#0f172a" stroke-width="2" style="cursor:pointer"/>`;
-            if (labelSet.has(d.sector)) {
-                svg += `<text x="${x}" y="${y - r - 5}" text-anchor="middle" font-size="11" `
-                    + `font-weight="700" fill="${AN_INK}" pointer-events="none">${anEsc(d.sector)}</text>`;
+            const x = X(d.dayPct), y = Y(d.momPct);
+            const foc = isFocus(d);
+            const pin = pinnedSectors.has(d.sector);
+            // 非重點：縮小、不描邊 —— 位置資訊仍在，但不搶注意力。
+            // 透明度交給 CSS，hover 才不需要重畫。
+            const r = foc ? R(d) : Math.max(3.5, R(d) * 0.5);
+            const cls = `rot-node${foc ? ' is-focus' : ''}${pin ? ' is-pinned' : ''}`;
+            svg += `<g class="${cls}" data-sector="${anEsc(d.sector)}">`;
+            if (pin) {
+                svg += `<circle class="rot-ring" cx="${x}" cy="${y}" r="${r + 3.5}" fill="none" `
+                    + `stroke="${anColor(d.dayPct)}" stroke-width="1.5" pointer-events="none"/>`;
             }
+            svg += `<circle class="rot-dot" cx="${x}" cy="${y}" r="${r}" fill="${anColor(d.dayPct)}" `
+                + (foc ? `stroke="#0f172a" stroke-width="2" ` : '')
+                + `style="cursor:pointer"/>`;
+            // 加大的透明命中區，小點也好指到
+            svg += `<circle class="rot-hit" cx="${x}" cy="${y}" r="${Math.max(r + 6, 12)}" `
+                + `fill="transparent" style="cursor:pointer"/>`;
+            svg += `<text class="rot-label" x="${x}" y="${y - r - 6}" text-anchor="middle" font-size="11" `
+                + `font-weight="700" fill="${AN_INK}" pointer-events="none">${anEsc(d.sector)}${pin ? ' 📌' : ''}</text>`;
+            svg += `</g>`;
         });
         svg += `</svg>`;
         host.innerHTML = svg;
 
-        host.querySelectorAll('.an-dot').forEach(el => {
-            const d = data.find(v => v.sector === el.dataset.sector);
-            if (!d) return;
-            anBind(el, `<b>${anEsc(d.sector)}</b><br>`
-                + `<span class="k">今日</span> ${anArrow(d.dayPct)} ${anSign(d.dayPct)}${d.dayPct.toFixed(2)}%<br>`
-                + `<span class="k">5分動能</span> ${anArrow(d.momPct)} ${anSign(d.momPct)}${d.momPct.toFixed(2)}%<br>`
-                + `<span class="k">大盤點數</span> ${anSign(d.pts)}${d.pts.toFixed(2)} 點<br>`
-                + `<span class="k">象限</span> ${d.quadrant}`);
-            el.addEventListener('click', () => scrollToSector(d.sector));
+        // 事件委派綁在容器上（只綁一次），而不是綁在每次重繪都會被換掉的節點上。
+        // hover 只改 class，完全不重建 SVG —— 移開才會正常還原。
+        if (!host.dataset.bound) {
+            host.dataset.bound = '1';
+            host.addEventListener('mouseover', e => {
+                const g = e.target.closest && e.target.closest('.rot-node');
+                if (!g) return;
+                applyHover(host, g.dataset.sector);
+                const d = (analysisStats || []).find(v => v.sector === g.dataset.sector);
+                if (d) anShowTip(e, rotTipHtml(d));
+            });
+            host.addEventListener('mousemove', e => {
+                const g = e.target.closest && e.target.closest('.rot-node');
+                if (!g) return;
+                const d = (analysisStats || []).find(v => v.sector === g.dataset.sector);
+                if (d) anShowTip(e, rotTipHtml(d));
+            });
+            host.addEventListener('mouseout', e => {
+                const g = e.target.closest && e.target.closest('.rot-node');
+                if (!g) return;
+                // 只有真的離開這個節點（而不是在子元素之間移動）才還原
+                if (g.contains(e.relatedTarget)) return;
+                applyHover(host, null);
+                anHideTip();
+            });
+            host.addEventListener('mouseleave', () => { applyHover(host, null); anHideTip(); });
+            host.addEventListener('click', e => {
+                const g = e.target.closest && e.target.closest('.rot-node');
+                if (g) togglePin(g.dataset.sector);
+            });
+        }
+        applyHover(host, hoverSector);   // 重繪後把 hover 狀態接回去
+        renderPinChips(data);
+    }
+
+    // 只改 class，不動 DOM 結構 —— 這是 hover 能正確還原的關鍵
+    function applyHover(host, sector) {
+        hoverSector = sector || null;
+        const svg = host.querySelector('svg');
+        if (!svg) return;
+        svg.classList.toggle('is-hovering', !!hoverSector);
+        host.querySelectorAll('.rot-node').forEach(g =>
+            g.classList.toggle('is-hover', g.dataset.sector === hoverSector));
+        host.querySelectorAll('.rot-trail').forEach(g =>
+            g.classList.toggle('is-hover', g.dataset.trail === hoverSector));
+    }
+
+    function rotTipHtml(d) {
+        return `<b>${anEsc(d.sector)}</b>${pinnedSectors.has(d.sector) ? ' 📌' : ''}<br>`
+            + `<span class="k">今日</span> ${anArrow(d.dayPct)} ${anSign(d.dayPct)}${d.dayPct.toFixed(2)}%<br>`
+            + `<span class="k">5分動能</span> ${anArrow(d.momPct)} ${anSign(d.momPct)}${d.momPct.toFixed(2)}%<br>`
+            + `<span class="k">大盤點數</span> ${anSign(d.pts)}${d.pts.toFixed(2)} 點<br>`
+            + `<span class="k">象限</span> ${d.quadrant}<br>`
+            + `<span class="k">點一下${pinnedSectors.has(d.sector) ? '取消釘選' : '釘選這一檔'}</span>`;
+    }
+
+    // 釘選晶片列：讓「現在正在看哪幾檔」變成看得見、可取消的狀態
+    function renderPinChips(data) {
+        const host = document.getElementById('rotPins');
+        if (!host) return;
+        if (!pinnedSectors.size) {
+            const how = focusMode === 'weight' ? '對大盤影響力最大' : '最近移動最多';
+            host.innerHTML = `<span class="an-muted">未釘選 · 自動顯示${how}的 ${focusTopN} 檔，`
+                + `點圓點可釘選想一直追蹤的產業</span>`;
+            return;
+        }
+        const byName = new Map(data.map(d => [d.sector, d]));
+        let h = '<span class="an-muted">已釘選：</span>';
+        [...pinnedSectors].forEach(sec => {
+            const d = byName.get(sec);
+            const col = d ? anColor(d.dayPct) : AN_FLAT;
+            h += `<button class="pin-chip" style="border-color:${col}66;color:${col}" `
+                + `onclick="togglePin('${anEsc(sec)}')" title="取消釘選">${anEsc(sec)} ✕</button>`;
         });
+        h += `<button class="pin-chip clear" onclick="clearPins()">清除全部</button>`;
+        host.innerHTML = h;
     }
 
     // ── 2. 市場廣度 ────────────────────────────────────────
