@@ -1,5 +1,8 @@
 @echo off
 title Order Book Live
+:: Console + Python I/O in UTF-8, otherwise cp950 chokes on the emoji in log lines
+chcp 65001 >nul
+set PYTHONIOENCODING=utf-8
 cd /d "%~dp0"
 
 echo.

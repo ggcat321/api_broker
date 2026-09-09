@@ -12,6 +12,7 @@
 
 import os
 import ssl
+import sys
 import pandas as pd
 import numpy as np
 import requests
@@ -21,6 +22,15 @@ from datetime import datetime, date as date_type
 
 # --- 全局忽略 SSL 驗證 (解決 macOS 憑證未更新導致的連線錯誤) ---
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 這個模組的進度訊息帶了不少 emoji。Windows 上 stdout 被導向檔案或管線時
+# 編碼會退回 cp950，print 會丟 UnicodeEncodeError，錯誤還會一路傳出去
+# 讓呼叫端的 API 整個失敗。直接把輸出釘在 UTF-8。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # 1. 覆寫 requests (FinLab 與 TWSE/TPEx 使用)
 original_request = requests.Session.request

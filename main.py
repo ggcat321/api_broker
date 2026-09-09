@@ -1,9 +1,12 @@
 import os
 import re
+import sys
 import time
 import json
+import math
 import asyncio
 import threading
+import traceback
 import requests
 import urllib3
 from collections import deque, defaultdict
@@ -12,12 +15,22 @@ from contextlib import asynccontextmanager
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from fubon_neo.sdk import FubonSDK
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 主控台輸出一律走 UTF-8。Windows 上只要 stdout 不是真正的 console
+# （被導向檔案、被其他程式接管、在 IDE 裡跑），編碼就會退回 cp950，
+# 那時候任何一行帶 emoji 的 print 都會丟 UnicodeEncodeError；
+# 那個例外會從 print 一路傳出 API handler，讓整個端點回傳失敗。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # 批次抓報價時的並發上限。太高會被富邦 API 限流，漏掉的個股會讓 iNAV 少算。
 SDK_QUOTE_CONCURRENCY = int(os.getenv("SDK_QUOTE_CONCURRENCY", "8"))
@@ -109,7 +122,48 @@ async def lifespan(app):
             pass
     print("Server shutdown complete.")
 
-app = FastAPI(lifespan=lifespan)
+def _json_safe(obj):
+    """把 NaN / Infinity 換成 None，其餘原樣回傳。"""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
+class SafeJSONResponse(JSONResponse):
+    """Starlette 的 JSONResponse 是 allow_nan=False。
+
+    只要回傳的 dict 裡混進一個 NaN 或 Infinity（pandas 欄位缺值、
+    報價相除分母是 0，都會產生），json.dumps 就會丟 ValueError。
+    這個錯誤發生在 render 階段，已經在 handler 的 try/except 之外，
+    前端拿到的是純文字 "Internal Server Error"，JSON.parse 直接失敗，
+    畫面上只會看到「連線失敗: Unexpected token 'I'」這種看不出原因的訊息。
+    這裡先把 NaN/Inf 換成 null，前端本來就吃得下 null。
+    """
+
+    def render(self, content) -> bytes:
+        return json.dumps(
+            _json_safe(content),
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+
+app = FastAPI(lifespan=lifespan, default_response_class=SafeJSONResponse)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc):
+    """沒被接住的例外一律回 JSON，不要讓前端收到純文字的 Internal Server Error。"""
+    traceback.print_exc()
+    return SafeJSONResponse(
+        status_code=500,
+        content={"error": f"{type(exc).__name__}: {exc}"},
+    )
 
 from fastapi.middleware.cors import CORSMiddleware
 
