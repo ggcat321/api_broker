@@ -318,6 +318,9 @@ let activeTickerName = '主動統一台股增長';
 let allPcfCache = {};
 let stockPrices = {};
 let stockPrevCloses = {};
+// 每檔報價屬於哪一個交易日。用來判斷 (price - prev) 到底是「今天的走勢」
+// 還是「昨天那一整天」—— 後者早就含在官方淨值裡，再加一次就是重複計算。
+let stockQuoteDates = {};
 let composition = [];
 let compByCode = new Map();     // stkcd -> 成分股，避免每筆報價都線性搜尋
 let futuresList = [];
@@ -329,6 +332,7 @@ let outUnits = 0;
 
 let navTotal = 0;
 let pcfTranDate = null;
+let pcfTranDateIso = null;     // 同一個日期的 'YYYY-MM-DD' 字串，方便跟報價的 date 直接比對
 
 // 台指類期貨契約乘數 (TAIFEX)。未列出的商品一律不計入 iNAV，改列為「未覆蓋」，
 // 避免用錯誤的乘數靜默算出錯的淨值。
@@ -446,9 +450,22 @@ function pickQuote(codes) {
     for (const c of codes) {
         const px = stockPrices[c];
         const prev = stockPrevCloses[c];
-        if (px > 0 && prev > 0) return { px, prev };
+        if (px > 0 && prev > 0) return { px, prev, date: stockQuoteDates[c] || null };
     }
     return null;
+}
+
+// 這筆報價的 (px - prev) 是不是「已經含在官方淨值裡的那一天」？
+//
+// PCF 的官方淨值是以 trandate 收盤計價的。報價 API 在隔天開盤前回的仍是
+// trandate 當天的資料（date=trandate、price=當天收盤、prev=前一天收盤），
+// 此時 (px - prev) 正好是 trandate 那一整天的漲跌 —— 那段漲跌官方淨值
+// 已經算過了，再疊上去就是把同一天計兩次。
+// 2026-09-17 盤後實測：00981A 因此顯示 27.73（官方 27.99），憑空多出
+// -0.90% 的淨值變動與 +142 bps 的折溢價。
+function quoteIsStaleForNav(quoteDate) {
+    if (!quoteDate || !pcfTranDateIso) return false;
+    return quoteDate <= pcfTranDateIso;
 }
 
 // 計算 iNAV，同時回報資料覆蓋率，讓「安靜地少算」變成看得見的數字。
@@ -460,7 +477,9 @@ function computeInav() {
         missingNames: [],
         reconNav: null,       // Σ(qty × 昨收) / baseunit，用來對帳官方淨值
         reconCoverage: null,
-        futuresSkipped: []
+        futuresSkipped: [],
+        staleWeight: 0,       // 報價日還停在 PCF 基準日、當日損益不列入的權重 (%)
+        staleQuoteDate: null  // 那些報價所屬的交易日
     };
 
     if (!officialNav) return { inav: officialNav, diag };
@@ -469,6 +488,16 @@ function computeInav() {
         // 00631L 追蹤「臺灣50指數」單日正向兩倍，優先用 0050 現貨報酬當代理，
         // 台指期只是退而求其次的近似（成分不同 + 基差收斂會有誤差）。
         const proxy = pickQuote(['0050']) || pickQuote(['TXFR1', 'TXF', 'TX']);
+        if (proxy && quoteIsStaleForNav(proxy.date)) {
+            // 還沒有新一個交易日的報價，當日報酬無從估起，就回官方淨值。
+            // pricedWeight 要一起填，否則 renderQuality 的 total 是 0，
+            // 會被判成「資料不完整」而不是「盤後」。
+            diag.pricedWeight = 100;
+            diag.staleWeight = 100;
+            diag.staleQuoteDate = proxy.date;
+            diag.listedWeight = 100;
+            return { inav: officialNav, diag };
+        }
         if (proxy) {
             const ret = (proxy.px - proxy.prev) / proxy.prev;
             diag.pricedWeight = 100;
@@ -493,7 +522,15 @@ function computeInav() {
             const prev = stockPrevCloses[s.stkcd];
             const shares = s.total_shares || ((s.qty || 0) / (baseunit || 500000) * (outUnits || 1));
 
-            if (px > 0 && prev > 0) {
+            if (px > 0 && prev > 0 && quoteIsStaleForNav(stockQuoteDates[s.stkcd])) {
+                // 報價日 == PCF 基準日：這段漲跌官方淨值已經含了，損益記 0。
+                // 還是算進 pricedWeight（我們確實有它的價），只是額外標記出來。
+                diag.pricedWeight += w;
+                diag.staleWeight += w;
+                diag.staleQuoteDate = diag.staleQuoteDate || stockQuoteDates[s.stkcd];
+                reconValue += (s.qty || 0) * prev;
+                reconPriced += w;
+            } else if (px > 0 && prev > 0) {
                 totalStockPnl += shares * (px - prev);
                 diag.pricedWeight += w;
                 reconValue += (s.qty || 0) * prev;
@@ -529,7 +566,15 @@ function computeInav() {
                 diag.missingWeight += (f.weight || 0);
                 return;
             }
-            totalFuturesPnl += (f.qty || 0) * (q.px - q.prev) * spec.mult;
+            // 期貨同理。夜盤的走勢其實屬於下一個交易日，但 /api/stock-quotes
+            // 回的是日盤報價（prev 是前一天收盤），照算一樣會重複計入基準日
+            // 當天的那段，所以一併停用。
+            if (!quoteIsStaleForNav(q.date)) {
+                totalFuturesPnl += (f.qty || 0) * (q.px - q.prev) * spec.mult;
+            } else {
+                diag.staleWeight += (f.weight || 0);
+                diag.staleQuoteDate = diag.staleQuoteDate || q.date;
+            }
             diag.pricedWeight += (f.weight || 0);
         });
     }
@@ -557,6 +602,19 @@ function renderQuality(diag) {
     staleEl.textContent = pcfTranDate ? fmtDate(pcfTranDate) + (staleDays != null ? ` (T-${staleDays})` : '') : '--';
 
     const warns = [];
+    // 盤後最重要的一句話：現在看到的不是即時估算，而是官方淨值本身。
+    // 不明講的話，使用者會把一個「等於昨收淨值」的數字當成即時 iNAV，
+    // 再拿它去看折溢價。
+    const fullyStale = diag.staleWeight > 0 && total > 0
+        && diag.staleWeight >= diag.pricedWeight - 0.01;
+    if (fullyStale) {
+        warns.push(`盤後：最新報價仍停在 ${diag.staleQuoteDate || 'PCF 基準日'}，`
+            + `與 PCF 基準日相同，當日漲跌已含在官方淨值裡。`
+            + `iNAV 直接顯示官方淨值，折溢價僅供參考（下一個交易日開盤後恢復即時估算）。`);
+    } else if (diag.staleWeight > 0) {
+        warns.push(`有 ${fmt(diag.staleWeight, 2)}% 權重的報價日仍停在 `
+            + `${diag.staleQuoteDate || 'PCF 基準日'}，其當日損益已含在官方淨值中，未重複計入。`);
+    }
     if (total > 0 && covPct < 99.5) {
         const bias = diag.missingWeight;
         warns.push(`有 ${fmt(bias, 2)}% 權重沒有即時報價，iNAV 對漲跌的反應會少掉這一塊`
@@ -584,7 +642,9 @@ function renderQuality(diag) {
     const warn = warns.length > 0;
 
     dot.className = 'dot ' + (bad ? 'dot-red' : warn ? 'dot-yellow' : 'dot-green');
-    head.textContent = bad ? '⚠️ iNAV 不可靠' : warn ? '資料不完整' : '資料完整';
+    head.textContent = bad ? '⚠️ iNAV 不可靠'
+        : fullyStale ? '盤後：顯示官方淨值'
+        : warn ? '資料不完整' : '資料完整';
     head.className = 'font-bold ' + (bad ? 'text-red-400' : warn ? 'text-amber-400' : 'text-emerald-400');
 
     if (warns.length) {
@@ -828,6 +888,7 @@ async function backfillQuotes() {
         missing.forEach(s => {
             if (q[s] && q[s].prev > 0) {
                 stockPrevCloses[s] = q[s].prev;
+                if (q[s].date) stockQuoteDates[s] = q[s].date;
                 // 只在還沒收到任何即時成交時才用 REST 價，避免蓋掉較新的 WS 報價
                 if (!(stockPrices[s] > 0)) stockPrices[s] = q[s].price;
                 filled++;
@@ -1015,6 +1076,10 @@ function renderSpecificETF(ticker, name) {
     outUnits = pcf.out_unit || 0;
     navTotal = pcf.nav_total || 0;
     pcfTranDate = parseTranDate(pcf.trandate_iso || pcf.trandate);
+    pcfTranDateIso = pcf.trandate_iso
+        || (pcfTranDate ? `${pcfTranDate.getFullYear()}-`
+            + `${String(pcfTranDate.getMonth() + 1).padStart(2, '0')}-`
+            + `${String(pcfTranDate.getDate()).padStart(2, '0')}` : null);
 
     document.getElementById('prevNavDisplay').textContent = fmt(officialNav, 2) + ' 元';
     document.getElementById('outUnitsVal').textContent = outUnits ? outUnits.toLocaleString('zh-TW') : '--';
@@ -1048,6 +1113,7 @@ async function globalLaunch(forcePcf = false) {
     globalSymbols = new Set();
     stockPrices = {};
     stockPrevCloses = {};
+    stockQuoteDates = {};
 
     try {
         // forcePcf: 使用者按「重新載入 PCF」時完全跳過後端快取，強制重抓一次
@@ -1088,6 +1154,7 @@ async function globalLaunch(forcePcf = false) {
                     if (q && q.prev > 0) {
                         stockPrices[stkcd] = q.price;
                         stockPrevCloses[stkcd] = q.prev;
+                        if (q.date) stockQuoteDates[stkcd] = q.date;
                         got++;
                     }
                 });

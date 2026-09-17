@@ -828,18 +828,24 @@
                     const qRes = await fetch(`/api/stock-quotes?symbols=${chunk.join(',')}`);
                     const qData = await qRes.json();
                     for (const [sym, data] of Object.entries(qData)) {
-                        quotes[sym] = { price: data.price, prev: data.prev };
+                        quotes[sym] = { price: data.price, prev: data.prev, name: data.name || '' };
                     }
                 } catch (e) {}
             }
 
-            allTickers.forEach(sym => {
-                if(!quotes[sym]) quotes[sym] = { price: 0, prev: 0 };
+            // 名稱已經跟著批次報價一起回來了。以前這裡會對 99 檔各打一次
+            // /api/meta，那個端點又是同步 HTTP，直接把伺服器的 event loop
+            // 塞住好幾秒 —— WebSocket 因此連不上，畫面卡在 Connecting…。
+            const missingNames = allTickers.filter(sym => {
+                if (!quotes[sym]) quotes[sym] = { price: 0, prev: 0, name: '' };
+                return !quotes[sym].name;
+            });
+            missingNames.forEach(sym => {
                 fetch(`/api/meta/${sym}`).then(r => r.json()).then(data => {
                     if (data && data.name) {
                         quotes[sym].name = data.name;
                         const el = document.getElementById(`name-${sym}`);
-                        if(el) el.innerText = data.name;
+                        if (el) el.innerText = data.name;
                     }
                 }).catch(()=>{});
             });
@@ -1049,10 +1055,18 @@
             // sectorPts 上面一路累加了，但以前沒放進來 —— 於是榜單那欄
             // 「大盤點數」永遠顯示 0.00 點（item.pts 是 undefined）。
             sectorAverages.push({ sector, avgPct, pts: sectorPts,
+                                  // 5 分鐘模式下沒有任何成分股成交時 sumWeight 會是 0，
+                                  // avgPct 跟著變 0。要把這件事帶下去，榜單才不會把
+                                  // 一整排 0.00% 當成真的排名。
+                                  hasData: sumWeight > 0,
                                   totalVol: sectorVol, totalLargeVol: sectorLargeVol });
 
             // ── 分析視圖用的統計：不受 viewMode 影響，日線與 5 分鐘都算 ──
-            let dW = 0, dSum = 0, mW = 0, mSum = 0;
+            // mN 記「真的有 5 分鐘動能資料的成分股有幾檔」。沒有這個計數，
+            // 收盤後 / 剛啟動時 mSum 與 mW 都是 0，momPct 算出來也是 0，
+            // 就跟「動能真的等於 0」完全分不出來 —— 底下的象限判斷會把
+            // 「沒資料」全部當成「動能為正」，整個強弱榜變成瞎掰的。
+            let dW = 0, dSum = 0, mW = 0, mSum = 0, mN = 0;
             let up = 0, down = 0, flat = 0, aVol = 0, aLarge = 0, aPts = 0;
             tickers.forEach(sym => {
                 const q = quotes[sym];
@@ -1077,23 +1091,29 @@
                     if (prev > 0) {
                         const p5 = (m.price - prev) / prev * 100;
                         const mcap5 = m.price * shares;
-                        mSum += p5 * mcap5; mW += mcap5;
+                        mSum += p5 * mcap5; mW += mcap5; mN++;
                     }
                     aVol += (m.vol || 0);
                     aLarge += (m.large_vol || 0);
                 }
             });
             const dayPct = dW > 0 ? dSum / dW : 0;
-            const momPct = mW > 0 ? mSum / mW : 0;
+            const hasMom = mN > 0 && mW > 0;
+            const momPct = hasMom ? mSum / mW : 0;
             analysisStats.push({
                 sector,
                 dayPct, momPct, pts: aPts,
+                hasMom, momSamples: mN,
                 up, down, flat,
                 vol: aVol, largeVol: aLarge,
                 largeRatio: aVol > 0 ? aLarge / aVol : 0,
-                quadrant: dayPct >= 0
-                    ? (momPct >= 0 ? '強者恆強' : '開始轉弱')
-                    : (momPct >= 0 ? '落底反彈' : '弱者恆弱'),
+                // 沒有動能資料就不要給象限。`momPct >= 0` 會把 0 當成「動能為正」，
+                // 於是收盤後每一個產業都被標成「強者恆強」或「落底反彈」。
+                quadrant: !hasMom
+                    ? '資料不足'
+                    : dayPct >= 0
+                        ? (momPct >= 0 ? '強者恆強' : '開始轉弱')
+                        : (momPct >= 0 ? '落底反彈' : '弱者恆弱'),
             });
 
             const avgBadge = document.getElementById(`sector-avg-${sector}`);
@@ -1108,8 +1128,16 @@
                     volBadge.style.display = 'none';
                 }
 
-                avgBadge.innerHTML = (avgPct !== 0 ? (avgPct > 0 ? '+' : '') + avgPct.toFixed(2) + '%' : '0.00%') + 
-                                   `<div style="font-size:0.75rem; font-weight:600; opacity:0.8; margin-top:2px;">${sectorPts > 0 ? '+' : ''}${sectorPts.toFixed(2)} 點</div>`;
+                // 沒有資料要長得跟「剛好平盤」不一樣，否則 5 分鐘模式下
+                // 整面牆的 0.00% 看起來像是全市場都沒動，其實是根本沒成交。
+                const avgTxt = sumWeight > 0
+                    ? (avgPct > 0 ? '+' : '') + avgPct.toFixed(2) + '%'
+                    : '—';
+                const ptsTxt = sumWeight > 0
+                    ? `${sectorPts > 0 ? '+' : ''}${sectorPts.toFixed(2)} 點`
+                    : '無成交';
+                avgBadge.innerHTML = avgTxt +
+                                   `<div style="font-size:0.75rem; font-weight:600; opacity:0.8; margin-top:2px;">${ptsTxt}</div>`;
                 
                 const sColors = getColor(avgPct);
                 avgBadge.style.background = sColors.bg;
@@ -1175,8 +1203,19 @@
         const bottomBody = document.getElementById('bottom5TableBody');
         if (!topBody || !bottomBody || !sectorAverages.length) return;
 
+        // 只排有資料的產業。全部都沒資料時（5 分鐘模式、收盤後）avgPct 清一色是 0，
+        // 排序等於照原本的插入順序，畫面上卻長得像一份正式的強弱榜 —— 那是假的。
+        const ranked = sectorAverages.filter(d => d.hasData);
+        if (!ranked.length) {
+            const msg = '<tr><td colspan="3" style="padding:10px 6px;color:#94a3b8;font-size:0.8rem;">'
+                + '尚無資料（5 分鐘模式需要盤中即時成交累積）</td></tr>';
+            topBody.innerHTML = msg;
+            bottomBody.innerHTML = msg;
+            return;
+        }
+
         // Sort pure by return % for Top 5 / Bottom 5 ranking
-        const sortedByPct = [...sectorAverages].sort((a, b) => b.avgPct - a.avgPct);
+        const sortedByPct = [...ranked].sort((a, b) => b.avgPct - a.avgPct);
         const top5 = sortedByPct.slice(0, 5);
         const bottom5 = sortedByPct.slice(-5).reverse();
 
@@ -1354,7 +1393,9 @@
     function recordTrail(stats) {
         const now = Date.now();
         const keep = Math.max(2, Math.round(trailSeconds * 1000 / TRAIL_SAMPLE_MS) + 1);
-        stats.forEach(d => {
+        // 沒有動能資料的產業不要記點，否則收盤後會在零線上累積一堆假軌跡，
+        // 隔天開盤第一個真實點會被那條水平線拖出一道不存在的「移動」。
+        stats.filter(d => d.hasMom).forEach(d => {
             let arr = rotationTrail.get(d.sector);
             if (!arr) { arr = []; rotationTrail.set(d.sector, arr); }
             const last = arr[arr.length - 1];
@@ -1367,7 +1408,7 @@
             }
         });
         // 清掉已經不在清單上的產業，避免無限長大
-        const live = new Set(stats.map(d => d.sector));
+        const live = new Set(stats.filter(d => d.hasMom).map(d => d.sector));
         [...rotationTrail.keys()].forEach(k => { if (!live.has(k)) rotationTrail.delete(k); });
     }
 
@@ -1443,8 +1484,15 @@
     function renderRotation() {
         const host = document.getElementById('rotationChart');
         if (!host) return;
-        const data = analysisStats.filter(d => isFinite(d.dayPct) && isFinite(d.momPct));
-        if (!data.length) { host.innerHTML = '<div class="an-muted">無資料</div>'; return; }
+        // 只畫真的有 5 分鐘動能的產業。以前沒有這道過濾，收盤後每一檔的
+        // momPct 都是 0，25 個產業全部壓在零線上排成一排，看起來像是
+        // 「動能剛好全為零」，其實是一筆成交都沒有。
+        const data = analysisStats.filter(d => d.hasMom && isFinite(d.dayPct) && isFinite(d.momPct));
+        if (!data.length) {
+            host.innerHTML = '<div class="an-muted">尚無 5 分鐘動能資料。'
+                + '輪動象限需要盤中即時成交累積，收盤後或伺服器剛啟動時會是空的。</div>';
+            return;
+        }
 
         const W = 900, H = 460, M = { t: 22, r: 22, b: 40, l: 52 };
         const iw = W - M.l - M.r, ih = H - M.t - M.b;
@@ -1804,7 +1852,9 @@
         rows.forEach(d => {
             h += `<tr><td>${anEsc(d.sector)}</td>`
                 + `<td style="color:${anColor(d.dayPct)}">${anArrow(d.dayPct)}${anSign(d.dayPct)}${d.dayPct.toFixed(2)}</td>`
-                + `<td style="color:${anColor(d.momPct)}">${anArrow(d.momPct)}${anSign(d.momPct)}${d.momPct.toFixed(2)}</td>`
+                + (d.hasMom
+                    ? `<td style="color:${anColor(d.momPct)}">${anArrow(d.momPct)}${anSign(d.momPct)}${d.momPct.toFixed(2)}</td>`
+                    : `<td style="color:#475569">–</td>`)
                 + `<td style="color:${anColor(d.pts)}">${anSign(d.pts)}${d.pts.toFixed(2)}</td>`
                 + `<td>${d.up}</td><td>${d.down}</td>`
                 + `<td>${d.vol > 0 ? (d.largeRatio * 100).toFixed(1) : '–'}</td>`

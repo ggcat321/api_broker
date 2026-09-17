@@ -74,10 +74,16 @@ async def momentum_snapshot_task():
     print("Started Momentum Snapshot task (10s intervals)")
     while True:
         await asyncio.sleep(10)
-        # Snapshot the current bucket
-        MOMENTUM_BUCKETS.append(dict(CURRENT_BUCKET))
-        # Reset current bucket
-        CURRENT_BUCKET = defaultdict(lambda: {'price': None, 'vol': 0, 'large_vol': 0})
+        # 這個迴圈本來沒有例外保護。只要丟出一次錯，task 就永久結束，
+        # 而且不會留下任何訊息 —— 動能統計從此停在那一刻，
+        # 前端的「近 5 分鐘」和產業輪動圖會一路吃舊值到伺服器重啟為止。
+        try:
+            # 先換掉 CURRENT_BUCKET 再存快照，中間的空窗越短越好。
+            snapshot = dict(CURRENT_BUCKET)
+            CURRENT_BUCKET = defaultdict(lambda: {'price': None, 'vol': 0, 'large_vol': 0})
+            MOMENTUM_BUCKETS.append((time.time(), snapshot))
+        except Exception as e:
+            print("Momentum snapshot error:", e)
 
 
 @asynccontextmanager
@@ -89,7 +95,17 @@ async def lifespan(app):
     sdk = FubonSDK(300, 3) 
     try:
         accounts = sdk.login(ID, PW, pfx_path, CERT_PW)
-        print("Login Success:", accounts)
+        # sdk.login 失敗時是「回一個 is_success=False 的 Result」，不是丟例外。
+        # 舊寫法無論如何都印 "Login Success"，憑證過期、密碼錯誤全被蓋掉 ——
+        # 主控台看起來一切正常，下單與帳務相關的功能卻是死的。
+        LOGIN_STATE["ok"] = bool(getattr(accounts, "is_success", False))
+        LOGIN_STATE["message"] = str(getattr(accounts, "message", "") or "")
+        LOGIN_STATE["checked_at"] = time.time()
+        if LOGIN_STATE["ok"]:
+            print("Login Success:", accounts)
+        else:
+            print(f"[LOGIN FAILED] {LOGIN_STATE['message'] or accounts}")
+            print("[LOGIN FAILED] 帳務/下單功能將無法使用；行情可能仍可讀取。")
         sdk.init_realtime()
         stock = sdk.marketdata.websocket_client.stock
         stock.on("message", handle_fubon_message)
@@ -250,16 +266,35 @@ loop = None
 
 # Momentum tracking
 LATEST_QUOTES = {}
-# BUCKETS stores the last 30 buckets (5 minutes if 10s per bucket)
-# Each bucket is a dict: symbol -> {'price': float, 'vol': int, 'large_vol': int}
-MOMENTUM_BUCKETS = deque(maxlen=30)
+# 每個 bucket 是 (timestamp, {symbol: {'price': float, 'vol': int, 'large_vol': int}})。
+# 帶時間戳是為了讓「5 分鐘」真的是 5 分鐘：以前只數 30 個桶子，
+# 快照工作一旦被拖慢或停過，窗口就會悄悄變長，算出來的動能還是標成 5 分鐘。
+MOMENTUM_WINDOW_SEC = 300
+MOMENTUM_BUCKETS = deque(maxlen=60)
 CURRENT_BUCKET = defaultdict(lambda: {'price': None, 'vol': 0, 'large_vol': 0})
 
 
 sdk_last_msg_time = time.time()
 sdk_retry_count = 0
 
+# 登入結果要留下來，前端的 /api/ws-stats 才看得到「其實沒登入成功」。
+LOGIN_STATE = {"ok": False, "message": "not attempted", "checked_at": None}
+
 SUBSCRIBE_FAILURES = deque(maxlen=200)
+
+
+def _safe_vol(*candidates):
+    """從幾個可能的欄位取成交量，取不到或不是數字就回 0。"""
+    for v in candidates:
+        if v is None:
+            continue
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError):
+            continue
+        if n:
+            return n
+    return 0
 
 
 def handle_fubon_message(message):
@@ -284,18 +319,29 @@ def handle_fubon_message(message):
                     if price is None and "trades" in data and len(data["trades"]) > 0:
                         price = data["trades"][-1].get("price")
                     
-                    vol = data.get("size", data.get("volume", 0))
-                    if vol == 0 and "trades" in data and len(data["trades"]) > 0:
-                        vol = data["trades"][-1].get("size", data["trades"][-1].get("volume", 0))
-                        
+                    # dict.get(k, default) 在「key 存在但值是 None」時回的是 None，不是 default。
+                    # 富邦的 trades 偶爾就是 size: null，舊寫法會讓 vol 變成 None，
+                    # 接著 `+= None` 丟 TypeError，整則 tick（含價格）被外層 except 吞掉。
+                    vol = _safe_vol(data.get("size"), data.get("volume"))
+                    if vol == 0 and data.get("trades"):
+                        last = data["trades"][-1]
+                        vol = _safe_vol(last.get("size"), last.get("volume"))
+
                     if price is not None:
                         price = float(price)
                         LATEST_QUOTES[sym] = {'price': price}
-                        if CURRENT_BUCKET[sym]['price'] is None:
-                            CURRENT_BUCKET[sym]['price'] = price
-                        CURRENT_BUCKET[sym]['vol'] += vol
-                        if vol >= 50:  # define large order as >= 50
-                            CURRENT_BUCKET[sym]['large_vol'] += vol
+                        # 動能統計自己吃自己的例外。它跟「把訊息轉發給前端」原本共用
+                        # 同一個 try，統計出錯就會連帶讓畫面上的報價停止更新 ——
+                        # 記帳失敗頂多動能少一筆，不該賠上即時價。
+                        try:
+                            bucket = CURRENT_BUCKET[sym]
+                            if bucket['price'] is None:
+                                bucket['price'] = price
+                            bucket['vol'] += vol
+                            if vol >= 50:  # define large order as >= 50
+                                bucket['large_vol'] += vol
+                        except Exception as e:
+                            print(f"Momentum bucket error for {sym}: {e}")
                             
             if loop and loop.is_running():
                 asyncio.run_coroutine_threadsafe(manager.message_queue.put(msg), loop)
@@ -334,38 +380,45 @@ async def active_pcf_refresher():
     await asyncio.sleep(5)      # 讓 SDK 先連上，不要開機就一起搶資源
     fails = 0
     while True:
-        now_tpe = datetime_now_taipei()
-        # 只有在「今天的申贖清單有可能已經公告」的時段才密集重試。
-        # 午夜過後 is_today_release 就會變 False，若不設這道閘，
-        # 整個凌晨會每 3 分鐘啟動一次 Chromium（一晚上百次），純粹浪費。
-        publish_window = now_tpe.weekday() < 5 and 7 <= now_tpe.hour < 15
-
         wait = PCF_TTL_TODAY
-        failed_this_round = False
-        for ticker in ACTIVE_PCF_TICKERS:
-            try:
-                data = await get_etf_pcf(ticker)
-                pcf = (data or {}).get("PCF") or {}
-                got_today = pcf.get("source") == "ezmoney" and pcf.get("is_today_release")
-                if not got_today:
+        # 整輪包一層保險。for 迴圈裡每檔各自有 try，但迴圈外的時間判斷與退避
+        # 計算沒有 —— 那裡丟一次錯，整個背景更新就永久停掉且毫無訊息。
+        try:
+            now_tpe = datetime_now_taipei()
+            # 只有在「今天的申贖清單有可能已經公告」的時段才密集重試。
+            # 午夜過後 is_today_release 就會變 False，若不設這道閘，
+            # 整個凌晨會每 3 分鐘啟動一次 Chromium（一晚上百次），純粹浪費。
+            publish_window = now_tpe.weekday() < 5 and 7 <= now_tpe.hour < 15
+
+            failed_this_round = False
+            for ticker in ACTIVE_PCF_TICKERS:
+                try:
+                    data = await get_etf_pcf(ticker)
+                    pcf = (data or {}).get("PCF") or {}
+                    got_today = pcf.get("source") == "ezmoney" and pcf.get("is_today_release")
+                    if not got_today:
+                        failed_this_round = True
+                        if publish_window:
+                            wait = min(wait, PCF_TTL_WAITING)
+                except Exception as e:
+                    print(f"[PCF] 背景更新 {ticker} 失敗: {e}")
                     failed_this_round = True
                     if publish_window:
-                        wait = min(wait, PCF_TTL_WAITING)
-            except Exception as e:
-                print(f"[PCF] 背景更新 {ticker} 失敗: {e}")
-                failed_this_round = True
-                if publish_window:
-                    wait = min(wait, PCF_TTL_FAILED)
+                        wait = min(wait, PCF_TTL_FAILED)
 
-        # 指數退避。每抓一次就是啟動一整個 Chromium，抓不到還每分鐘重試的話，
-        # 盤中會一直跟行情處理搶 CPU —— 報價因此變得一頓一頓的。
-        if failed_this_round:
-            fails += 1
-            wait = min(max(wait, PCF_TTL_FAILED * (2 ** min(fails - 1, 5))), PCF_TTL_TODAY)
-            if fails > 1:
-                print(f"[PCF] 連續 {fails} 輪未取得今日版本，{int(wait)}s 後再試")
-        else:
-            fails = 0
+            # 指數退避。每抓一次就是啟動一整個 Chromium，抓不到還每分鐘重試的話，
+            # 盤中會一直跟行情處理搶 CPU —— 報價因此變得一頓一頓的。
+            if failed_this_round:
+                fails += 1
+                wait = min(max(wait, PCF_TTL_FAILED * (2 ** min(fails - 1, 5))), PCF_TTL_TODAY)
+                if fails > 1:
+                    print(f"[PCF] 連續 {fails} 輪未取得今日版本，{int(wait)}s 後再試")
+            else:
+                fails = 0
+        except Exception as e:
+            print(f"[PCF] 背景更新迴圈錯誤: {e}")
+            wait = PCF_TTL_FAILED
+
         await asyncio.sleep(max(wait, 60))
 
 
@@ -663,15 +716,33 @@ if not os.path.exists(os.path.join(BASE_DIR, "static")):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/api/meta/{symbol}")
-async def get_meta(symbol: str):
+async def get_meta(symbol: str, session: str = None):
+    """個別商品的即時快照。
+
+    session="afterhours" 可取得期貨/選擇權的夜盤報價。不帶這個參數時
+    API 回的一律是日盤，夜盤開著也一樣 —— 盤後打開看板會看到昨天的收盤價。
+    """
     if not sdk:
         return {"error": "SDK not initialized"}
-    
-    try:
+
+    # 只放行已知的盤別值，其餘忽略。送未知參數 API 不會報錯、直接無視，
+    # 錯字會安安靜靜地變成「拿到日盤資料」。
+    kwargs = {"session": "afterhours"} if (session or "").lower() == "afterhours" else {}
+
+    def _fetch():
         is_futopt = symbol[0].isalpha() and symbol != "IX0001"
         client = sdk.marketdata.rest_client.futopt if is_futopt else sdk.marketdata.rest_client.stock
-        res = client.intraday.quote(symbol=symbol)
-        return res
+        if not is_futopt:
+            return client.intraday.quote(symbol=symbol)   # 現貨沒有夜盤
+        return client.intraday.quote(symbol=symbol, **kwargs)
+
+    try:
+        # intraday.quote 是同步 HTTP。以前直接在 async def 裡呼叫，
+        # 等待期間整個 event loop 是停住的 —— 熱力圖一次打 99 檔，
+        # 伺服器就有好幾秒完全不處理任何事：WebSocket 握手排不進來
+        # （畫面卡在 Connecting…）、行情轉發停擺、動能自然也累積不到。
+        ev_loop = asyncio.get_running_loop()
+        return await ev_loop.run_in_executor(None, _fetch)
     except Exception as e:
         return {"error": str(e)}
 
@@ -691,7 +762,12 @@ async def get_options_chain(futures_symbol: str, strikes: int = 17, interval: in
         fut_client = sdk.marketdata.rest_client.futopt
         stock_client = sdk.marketdata.rest_client.stock
         
-        fut_kwargs = {"type": "afterHours"} if night else {}
+        # 盤別參數是 session=afterhours，不是 type=afterHours。
+        # 送錯的參數 API 不會報錯，直接無視 —— 夜盤模式因此一直拿到日盤的
+        # 收盤快照（2026-09-17 實測：錯的參數回 type=FUTURE last=46445，
+        # 正確的回 type=FUTURE_AH last=47107，差 662 點），而 WebSocket 那邊
+        # 推的又是真正的夜盤即時價，整張表就變成日盤快照混上夜盤跳動。
+        fut_kwargs = {"session": "afterhours"} if night else {}
         
         ev_loop = asyncio.get_running_loop()
         fut_task = ev_loop.run_in_executor(None, lambda: fut_client.intraday.quote(symbol=futures_symbol, **fut_kwargs))
@@ -1391,6 +1467,15 @@ async def fetch_ezmoney_pcf(ticker: str):
 
     return {"error": f"Failed to receive GetPCF response for {ticker} from ezmoney"}
 
+def _momentum_symbols():
+    """目前動能視窗裡真的有成交紀錄的商品代號。"""
+    syms = set()
+    for _ts, b in list(MOMENTUM_BUCKETS):
+        syms.update(b)
+    syms.update(dict(CURRENT_BUCKET))
+    return syms
+
+
 @app.get("/api/ws-stats")
 async def ws_stats():
     """報價即時性診斷：分辨延遲是卡在券商端、伺服器端還是瀏覽器端。
@@ -1417,6 +1502,14 @@ async def ws_stats():
     return {
         "now_taipei": datetime_now_taipei().isoformat(),
         "sdk_connected": sdk is not None,
+        # sdk_connected 只代表物件建起來了，不代表登入過。憑證過期時
+        # 兩者會分開：行情讀得到、帳務是死的。
+        "sdk_login_ok": LOGIN_STATE["ok"],
+        "sdk_login_message": LOGIN_STATE["message"],
+        "momentum_buckets": len(MOMENTUM_BUCKETS),
+        # 先做快照再算。CURRENT_BUCKET 是行情執行緒正在寫的 dict，
+        # 直接丟給 set() 迭代，開盤爆量時會丟 RuntimeError。
+        "momentum_symbols": len(_momentum_symbols()),
         "seconds_since_last_broker_message": round(now - sdk_last_msg_time, 1),
         "msgs_per_sec": {"last_1s": rate(1), "last_5s": rate(5), "last_30s": rate(30)},
         "total_received": WS_STATS["received"],
@@ -1886,6 +1979,14 @@ def _mis_num(v):
         return None
 
 
+def _mis_date(v):
+    """MIS 的 d 欄位是 YYYYMMDD，轉成跟 SDK 一致的 YYYY-MM-DD。"""
+    t = str(v or "").strip()
+    if len(t) == 8 and t.isdigit():
+        return f"{t[:4]}-{t[4:6]}-{t[6:]}"
+    return None
+
+
 def fetch_twse_mis_quotes(symbols):
     """用證交所 MIS 補富邦 SDK 抓不到的個股報價（同步函式，請丟 executor 跑）。
 
@@ -1927,7 +2028,7 @@ def fetch_twse_mis_quotes(symbols):
             if price is None:
                 price = prev
             if prev and prev > 0 and price and price > 0:
-                out[code] = {"price": price, "prev": prev}
+                out[code] = {"price": price, "prev": prev, "date": _mis_date(item.get("d"))}
     return out
 
 
@@ -1993,7 +2094,9 @@ async def get_stock_quotes(symbols: str):
                         q = sdk.marketdata.rest_client.futopt.intraday.quote(symbol=tx_sym)
                         p_val = float(q.get("lastPrice") or q.get("closePrice") or q.get("previousClose") or 0)
                         pr_val = float(q.get("previousClose") or p_val)
-                        return (sym, {"price": p_val, "prev": pr_val} if p_val else None)
+                        return (sym, {"price": p_val, "prev": pr_val,
+                                      "name": q.get("name") or "",
+                                      "date": q.get("date")} if p_val else None)
 
                     # 具體的期貨合約代號（例如 006208 成分裡的 TXFI6）也要走期貨 client。
                     # 以前只認上面那份別名清單，其他一律送去現貨 client，
@@ -2004,7 +2107,17 @@ async def get_stock_quotes(symbols: str):
                     q = client.intraday.quote(symbol=sym)
                     price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
                     prev = q.get("previousClose") or price
-                    return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+                    # 名稱本來就在同一筆回應裡。不順手帶回去的話，前端得為了
+                    # 拿名字再對每一檔打一次 /api/meta（熱力圖是 99 次）。
+                    #
+                    # date 是「這筆報價屬於哪一個交易日」。沒有它，呼叫端分不出
+                    # 「今天盤中的最新價」和「昨天的收盤價」—— 盤後 prev 仍然是
+                    # 前一天的收盤，(price - prev) 算出來的是昨天一整天的漲跌。
+                    # 主動型 ETF 的 iNAV 就是這樣把已經含在官方淨值裡的那一天
+                    # 又加了一次。
+                    return (sym, {"price": float(price), "prev": float(prev),
+                                  "name": q.get("name") or "",
+                                  "date": q.get("date")} if price else None)
                 except Exception:
                     return (sym, None)
 
@@ -2062,7 +2175,9 @@ async def get_stock_quotes(symbols: str):
                 q = client.intraday.quote(symbol=sym)
                 price = q.get("lastPrice") or q.get("closePrice") or q.get("previousClose")
                 prev  = q.get("previousClose") or price
-                return (sym, {"price": float(price), "prev": float(prev)} if price else None)
+                return (sym, {"price": float(price), "prev": float(prev),
+                              "name": q.get("name") or "",
+                              "date": q.get("date")} if price else None)
             except Exception:
                 return (sym, None)
 
@@ -2188,7 +2303,9 @@ def get_momentum_5m():
     # 開盤爆量時只要有新商品第一次成交插入 key，就會炸
     # RuntimeError: dictionary changed size during iteration（HTTP 500，動能面板空白）。
     # 先做淺拷貝快照再算。
-    all_buckets = list(MOMENTUM_BUCKETS) + [dict(CURRENT_BUCKET)]
+    cutoff = time.time() - MOMENTUM_WINDOW_SEC
+    all_buckets = [b for ts, b in list(MOMENTUM_BUCKETS) if ts >= cutoff]
+    all_buckets.append(dict(CURRENT_BUCKET))
 
     # We want to iterate through all symbols that we have data for
     all_symbols = set()

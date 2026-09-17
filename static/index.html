@@ -577,7 +577,15 @@
     // ============================================================
     function logRaw(msg) {
         const el = document.createElement("div");
-        el.innerHTML = `<span style="color:#818cf8">[${new Date().toISOString().substring(11,23)}]</span> ${msg}`;
+        // toISOString() 是 UTC。原本直接切 [11,23) 當成時鐘顯示，
+        // 台北盤中 09:00~13:30 在這個 log 裡會變成 01:00~05:30 ——
+        // 想拿它對照行情或委託的時間點，對不起來。改用本地時間，
+        // 毫秒保留（這頁是拿來看延遲的）。
+        const d = new Date();
+        const p2 = n => String(n).padStart(2, '0');
+        const stamp = `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`
+                    + `.${String(d.getMilliseconds()).padStart(3, '0')}`;
+        el.innerHTML = `<span style="color:#818cf8">[${stamp}]</span> ${msg}`;
         rawLog.prepend(el);
         if (rawLog.children.length > 80) rawLog.removeChild(rawLog.lastChild);
     }
@@ -794,27 +802,29 @@
     // ============================================================
     async function fetchMeta(sym) {
         try {
-            const res = await fetch(`/api/meta/${sym}`);
+            const isFut = /^[A-Za-z]/.test(sym);
+            const h = new Date().getHours();
+            const isNight = (h >= 14 || h < 8);
+
+            // 夜盤的期貨/選擇權要指定盤別，否則 API 回的是日盤收盤快照。
+            // 以前沒帶這個參數，只好拿日盤的 closePrice 當「現價」擺著，
+            // 等第一筆夜盤 tick 進來才會跳掉 —— 冷門月份可能要等很久，
+            // 在那之前畫面上是昨天的價格配上算錯的漲跌。
+            const res = await fetch(`/api/meta/${sym}` + (isFut && isNight ? '?session=afterhours' : ''));
             const data = await res.json();
             if (!data || data.error) return;
 
             const st = stockState[sym];
             st.name = data.name || sym;
 
-            const isFut = /^[A-Za-z]/.test(sym);
-            const h = new Date().getHours();
-            const isNight = (h >= 14 || h < 8);
-
-            if (isFut && isNight) {
-                st.refPrice = data.closePrice ?? data.lastPrice;
-            } else if (data.lastPrice !== undefined && data.change !== undefined) {
+            if (data.lastPrice !== undefined && data.change !== undefined) {
                 st.refPrice = data.lastPrice - data.change;
             } else {
-                st.refPrice = data.referencePrice || data.previousClose;
+                st.refPrice = data.referencePrice || data.previousClose || data.closePrice;
             }
 
             // Initial price display
-            const initPrice = isFut && isNight ? st.refPrice : (data.lastPrice ?? data.closePrice);
+            const initPrice = data.lastPrice ?? data.closePrice ?? st.refPrice;
             if (initPrice != null) updatePanelPrice(sym, initPrice);
 
             renderTags();

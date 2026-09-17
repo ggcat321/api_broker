@@ -595,13 +595,9 @@
         if (optionsData) {
             buildSymbolMap();
 
-            if (isNight && optionsData.futuresClosePrice) {
-                optionsData.futuresChange = optionsData.futuresPrice - optionsData.futuresClosePrice;
-                optionsData.futuresChangePct = (optionsData.futuresChange / optionsData.futuresClosePrice) * 100;
-            } else if (!isNight && optionsData.futuresPreviousClose) {
-                optionsData.futuresChange = optionsData.futuresPrice - optionsData.futuresPreviousClose;
-                optionsData.futuresChangePct = (optionsData.futuresChange / optionsData.futuresPreviousClose) * 100;
-            }
+            // 這裡本來會用 closePrice 重算期貨漲跌。夜盤的 closePrice 等於
+            // lastPrice，於是表頭永遠顯示 0 (0.00%)，把伺服器回的 +385 點蓋掉。
+            // 伺服器給的 futuresChange 就是券商的值，直接用。
 
             renderFuturesTicker(optionsData);
             renderChain(optionsData, true);
@@ -655,11 +651,6 @@
             optionsData = data;
             buildSymbolMap();
 
-            if (isNight && optionsData.futuresClosePrice) {
-                optionsData.futuresChange = optionsData.futuresPrice - optionsData.futuresClosePrice;
-                optionsData.futuresChangePct = (optionsData.futuresChange / optionsData.futuresClosePrice) * 100;
-            }
-
             renderFuturesTicker(optionsData);
             renderChain(optionsData);
             setupWebSocket();
@@ -672,35 +663,49 @@
         btn.textContent = '載入';
     }
 
+    // 參考價（漲跌的分母）一律從券商自己給的 lastPrice 與 change 反推。
+    //
+    // 不能用 closePrice：夜盤時它就等於 lastPrice，拿它當基準算出來的漲跌
+    // 永遠是 0 —— 整張選擇權表加上期貨表頭的漲跌欄，夜盤全部顯示 0.00%。
+    //
+    // 也不能直接用 previousClose：券商的 change 不是用它算的。
+    // 例（2026-09-17 夜盤，46200 買權）：last=530、previousClose=343、change=134，
+    // 反推基準是 396，跟 previousClose 差了 53 點。用 previousClose 會讓
+    // 表格裡的漲跌跟券商回報的 change 對不起來。
+    function refPriceOf(q) {
+        if (!q) return null;
+        if (q.lastPrice != null && q.change != null) return q.lastPrice - q.change;
+        if (q.previousClose) return q.previousClose;
+        if (q.closePrice) return q.closePrice;
+        return null;
+    }
+
     function buildSymbolMap() {
         symbolMap = {};
         const d = optionsData;
 
-        const futRef = isNight ? d.futuresClosePrice : d.futuresPreviousClose;
+        const futRef = (d.futuresPrice != null && d.futuresChange != null)
+            ? d.futuresPrice - d.futuresChange
+            : d.futuresPreviousClose;
         symbolMap[d.futuresSymbol] = { type: 'futures', refPrice: futRef };
 
         if (d.spot) {
-            const spotRef = d.spot.previousClose != null ? d.spot.previousClose : (d.spot.price - d.spot.change);
+            const spotRef = refPriceOf({ lastPrice: d.spot.price, change: d.spot.change,
+                                         previousClose: d.spot.previousClose });
             symbolMap[d.spot.symbol] = { type: 'spot', refPrice: spotRef };
         }
 
         d.chain.forEach(row => {
-            if (row.call && row.call.symbol) {
-                const callRef = isNight ? row.call.closePrice : row.call.previousClose;
-                symbolMap[row.call.symbol] = { type: 'call', row: row, refPrice: callRef };
-                if (callRef) {
-                    row.call.change = row.call.lastPrice ? (row.call.lastPrice - callRef) : 0;
-                    row.call.changePercent = (row.call.change / callRef) * 100;
+            ['call', 'put'].forEach(side => {
+                const q = row[side];
+                if (!q || !q.symbol) return;
+                const ref = refPriceOf(q);
+                symbolMap[q.symbol] = { type: side, row: row, refPrice: ref };
+                if (ref) {
+                    q.change = q.lastPrice ? (q.lastPrice - ref) : 0;
+                    q.changePercent = (q.change / ref) * 100;
                 }
-            }
-            if (row.put && row.put.symbol) {
-                const putRef = isNight ? row.put.closePrice : row.put.previousClose;
-                symbolMap[row.put.symbol] = { type: 'put', row: row, refPrice: putRef };
-                if (putRef) {
-                    row.put.change = row.put.lastPrice ? (row.put.lastPrice - putRef) : 0;
-                    row.put.changePercent = (row.put.change / putRef) * 100;
-                }
-            }
+            });
         });
     }
 
