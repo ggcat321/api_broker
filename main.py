@@ -22,6 +22,57 @@ from fubon_neo.sdk import FubonSDK
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+
+def _patch_websocket_close_race():
+    """修掉 websocket-client 1.9.1 的 WebSocketApp.close() race。
+
+    上游長這樣（_app.py:203）：
+
+        self.keep_running = False
+        if self.sock:
+            self.sock.close(**kwargs)
+            if self.sock.close_frame is not None:   # ← 這行
+                self.last_close_frame = self.sock.close_frame
+            self.sock = None
+
+    `if self.sock:` 到讀 `self.sock.close_frame` 之間完全沒有鎖，而
+    run_forever 那條執行緒的 teardown() 會把 self.sock 設成 None
+    （_app.py:387，那邊反而有拿 has_done_teardown_lock）。連線真的斷掉時
+    兩邊剛好同時跑，就會丟：
+
+        AttributeError: 'NoneType' object has no attribute 'close_frame'
+
+    本機用假 socket 重現，300 次有 298 次踩到。
+
+    麻煩的是它丟在富邦 SDK 的 health-check Timer 執行緒上：那條執行緒直接
+    死掉，而且 SDK 的 disconnect() 是先 close() 再重設狀態，例外一丟，後面
+    「取消 timer、把 auth_status 設回 PENDING」全都沒跑到 —— SDK 從此卡在
+    半斷線狀態，下一次 connect() 會因為 auth_status 還停在 AUTHENTICATED
+    而立刻返回，看起來「重連成功」，實際上沒有任何報價再進來。
+
+    改成先抓區域參考再操作，race 就不存在了。
+    """
+    try:
+        from websocket import WebSocketApp
+    except Exception as e:
+        print(f"[PATCH] 略過 WebSocketApp.close 修補（import 失敗）: {e}")
+        return
+
+    def close(self, **kwargs):
+        self.keep_running = False
+        sock = self.sock          # 只讀一次，之後都用這個區域變數
+        if sock is None:
+            return
+        try:
+            sock.close(**kwargs)
+            close_frame = getattr(sock, "close_frame", None)
+            if close_frame is not None:
+                self.last_close_frame = close_frame
+        finally:
+            self.sock = None
+
+    WebSocketApp.close = close
+
 # 主控台輸出一律走 UTF-8。Windows 上只要 stdout 不是真正的 console
 # （被導向檔案、被其他程式接管、在 IDE 裡跑），編碼就會退回 cp950，
 # 那時候任何一行帶 emoji 的 print 都會丟 UnicodeEncodeError；
@@ -31,6 +82,9 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+# print 已經是 UTF-8 了才套用修補，這樣它自己的訊息也不會踩到編碼問題。
+_patch_websocket_close_race()
 
 # 批次抓報價時的並發上限。太高會被富邦 API 限流，漏掉的個股會讓 iNAV 少算。
 SDK_QUOTE_CONCURRENCY = int(os.getenv("SDK_QUOTE_CONCURRENCY", "8"))
@@ -474,20 +528,30 @@ async def fubon_sdk_watchdog():
                 backoff = min(BASE_BACKOFF * (2 ** (sdk_retry_count - 1)), MAX_BACKOFF)
                 print(f"⚠️ No Fubon SDK message for {elapsed:.0f}s, reconnect attempt {sdk_retry_count}/{MAX_RETRIES} (next backoff: {backoff}s)...")
                 
-                try:
-                    sdk.marketdata.websocket_client.stock.disconnect()
-                    sdk.marketdata.websocket_client.futopt.disconnect()
-                except Exception:
-                    pass
-                await asyncio.sleep(2)
-                try:
+                # SDK 的 connect()／disconnect() 都是同步的，而且 connect() 裡是
+                # 一個沒有 sleep 的 busy-wait（等 auth_status 變化）。直接 await
+                # 在 event loop 上呼叫，重連期間整個伺服器會停擺 —— 報價轉發、
+                # HTTP 端點全部卡住。一律丟到 worker thread。
+                ev_loop = asyncio.get_running_loop()
+
+                def _reconnect():
+                    for client in (sdk.marketdata.websocket_client.stock,
+                                   sdk.marketdata.websocket_client.futopt):
+                        try:
+                            client.disconnect()
+                        except Exception as e:
+                            print(f"[SDK] disconnect 時發生例外（忽略）: {e}")
+                    time.sleep(2)
                     sdk.marketdata.websocket_client.stock.connect()
                     sdk.marketdata.websocket_client.futopt.connect()
+
+                try:
+                    await ev_loop.run_in_executor(None, _reconnect)
                     sdk_last_msg_time = time.time()
                     # 重連之後券商那邊的訂閱清單是空的，一定要把原本訂過的全部重送。
                     # 少了這一步，重連會「成功」但一筆報價都不會再進來，
                     # 畫面上的價格就停在斷線那一刻，而且沒有任何錯誤訊息。
-                    restored = resubscribe_all()
+                    restored = await ev_loop.run_in_executor(None, resubscribe_all)
                     print(f"✅ Fubon SDK reconnected successfully，已回補訂閱 {restored} 檔")
                 except Exception as e:
                     print(f"❌ Fubon SDK reconnect failed: {e}")
