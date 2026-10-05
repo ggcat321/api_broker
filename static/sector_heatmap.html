@@ -1859,7 +1859,8 @@
         ws.onopen = () => {
             ws.send(JSON.stringify({ 
                 action: 'subscribe', 
-                symbols: allTickers.join(','),
+                // 只取前 195 檔，刻意留下 5 檔的 WS 額度空間給其他頁面或單股查詢使用
+                symbols: allTickers.slice(0, 195).join(','),
                 trades_only: true // default to trades to save bandwidth
             }));
             
