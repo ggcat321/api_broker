@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>IV vs RV 波動率分析</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f111a;
+            --panel-bg: #1e2130;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+        }
+        body {
+            margin: 0; padding: 20px;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Inter', -apple-system, sans-serif;
+        }
+        .header-bar {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+        }
+        h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+        .nav-links a {
+            color: var(--text-muted); text-decoration: none; margin-left: 15px; font-weight: 500;
+        }
+        .nav-links a:hover, .nav-links a.active { color: #818cf8; }
+        
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--panel-bg); padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05);
+        }
+        .stat-title { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 2rem; font-weight: 800; font-family: monospace; }
+        .val-up { color: var(--accent-red); } /* Taiwan style: Red is Up */
+        .val-down { color: var(--accent-green); }
+        .val-neutral { color: var(--accent-yellow); }
+        
+        .chart-container {
+            background: var(--panel-bg); padding: 20px; border-radius: 12px; margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05);
+            height: 500px;
+        }
+        #loading { text-align: center; color: var(--text-muted); margin-top: 100px; font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+    <div class="header-bar">
+        <h1>📉 IV vs RV 歷史波動率分析</h1>
+        <div class="nav-links">
+            <a href="/">📊 首頁</a>
+            <a href="/sector_heatmap">🔥 產業熱力圖</a>
+            <a href="/volatility" class="active">📉 波動率分析</a>
+        </div>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-title">Implied Volatility (VIX)</div>
+            <div class="stat-value" id="val-vix">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Realized Vol (RV20)</div>
+            <div class="stat-value" id="val-rv">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">IV Premium (VIX - RV)</div>
+            <div class="stat-value" id="val-spread">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">TAIEX (TWII)</div>
+            <div class="stat-value" id="val-twii">--</div>
+        </div>
+    </div>
+
+    <div class="chart-container" id="main-chart" style="display: none;"></div>
+    <div id="loading">載入歷史數據中 (YFinance)...</div>
+
+    <script>
+        async function loadData() {
+            try {
+                const res = await fetch('/api/volatility-data?window=20&period=1y');
+                const data = await res.json();
+                
+                if(data.error) {
+                    document.getElementById('loading').innerText = "錯誤: " + data.error;
+                    return;
+                }
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('main-chart').style.display = 'block';
+                
+                // Update stats
+                document.getElementById('val-vix').innerText = data.current_vix.toFixed(2) + '%';
+                document.getElementById('val-rv').innerText = data.current_rv.toFixed(2) + '%';
+                
+                const spread = (data.current_vix - data.current_rv);
+                const spreadEl = document.getElementById('val-spread');
+                spreadEl.innerText = (spread > 0 ? '+' : '') + spread.toFixed(2) + '%';
+                spreadEl.className = 'stat-value ' + (spread > 2 ? 'val-up' : (spread < -2 ? 'val-down' : 'val-neutral'));
+                
+                document.getElementById('val-twii').innerText = data.twii[data.twii.length - 1].toLocaleString();
+                
+                renderChart(data);
+            } catch (err) {
+                document.getElementById('loading').innerText = "連線失敗";
+            }
+        }
+        
+        function renderChart(data) {
+            const chart = echarts.init(document.getElementById('main-chart'), 'dark', { backgroundColor: 'transparent' });
+            
+            const option = {
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { data: ['TAIEX', 'Implied Vol (VIX)', 'Realized Vol (RV20)', 'IV Premium (Spread)'], textStyle: {color: '#94a3b8'} },
+                grid: [
+                    { left: '5%', right: '5%', top: '10%', height: '40%' }, // Top chart: TAIEX
+                    { left: '5%', right: '5%', top: '55%', height: '35%' }  // Bottom chart: Volatility
+                ],
+                xAxis: [
+                    { type: 'category', data: data.dates, gridIndex: 0, boundaryGap: false, axisLabel: {show: false} },
+                    { type: 'category', data: data.dates, gridIndex: 1, boundaryGap: false }
+                ],
+                yAxis: [
+                    { type: 'value', gridIndex: 0, scale: true, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+                    { type: 'value', gridIndex: 1, scale: true, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+                    { type: 'value', gridIndex: 1, scale: true, splitLine: { show: false }, position: 'right' } // for spread bar
+                ],
+                dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, { type: 'slider', xAxisIndex: [0, 1], bottom: 0 }],
+                series: [
+                    {
+                        name: 'TAIEX', type: 'line', data: data.twii, xAxisIndex: 0, yAxisIndex: 0,
+                        itemStyle: { color: '#818cf8' }, areaStyle: { color: 'rgba(129,140,248,0.1)' }, showSymbol: false
+                    },
+                    {
+                        name: 'Implied Vol (VIX)', type: 'line', data: data.vix, xAxisIndex: 1, yAxisIndex: 1,
+                        itemStyle: { color: '#f59e0b' }, showSymbol: false, lineStyle: { width: 2 }
+                    },
+                    {
+                        name: 'Realized Vol (RV20)', type: 'line', data: data.rv, xAxisIndex: 1, yAxisIndex: 1,
+                        itemStyle: { color: '#22d3ee' }, showSymbol: false, lineStyle: { width: 2 }
+                    },
+                    {
+                        name: 'IV Premium (Spread)', type: 'bar', data: data.spread, xAxisIndex: 1, yAxisIndex: 2,
+                        itemStyle: {
+                            color: function(params) { return params.value > 0 ? '#ef4444' : '#10b981'; } // Red positive premium, Green negative
+                        },
+                        barMaxWidth: 10, opacity: 0.5
+                    }
+                ]
+            };
+            chart.setOption(option);
+            window.addEventListener('resize', () => chart.resize());
+        }
+        
+        loadData();
+    </script>
+</body>
+</html>

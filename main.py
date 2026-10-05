@@ -5,6 +5,9 @@ import time
 import json
 import math
 import asyncio
+import yfinance as yf
+import pandas as pd
+import numpy as np
 import threading
 import traceback
 import requests
@@ -938,6 +941,48 @@ def get_taiex_benchmark(req: TaiexRequest):
 
 @app.get("/")
 @app.get("/options")
+
+@app.get("/volatility")
+def volatility_page():
+    return FileResponse("static/volatility.html")
+
+@app.get("/api/volatility-data")
+async def api_volatility_data(window: int = 20, period: str = "1y"):
+    def fetch_data():
+        try:
+            # Fetch TAIEX
+            twii = yf.Ticker("^TWII").history(period=period)
+            if twii.empty: return {"error": "Failed to fetch TWII"}
+            twii.index = twii.index.tz_localize(None).normalize()
+            twii['LogRet'] = np.log(twii['Close'] / twii['Close'].shift(1))
+            twii['RV'] = twii['LogRet'].rolling(window=window).std() * np.sqrt(252) * 100
+
+            # Fetch US VIX
+            vix = yf.Ticker("^VIX").history(period=period)
+            if vix.empty: return {"error": "Failed to fetch VIX"}
+            vix.index = vix.index.tz_localize(None).normalize()
+
+            # Merge
+            df = pd.DataFrame({'TWII': twii['Close'], 'RV': twii['RV'], 'VIX': vix['Close']}).dropna()
+            df['Spread'] = df['VIX'] - df['RV']
+            
+            # Format output
+            dates = df.index.strftime('%Y-%m-%d').tolist()
+            return {
+                "dates": dates,
+                "twii": df['TWII'].round(2).tolist(),
+                "rv": df['RV'].round(2).tolist(),
+                "vix": df['VIX'].round(2).tolist(),
+                "spread": df['Spread'].round(2).tolist(),
+                "current_vix": round(df['VIX'].iloc[-1], 2) if not df.empty else 0,
+                "current_rv": round(df['RV'].iloc[-1], 2) if not df.empty else 0
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    ev_loop = asyncio.get_running_loop()
+    return await ev_loop.run_in_executor(None, fetch_data)
+
 @app.get("/etf0050")
 @app.get("/disposal")
 @app.get("/queue")
