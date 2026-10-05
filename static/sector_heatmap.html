@@ -844,6 +844,15 @@
                 }).catch(()=>{});
             });
 
+            // 依照市值排序，確保在 200 檔 WS 額度限制下，權值股優先取得報價
+            allTickers.sort((a, b) => {
+                const qa = quotes[a] || {prev: 1};
+                const qb = quotes[b] || {prev: 1};
+                const sa = sharesData[a] ? (typeof sharesData[a] === 'number' ? sharesData[a] : (sharesData[a].shares || 1)) : 1;
+                const sb = sharesData[b] ? (typeof sharesData[b] === 'number' ? sharesData[b] : (sharesData[b].shares || 1)) : 1;
+                return (qb.prev * sb) - (qa.prev * sa);
+            });
+
             renderHeatmap();
             connectWS();
             setInterval(updateSectors, 3000);
