@@ -393,7 +393,6 @@
                 <a href="/disposal" class="nav-link" style="color:#f59e0b;">⚠️ 處置偵測</a>
                 <a href="/queue" class="nav-link" style="color:#22d3ee;">⏱️ 洗價排隊</a>
                 <a href="/sector_heatmap" class="nav-link active-link" style="color:#ff8a00;">🔥 產業熱力圖</a>
-            <a href="/volatility" class="nav-link" style="color:#f472b6;border-color:rgba(244,114,182,0.3)">📉 波動率分析</a>
             </div>
         </div>
         <script>
@@ -845,15 +844,6 @@
                 }).catch(()=>{});
             });
 
-            // 依照市值排序，確保在 200 檔 WS 額度限制下，權值股優先取得報價
-            allTickers.sort((a, b) => {
-                const qa = quotes[a] || {prev: 1};
-                const qb = quotes[b] || {prev: 1};
-                const sa = sharesData[a] ? (typeof sharesData[a] === 'number' ? sharesData[a] : (sharesData[a].shares || 1)) : 1;
-                const sb = sharesData[b] ? (typeof sharesData[b] === 'number' ? sharesData[b] : (sharesData[b].shares || 1)) : 1;
-                return (qb.prev * sb) - (qa.prev * sa);
-            });
-
             renderHeatmap();
             connectWS();
             setInterval(updateSectors, 3000);
@@ -1030,19 +1020,19 @@
                 } else {
                     const m = momentumData[sym];
                     if (m) {
-                        const currentPrice = (q && q.price > 0) ? q.price : m.price;
-                        const prev = m.oldest_price || currentPrice || 0;
-                        if (prev > 0 && currentPrice > 0) {
-                            pct = ((currentPrice - prev) / prev * 100);
+                        if (q) q.price = m.price;
+                        const prev = m.oldest_price || (q && q.price) || 0;
+                        if (prev > 0 && m.price > 0) {
+                            pct = ((m.price - prev) / prev * 100);
                             const sInfo = sharesData[sym] || { shares: 1, market: '上市' }; 
                             const shares = typeof sInfo === 'number' ? sInfo : (sInfo.shares || 1);
                             const market = sInfo.market || 'sii';
                             const divisor = market === 'otc' ? otc_divisor : tse_divisor;
                             
-                            const mcap = currentPrice * shares;
+                            const mcap = m.price * shares;
                             sumWeightedPct += (pct * mcap);
                             sumWeight += mcap;
-                            ptContrib = ((currentPrice - prev) * shares) / divisor;
+                            ptContrib = ((m.price - prev) * shares) / divisor;
                         }
                         tVol = (m.vol || 0);
                         tLarge = (m.large_vol || 0);
@@ -1082,12 +1072,11 @@
                 }
                 // 5 分鐘動能
                 const m = momentumData[sym];
-                const currentPrice = (q && q.price > 0) ? q.price : (m && m.price > 0 ? m.price : 0);
-                if (m && currentPrice > 0) {
-                    const prev = m.oldest_price || currentPrice;
+                if (m && m.price > 0) {
+                    const prev = m.oldest_price || m.price;
                     if (prev > 0) {
-                        const p5 = (currentPrice - prev) / prev * 100;
-                        const mcap5 = currentPrice * shares;
+                        const p5 = (m.price - prev) / prev * 100;
+                        const mcap5 = m.price * shares;
                         mSum += p5 * mcap5; mW += mcap5;
                     }
                     aVol += (m.vol || 0);
@@ -1436,8 +1425,7 @@
             if (cap) cap.textContent = '等待資料…';
             return;
         }
-        const validStats = analysisStats.filter(d => isFinite(d.dayPct) && isFinite(d.momPct));
-        recordTrail(validStats);   // 不論在哪個分頁都要持續記，切回來才有軌跡
+        recordTrail(analysisStats);   // 不論在哪個分頁都要持續記，切回來才有軌跡
         if (analysisView === 'rotation') {
             if (cap) cap.textContent = '橫軸=今日漲跌，縱軸=近 5 分鐘動能。右上=強者恆強，左上=落底反彈。';
             renderRotation();
@@ -1467,9 +1455,7 @@
         const allY = data.map(d => Math.abs(d.momPct));
         if (trailSeconds > 0) {
             rotationTrail.forEach(pts => pts.forEach(pt => {
-                if (isFinite(pt.x) && isFinite(pt.y)) {
-                    allX.push(Math.abs(pt.x)); allY.push(Math.abs(pt.y));
-                }
+                allX.push(Math.abs(pt.x)); allY.push(Math.abs(pt.y));
             }));
         }
         const xMax = Math.max(0.5, ...allX) * 1.15;
@@ -1542,6 +1528,9 @@
                 // 重建會把滑鼠底下的元素銷毀，mouseleave 就永遠不會觸發（原本的 bug）。
                 const pts = rotationTrail.get(d.sector);
                 if (!pts || pts.length < 2) return;
+                const p0 = pts[0], pn = pts[pts.length - 1];
+                const travel = Math.hypot(X(pn.x) - X(p0.x), Y(pn.y) - Y(p0.y));
+                if (travel < 6) return;
                 const col = anColor(d.dayPct);
                 svg += `<g class="rot-trail${isFocus(d) ? ' is-focus' : ''}" data-trail="${anEsc(d.sector)}">`;
                 for (let i = 1; i < pts.length; i++) {
@@ -1607,9 +1596,6 @@
             host.addEventListener('mouseout', e => {
                 const g = e.target.closest && e.target.closest('.rot-node');
                 if (!g) return;
-                // If the element is no longer in the document, it was just replaced by innerHTML.
-                // Do not reset the hover state, otherwise it flickers every 3 seconds!
-                if (!document.body.contains(g)) return;
                 // 只有真的離開這個節點（而不是在子元素之間移動）才還原
                 if (g.contains(e.relatedTarget)) return;
                 applyHover(host, null);
@@ -1851,20 +1837,11 @@
         }
 
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Connect to the generic stream endpoint to avoid 404 / URI Too Long errors
-        // for very long ticker lists. The actual subscription is sent on open.
-        const wsUrl = `${proto}//${window.location.host}/ws/stream`;
+        const wsUrl = `${proto}//${window.location.host}/ws/${allTickers.join(',')}`;
         console.log(`Connecting WS...`);
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
-            ws.send(JSON.stringify({ 
-                action: 'subscribe', 
-                // 只取前 195 檔，刻意留下 5 檔的 WS 額度空間給其他頁面或單股查詢使用
-                symbols: allTickers.slice(0, 195).join(','),
-                trades_only: true // default to trades to save bandwidth
-            }));
-            
             wsRetryCount = 0;
             statusText.innerText = 'Live Connected';
             statusText.style.color = '#10b981';
