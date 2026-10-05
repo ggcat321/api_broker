@@ -1285,12 +1285,17 @@ function connectGlobalWS() {
     // 明講這一頁需要哪些商品的五檔。訂閱數量一多，後端預設只給成交價 (trades)，
     // 而「目標套利價設算」是靠台積電的委買/委賣價在算的 —— 少了 books 整片會是 '--'。
     const booksNeeded = ['2330', activeTicker].filter(Boolean).join(',');
-    const url = `${proto}//${location.host}/ws/${allArr.join(',')}?books=${encodeURIComponent(booksNeeded)}`;
+    const url = `${proto}//${location.host}/ws/stream`;
 
     setWsStatus('connecting');
     ws = new WebSocket(url);
 
     ws.onopen = () => {
+        ws.send(JSON.stringify({ 
+            action: 'subscribe', 
+            symbols: allArr.join(','),
+            books: booksNeeded
+        }));
         wsRetryCount = 0;  // Reset on successful connection
         console.log(`Global WS connected, subscribed ${allArr.length} symbols`);
     };

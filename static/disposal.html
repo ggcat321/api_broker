@@ -1562,12 +1562,17 @@
         updateAttnWsStatus('connecting');
 
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${proto}//${window.location.host}/ws/${symbols.join(',')}?trades_only=true`;
-        console.log("[Attention WS] Connecting to:", wsUrl);
+        const wsUrl = `${proto}//${window.location.host}/ws/stream`;
+        console.log("[Attention WS] Connecting to stream...");
 
         attentionWs = new WebSocket(wsUrl);
 
         attentionWs.onopen = () => {
+            attentionWs.send(JSON.stringify({
+                action: 'subscribe',
+                symbols: symbols.join(','),
+                trades_only: true
+            }));
             console.log("[Attention WS] Connected!");
             updateAttnWsStatus('connected');
         };

@@ -1841,11 +1841,19 @@
         }
 
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${proto}//${window.location.host}/ws/${allTickers.join(',')}`;
+        // Connect to the generic stream endpoint to avoid 404 / URI Too Long errors
+        // for very long ticker lists. The actual subscription is sent on open.
+        const wsUrl = `${proto}//${window.location.host}/ws/stream`;
         console.log(`Connecting WS...`);
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
+            ws.send(JSON.stringify({ 
+                action: 'subscribe', 
+                symbols: allTickers.join(','),
+                trades_only: true // default to trades to save bandwidth
+            }));
+            
             wsRetryCount = 0;
             statusText.innerText = 'Live Connected';
             statusText.style.color = '#10b981';

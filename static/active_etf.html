@@ -884,7 +884,7 @@ function connectGlobalWS() {
     if (allArr.length === 0) return;
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${location.host}/ws/${allArr.join(',')}`;
+    const url = `${proto}//${location.host}/ws/stream`;
 
     const gen = ++wsGeneration;   // 只有最新一代的 socket 能改動狀態
     setWsStatus('connecting');
@@ -892,6 +892,12 @@ function connectGlobalWS() {
     ws = sock;
 
     sock.onopen = () => {
+        sock.send(JSON.stringify({ 
+            action: 'subscribe', 
+            symbols: allArr.join(','),
+            trades_only: true // active_etf defaults to trades
+        }));
+
         if (gen !== wsGeneration) { try { sock.close(); } catch(_) {} return; }
         wsRetryCount = 0;
         console.log(`WebSocket connected, subscribed ${allArr.length} symbols`);

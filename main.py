@@ -502,6 +502,20 @@ async def message_processor():
 async def websocket_endpoint(websocket: WebSocket, symbols: str, night: bool = None,
                              trades_only: bool = False, books: str = ""):
     await websocket.accept()
+    if symbols == "stream":
+        try:
+            msg = await asyncio.wait_for(websocket.receive_json(), timeout=15)
+            if isinstance(msg, dict) and msg.get("action") == "subscribe":
+                symbols = msg.get("symbols", "")
+                if "books" in msg:
+                    books = msg["books"]
+                if "trades_only" in msg:
+                    trades_only = msg["trades_only"]
+            else:
+                symbols = ""
+        except Exception as e:
+            print("[WS] Stream mode initialization failed:", e)
+            symbols = ""
     # 前端傳來的順序 = 優先順序（越前面越重要）。券商的訂閱數有上限，
     # 超額的部分一定要從「最不重要的尾巴」砍，而不是隨機掉幾檔，
     # 否則掉到權重大的成分股，iNAV 會偏得很難看。
