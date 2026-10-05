@@ -85,6 +85,16 @@
     <div id="loading">載入歷史數據中 (YFinance)...</div>
 
     <script>
+        document.querySelectorAll('.nav-links a').forEach(a => {
+            a.addEventListener('click', e => {
+                e.preventDefault();
+                if (window.parent !== window) {
+                    window.parent.postMessage({ type: 'NAVIGATE', path: a.getAttribute('href') }, '*');
+                } else {
+                    window.location.href = a.getAttribute('href');
+                }
+            });
+        });
         async function loadData() {
             try {
                 const res = await fetch('/api/volatility-data?window=20&period=1y');

@@ -38,6 +38,7 @@
   <iframe id="frame-disposal" src="/_content/disposal?v=2"></iframe>
   <iframe id="frame-queue" src="/_content/queue?v=2"></iframe>
   <iframe id="frame-sector_heatmap" src="/_content/sector_heatmap?v=2"></iframe>
+  <iframe id="frame-volatility" src="/_content/volatility?v=1"></iframe>
 
   <script>
     const frames = {
@@ -48,7 +49,8 @@
       '/active-etf': 'frame-active_etf',
       '/disposal': 'frame-disposal',
       '/queue': 'frame-queue',
-      '/sector_heatmap': 'frame-sector_heatmap'
+      '/sector_heatmap': 'frame-sector_heatmap',
+      '/volatility': 'frame-volatility'
     };
     
     function navigate(path) {

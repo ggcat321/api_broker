@@ -939,12 +939,7 @@ def get_taiex_benchmark(req: TaiexRequest):
         traceback.print_exc()
         return {"success": False, "error": str(e)}
 
-@app.get("/")
-@app.get("/options")
 
-@app.get("/volatility")
-def volatility_page():
-    return FileResponse("static/volatility.html")
 
 @app.get("/api/volatility-data")
 async def api_volatility_data(window: int = 20, period: str = "1y"):
@@ -983,6 +978,9 @@ async def api_volatility_data(window: int = 20, period: str = "1y"):
     ev_loop = asyncio.get_running_loop()
     return await ev_loop.run_in_executor(None, fetch_data)
 
+@app.get("/")
+@app.get("/options")
+@app.get("/volatility")
 @app.get("/etf0050")
 @app.get("/disposal")
 @app.get("/queue")
@@ -995,7 +993,7 @@ async def get_app_wrapper():
 
 @app.get("/_content/{page}")
 async def get_content(page: str):
-    valid = {"index", "options", "etf0050", "disposal", "queue", "sector_heatmap", "active_etf"}
+    valid = {"index", "options", "etf0050", "disposal", "queue", "sector_heatmap", "active_etf", "volatility"}
     if page not in valid: 
         return HTMLResponse("Not Found", status_code=404)
     with open(os.path.join(BASE_DIR, "static", f"{page}.html"), "r", encoding="utf-8") as f:
