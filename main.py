@@ -945,15 +945,20 @@ def get_taiex_benchmark(req: TaiexRequest):
 async def api_volatility_data(window: int = 20, period: str = "1y"):
     def fetch_data():
         try:
+            # Fix Corporate SSL Interception
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            session = requests.Session()
+            session.verify = False
+            
             # Fetch TAIEX
-            twii = yf.Ticker("^TWII").history(period=period)
+            twii = yf.Ticker("^TWII", session=session).history(period=period)
             if twii.empty: return {"error": "Failed to fetch TWII"}
             twii.index = twii.index.tz_localize(None).normalize()
             twii['LogRet'] = np.log(twii['Close'] / twii['Close'].shift(1))
             twii['RV'] = twii['LogRet'].rolling(window=window).std() * np.sqrt(252) * 100
 
             # Fetch US VIX
-            vix = yf.Ticker("^VIX").history(period=period)
+            vix = yf.Ticker("^VIX", session=session).history(period=period)
             if vix.empty: return {"error": "Failed to fetch VIX"}
             vix.index = vix.index.tz_localize(None).normalize()
 
