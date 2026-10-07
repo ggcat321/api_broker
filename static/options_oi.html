@@ -43,7 +43,7 @@
         <div class="info-text" id="oi-info">載入中...</div>
     </div>
 
-    <div class="chart-container" id="main-chart" style="display: none; height: 800px;"></div>
+    <div class="chart-container" id="main-chart" style="display: none; height: calc(100vh - 160px); min-height: 500px;"></div>
     <div id="loading">📡 向期交所索取最新未平倉資料中...</div>
 
     <script>
@@ -110,7 +110,27 @@
                     }
                 },
                 legend: { data: ['Call 未平倉 (上檔壓力)', 'Put 未平倉 (下檔支撐)'], textStyle: { color: '#e2e8f0' } },
-                grid: { left: '10%', right: '10%', bottom: '5%', containLabel: true },
+                grid: { left: '8%', right: '8%', bottom: '5%', top: '10%', containLabel: true },
+                dataZoom: [
+                    {
+                        type: 'inside', // Mouse scroll zoom
+                        yAxisIndex: [0, 1],
+                        start: startPct,
+                        end: endPct
+                    },
+                    {
+                        type: 'slider', // Visual scrollbar
+                        yAxisIndex: [0, 1],
+                        right: 15,
+                        start: startPct,
+                        end: endPct,
+                        textStyle: { color: '#94a3b8' },
+                        borderColor: 'transparent',
+                        backgroundColor: 'rgba(30,41,59,0.3)',
+                        fillerColor: 'rgba(99,102,241,0.2)',
+                        handleStyle: { color: '#818cf8' }
+                    }
+                ],
                 xAxis: {
                     type: 'value',
                     axisLabel: { formatter: (val) => Math.abs(val) },
@@ -119,14 +139,14 @@
                 yAxis: [
                     {
                         type: 'category',
-                        data: data.strikes,
+                        data: strikes,
                         axisTick: { show: false },
                         axisLabel: { fontWeight: 'bold', color: '#f8fafc' },
                         splitLine: { show: true, lineStyle: { color: 'rgba(255,255,255,0.08)', type: 'dashed' } }
                     },
                     {
                         type: 'category',
-                        data: data.strikes,
+                        data: strikes,
                         axisTick: { show: false },
                         axisLabel: { fontWeight: 'bold', color: '#f8fafc' },
                         position: 'right'
