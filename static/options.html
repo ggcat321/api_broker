@@ -397,8 +397,10 @@
             <button id="dayBtn" onclick="setNightMode(false)">日盤</button>
             <button id="nightBtn" onclick="setNightMode(true)">夜盤</button>
         </div>
-        <div class="greeks-toggle active" id="greeksToggle" onclick="toggleGreeks()">
-            <span>Σ</span> Greeks
+        <div class="mode-toggle">
+            <button id="viewNoneBtn" onclick="setExtraView('none')">空白</button>
+            <button id="viewGreeksBtn" class="active" onclick="setExtraView('greeks')">Greeks</button>
+            <button id="viewOIBtn" onclick="setExtraView('oi')">未平倉</button>
         </div>
         <button id="loadBtn" class="load-btn" onclick="loadChain()">載入</button>
     </div>
@@ -446,7 +448,23 @@
     let symbolMap = {};
     let renderTimer = null;
     let wsRetryCount = 0;
-    let showGreeks = true;
+    let extraView = 'greeks'; // 'none', 'greeks', 'oi'
+    let oiDataMap = {};
+    let maxOi = 1;
+    
+    async function loadOIData() {
+        try {
+            const res = await fetch('/api/options-oi');
+            const data = await res.json();
+            if(!data.error) {
+                data.strikes.forEach((strike, i) => {
+                    oiDataMap[strike] = { call: data.call_oi[i], put: data.put_oi[i] };
+                    maxOi = Math.max(maxOi, data.call_oi[i], data.put_oi[i]);
+                });
+            }
+        } catch(e) {}
+    }
+    loadOIData();
     const WS_MAX_RETRIES = 8;
     const WS_BASE_DELAY = 5000;
     const WS_MAX_DELAY = 60000;
@@ -615,9 +633,11 @@
         }
     }
 
-    function toggleGreeks() {
-        showGreeks = !showGreeks;
-        document.getElementById('greeksToggle').classList.toggle('active', showGreeks);
+    function setExtraView(view) {
+        extraView = view;
+        document.getElementById('viewNoneBtn').classList.toggle('active', view === 'none');
+        document.getElementById('viewGreeksBtn').classList.toggle('active', view === 'greeks');
+        document.getElementById('viewOIBtn').classList.toggle('active', view === 'oi');
         if (optionsData) {
             renderChain(optionsData, true);
         }
@@ -927,12 +947,14 @@
         let html = refreshHtml + `<table class="chain-table"><thead><tr>`;
 
         // CALL Greek headers (right-to-left: ρ Θ V Γ Δ)
-        if (showGreeks) {
+        if (extraView === 'greeks') {
             html += `<th class="call-greek-header">ρ</th>`;
             html += `<th class="call-greek-header">Θ</th>`;
             html += `<th class="call-greek-header">V</th>`;
             html += `<th class="call-greek-header">Γ</th>`;
             html += `<th class="call-greek-header">Δ</th>`;
+        } else if (extraView === 'oi') {
+            html += `<th class="call-greek-header" style="min-width:120px; text-align:right; padding-right:15px;">Call 未平倉</th>`;
         }
         // CALL main headers
         html += `<th class="call-header">IV(%)</th>`;
@@ -953,12 +975,14 @@
         html += `<th class="put-header">成交量</th>`;
         html += `<th class="put-header">IV(%)</th>`;
         // PUT Greek headers (left-to-right: Δ Γ V Θ ρ)
-        if (showGreeks) {
+        if (extraView === 'greeks') {
             html += `<th class="put-greek-header">Δ</th>`;
             html += `<th class="put-greek-header">Γ</th>`;
             html += `<th class="put-greek-header">V</th>`;
             html += `<th class="put-greek-header">Θ</th>`;
             html += `<th class="put-greek-header">ρ</th>`;
+        } else if (extraView === 'oi') {
+            html += `<th class="put-greek-header" style="min-width:120px; text-align:left; padding-left:15px;">Put 未平倉</th>`;
         }
 
         html += `</tr></thead><tbody>`;
@@ -1000,12 +1024,19 @@
             html += `<tr class="${rowClass}">`;
 
             // --- CALL Greeks (ρ Θ V Γ Δ) ---
-            if (showGreeks) {
+            if (extraView === 'greeks') {
                 html += greekTd(callGreeks.rho, 'g-rho', callCellClass);
                 html += greekTd(callGreeks.theta, 'g-theta', callCellClass);
                 html += greekTd(callGreeks.vega, 'g-vega', callCellClass);
                 html += greekTd(callGreeks.gamma, 'g-gamma', callCellClass);
                 html += greekTd(callGreeks.delta, 'g-delta', callCellClass, true); // border-right
+            } else if (extraView === 'oi') {
+                const callOi = (oiDataMap[strike] || {}).call || 0;
+                const barWidth = maxOi > 1 ? Math.max(0, Math.min(100, (callOi / maxOi) * 100)) : 0;
+                html += `<td class="${callCellClass}" style="text-align:right; position:relative; border-right: 1px solid rgba(255,255,255,0.1); vertical-align:middle; padding-right:15px;">
+                            <div style="position:absolute; right:0; top:2px; bottom:2px; width:${barWidth}%; background:rgba(239,68,68,0.3); border-radius:3px 0 0 3px; z-index:0;"></div>
+                            <span style="position:relative; z-index:1; color:#fca5a5; font-weight:600; text-shadow:1px 1px 2px rgba(0,0,0,0.8);">${callOi > 0 ? callOi.toLocaleString() : ''}</span>
+                         </td>`;
             }
 
             // --- CALL main cells ---
@@ -1018,12 +1049,19 @@
             html += renderPutCells(put, putCellClass, putIV);
 
             // --- PUT Greeks (Δ Γ V Θ ρ) ---
-            if (showGreeks) {
+            if (extraView === 'greeks') {
                 html += greekTd(putGreeks.delta, 'g-delta', putCellClass, false, true); // border-left
                 html += greekTd(putGreeks.gamma, 'g-gamma', putCellClass);
                 html += greekTd(putGreeks.vega, 'g-vega', putCellClass);
                 html += greekTd(putGreeks.theta, 'g-theta', putCellClass);
                 html += greekTd(putGreeks.rho, 'g-rho', putCellClass);
+            } else if (extraView === 'oi') {
+                const putOi = (oiDataMap[strike] || {}).put || 0;
+                const barWidth = maxOi > 1 ? Math.max(0, Math.min(100, (putOi / maxOi) * 100)) : 0;
+                html += `<td class="${putCellClass}" style="text-align:left; position:relative; border-left: 1px solid rgba(255,255,255,0.1); vertical-align:middle; padding-left:15px;">
+                            <div style="position:absolute; left:0; top:2px; bottom:2px; width:${barWidth}%; background:rgba(16,185,129,0.3); border-radius:0 3px 3px 0; z-index:0;"></div>
+                            <span style="position:relative; z-index:1; color:#6ee7b7; font-weight:600; text-shadow:1px 1px 2px rgba(0,0,0,0.8);">${putOi > 0 ? putOi.toLocaleString() : ''}</span>
+                         </td>`;
             }
 
             html += `</tr>`;
