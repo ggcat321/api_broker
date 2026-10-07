@@ -986,6 +986,67 @@ async def api_volatility_data(window: int = 20, period: str = "1y"):
 @app.get("/")
 @app.get("/options")
 @app.get("/volatility")
+
+@app.get("/api/options-oi")
+async def api_options_oi():
+    def fetch_oi():
+        try:
+            import requests
+            import pandas as pd
+            from io import StringIO
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            from datetime import datetime
+            
+            url = "https://www.taifex.com.tw/cht/3/optDataDown"
+            # Get latest available date (if today's is not out yet, Taifex defaults to the latest available day if you leave date empty, or we can just omit dates to get the latest 30 days and take the last date)
+            # Actually, omitting dates in Taifex form returns the most recent trading day!
+            payload = {
+                "down_type": 1,
+                "commodity_id": "TXO"
+            }
+            session = requests.Session()
+            session.verify = False
+            res = session.post(url, data=payload)
+            if res.status_code != 200:
+                return {"error": f"Failed to fetch Taifex (Status: {res.status_code})"}
+                
+            df = pd.read_csv(StringIO(res.text))
+            df = df[df['交易時段'] == '一般']
+            
+            # Group by Strike Price and Call/Put
+            # We want current near month. The '到期月份(週別)' has multiple. We take the one with the highest volume to be safe, or just the first near month.
+            near_month = df['到期月份(週別)'].value_counts().index[0]
+            df = df[df['到期月份(週別)'] == near_month]
+            
+            # Make sure '未沖銷契約數' is numeric
+            df['未沖銷契約數'] = pd.to_numeric(df['未沖銷契約數'], errors='coerce').fillna(0)
+            df['履約價'] = pd.to_numeric(df['履約價'], errors='coerce').fillna(0)
+            
+            calls = df[df['買賣權'] == '買權'][['履約價', '未沖銷契約數']].sort_values('履約價')
+            puts = df[df['買賣權'] == '賣權'][['履約價', '未沖銷契約數']].sort_values('履約價')
+            
+            # Get common strikes
+            strikes = sorted(list(set(calls['履約價']).union(set(puts['履約價']))))
+            
+            call_oi = [int(calls[calls['履約價'] == s]['未沖銷契約數'].sum()) for s in strikes]
+            put_oi = [int(puts[puts['履約價'] == s]['未沖銷契約數'].sum()) for s in strikes]
+            
+            # Find current underlying price (approximation: max pain or max OI crossover, but we don't have spot. We can just send strikes)
+            return {
+                "date": str(df['交易日期'].iloc[0]) if len(df) > 0 else datetime.now().strftime("%Y/%m/%d"),
+                "month": str(near_month),
+                "strikes": strikes,
+                "call_oi": call_oi,
+                "put_oi": put_oi
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    ev_loop = asyncio.get_running_loop()
+    return await ev_loop.run_in_executor(None, fetch_oi)
+
+@app.get("/options_oi")
 @app.get("/etf0050")
 @app.get("/disposal")
 @app.get("/queue")
@@ -998,7 +1059,7 @@ async def get_app_wrapper():
 
 @app.get("/_content/{page}")
 async def get_content(page: str):
-    valid = {"index", "options", "etf0050", "disposal", "queue", "sector_heatmap", "active_etf", "volatility"}
+    valid = {"index", "options", "etf0050", "disposal", "queue", "sector_heatmap", "active_etf", "volatility", "options_oi"}
     if page not in valid: 
         return HTMLResponse("Not Found", status_code=404)
     with open(os.path.join(BASE_DIR, "static", f"{page}.html"), "r", encoding="utf-8") as f:

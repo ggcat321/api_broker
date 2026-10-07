@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>選擇權未平倉分析</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f111a;
+            --panel-bg: #1e2130;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --call-color: #ef4444; /* Red for Call (Taiwan style: Up) */
+            --put-color: #10b981;  /* Green for Put */
+        }
+        body { margin: 0; padding: 20px; background-color: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; }
+        .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+        .nav-links a { color: var(--text-muted); text-decoration: none; margin-left: 15px; font-weight: 500; padding: 6px 12px; border: 1px solid transparent; border-radius: 6px; }
+        .nav-links a:hover { color: #818cf8; background: rgba(129,140,248,0.1); }
+        .nav-links a.active { color: #f59e0b; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.1); }
+        
+        .info-panel { background: var(--panel-bg); padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .info-text { font-size: 0.95rem; color: #cbd5e1; }
+        .highlight { color: #facc15; font-weight: bold; }
+        
+        .chart-container { background: var(--panel-bg); padding: 20px; border-radius: 12px; height: 600px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        #loading { text-align: center; color: var(--text-muted); margin-top: 100px; font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+    <div class="header-bar">
+        <h1>📊 選擇權盤後未平倉分析 (OI Max Pain)</h1>
+        <div class="nav-links">
+            <a href="/">📊 首頁</a>
+            <a href="/options">📈 選擇權看板</a>
+            <a href="/options_oi" class="active">🛡️ 未平倉支撐壓力</a>
+        </div>
+    </div>
+    
+    <div class="info-panel">
+        <div class="info-text" id="oi-info">載入中...</div>
+    </div>
+
+    <div class="chart-container" id="main-chart" style="display: none;"></div>
+    <div id="loading">📡 向期交所索取最新未平倉資料中...</div>
+
+    <script>
+        // SPA navigation override
+        document.querySelectorAll('.nav-links a').forEach(a => {
+            a.addEventListener('click', e => {
+                e.preventDefault();
+                if (window.parent !== window) {
+                    window.parent.postMessage({ type: 'NAVIGATE', path: a.getAttribute('href') }, '*');
+                } else {
+                    window.location.href = a.getAttribute('href');
+                }
+            });
+        });
+
+        async function loadData() {
+            try {
+                const res = await fetch('/api/options-oi');
+                const data = await res.json();
+                
+                if(data.error) {
+                    document.getElementById('loading').innerText = "錯誤: " + data.error;
+                    return;
+                }
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('main-chart').style.display = 'block';
+                
+                document.getElementById('oi-info').innerHTML = 
+                    `資料日期: <span class="highlight">${data.date}</span> | 
+                     近期合約: <span class="highlight">${data.month}</span> | 
+                     <span style="color:var(--call-color); font-weight:bold;">紅柱(Call OI)為上檔壓力</span> | 
+                     <span style="color:var(--put-color); font-weight:bold;">綠柱(Put OI)為下檔支撐</span>`;
+                
+                renderChart(data);
+            } catch (err) {
+                document.getElementById('loading').innerText = "連線失敗";
+            }
+        }
+        
+        function renderChart(data) {
+            const chart = echarts.init(document.getElementById('main-chart'), 'dark', { backgroundColor: 'transparent' });
+            
+            // To make it horizontal bar chart (like typical OI charts), yAxis is strikes, xAxis is OI
+            // Make Call negative so it goes left, Put positive so it goes right
+            const callData = data.call_oi.map(v => -v);
+            const putData = data.put_oi;
+            
+            const option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    formatter: function (params) {
+                        let html = `履約價: ${params[0].name}<br/>`;
+                        params.forEach(p => {
+                            const val = Math.abs(p.value).toLocaleString();
+                            html += `${p.marker} ${p.seriesName}: ${val} 口<br/>`;
+                        });
+                        return html;
+                    }
+                },
+                legend: { data: ['Call 未平倉 (上檔壓力)', 'Put 未平倉 (下檔支撐)'], textStyle: { color: '#e2e8f0' } },
+                grid: { left: '10%', right: '10%', bottom: '5%', containLabel: true },
+                xAxis: {
+                    type: 'value',
+                    axisLabel: { formatter: (val) => Math.abs(val) },
+                    splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
+                },
+                yAxis: {
+                    type: 'category',
+                    data: data.strikes,
+                    axisTick: { show: false },
+                    axisLabel: { fontWeight: 'bold', color: '#f8fafc' }
+                },
+                series: [
+                    {
+                        name: 'Call 未平倉 (上檔壓力)',
+                        type: 'bar',
+                        stack: 'Total',
+                        itemStyle: { color: '#ef4444' }, // Red
+                        data: callData
+                    },
+                    {
+                        name: 'Put 未平倉 (下檔支撐)',
+                        type: 'bar',
+                        stack: 'Total',
+                        itemStyle: { color: '#10b981' }, // Green
+                        data: putData
+                    }
+                ]
+            };
+            chart.setOption(option);
+            window.addEventListener('resize', () => chart.resize());
+        }
+        
+        loadData();
+    </script>
+</body>
+</html>
