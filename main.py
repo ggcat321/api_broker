@@ -1017,11 +1017,12 @@ async def api_options_oi():
             # low_memory=False to avoid DtypeWarning
             df = pd.read_csv(StringIO(res.text), low_memory=False)
             
-            # Filter to the latest date available in the downloaded data
+            # Filter ONLY General Session (一般) first, because After-Hours (盤後) might be the only data for today morning!
+            df = df[df['交易時段'] == '一般']
+            
+            # Now find the latest date available in the General Session data
             latest_date = df['交易日期'].max()
             df = df[df['交易日期'] == latest_date]
-            
-            df = df[df['交易時段'] == '一般']
             
             # Group by Strike Price and Call/Put
             # We want current near month. The '到期月份(週別)' has multiple. We take the one with the highest volume to be safe, or just the first near month.
