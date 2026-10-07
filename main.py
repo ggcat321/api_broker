@@ -999,11 +999,14 @@ async def api_options_oi():
             from datetime import datetime
             
             url = "https://www.taifex.com.tw/cht/3/optDataDown"
-            # Get latest available date (if today's is not out yet, Taifex defaults to the latest available day if you leave date empty, or we can just omit dates to get the latest 30 days and take the last date)
-            # Actually, omitting dates in Taifex form returns the most recent trading day!
+            from datetime import timedelta
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=7)
             payload = {
                 "down_type": 1,
-                "commodity_id": "TXO"
+                "commodity_id": "TXO",
+                "queryStartDate": start_date.strftime("%Y/%m/%d"),
+                "queryEndDate": end_date.strftime("%Y/%m/%d")
             }
             session = requests.Session()
             session.verify = False
@@ -1011,7 +1014,13 @@ async def api_options_oi():
             if res.status_code != 200:
                 return {"error": f"Failed to fetch Taifex (Status: {res.status_code})"}
                 
-            df = pd.read_csv(StringIO(res.text))
+            # low_memory=False to avoid DtypeWarning
+            df = pd.read_csv(StringIO(res.text), low_memory=False)
+            
+            # Filter to the latest date available in the downloaded data
+            latest_date = df['交易日期'].max()
+            df = df[df['交易日期'] == latest_date]
+            
             df = df[df['交易時段'] == '一般']
             
             # Group by Strike Price and Call/Put
