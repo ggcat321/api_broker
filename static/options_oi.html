@@ -43,7 +43,7 @@
         <div class="info-text" id="oi-info">載入中...</div>
     </div>
 
-    <div class="chart-container" id="main-chart" style="display: none;"></div>
+    <div class="chart-container" id="main-chart" style="display: none; height: 800px;"></div>
     <div id="loading">📡 向期交所索取最新未平倉資料中...</div>
 
     <script>
@@ -85,6 +85,10 @@
         }
         
         function renderChart(data) {
+            // Dynamic height based on number of strikes
+            const height = Math.max(600, data.strikes.length * 25);
+            document.getElementById('main-chart').style.height = height + 'px';
+
             const chart = echarts.init(document.getElementById('main-chart'), 'dark', { backgroundColor: 'transparent' });
             
             // To make it horizontal bar chart (like typical OI charts), yAxis is strikes, xAxis is OI
@@ -112,18 +116,35 @@
                     axisLabel: { formatter: (val) => Math.abs(val) },
                     splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
                 },
-                yAxis: {
-                    type: 'category',
-                    data: data.strikes,
-                    axisTick: { show: false },
-                    axisLabel: { fontWeight: 'bold', color: '#f8fafc' }
-                },
+                yAxis: [
+                    {
+                        type: 'category',
+                        data: data.strikes,
+                        axisTick: { show: false },
+                        axisLabel: { fontWeight: 'bold', color: '#f8fafc' },
+                        splitLine: { show: true, lineStyle: { color: 'rgba(255,255,255,0.08)', type: 'dashed' } }
+                    },
+                    {
+                        type: 'category',
+                        data: data.strikes,
+                        axisTick: { show: false },
+                        axisLabel: { fontWeight: 'bold', color: '#f8fafc' },
+                        position: 'right'
+                    }
+                ],
                 series: [
                     {
                         name: 'Call 未平倉 (上檔壓力)',
                         type: 'bar',
                         stack: 'Total',
                         itemStyle: { color: '#ef4444' }, // Red
+                        label: {
+                            show: true,
+                            position: 'left',
+                            formatter: (p) => p.value < 0 ? Math.abs(p.value).toLocaleString() : '',
+                            color: '#fca5a5',
+                            fontSize: 11
+                        },
                         data: callData
                     },
                     {
@@ -131,6 +152,13 @@
                         type: 'bar',
                         stack: 'Total',
                         itemStyle: { color: '#10b981' }, // Green
+                        label: {
+                            show: true,
+                            position: 'right',
+                            formatter: (p) => p.value > 0 ? p.value.toLocaleString() : '',
+                            color: '#6ee7b7',
+                            fontSize: 11
+                        },
                         data: putData
                     }
                 ]

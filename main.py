@@ -1025,8 +1025,10 @@ async def api_options_oi():
             df = df[df['交易日期'] == latest_date]
             
             # Group by Strike Price and Call/Put
-            # We want current near month. The '到期月份(週別)' has multiple. We take the one with the highest volume to be safe, or just the first near month.
-            near_month = df['到期月份(週別)'].value_counts().index[0]
+            # Clean up month strings
+            df['到期月份(週別)'] = df['到期月份(週別)'].astype(str).str.strip()
+            months = sorted([m for m in df['到期月份(週別)'].unique() if m.startswith('20')])
+            near_month = months[0] if months else df['到期月份(週別)'].iloc[0]
             df = df[df['到期月份(週別)'] == near_month]
             
             # Make sure '未沖銷契約數' is numeric
